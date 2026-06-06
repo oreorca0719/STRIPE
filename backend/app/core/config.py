@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     # External APIs
     ANTHROPIC_API_KEY: str = ""
+    # 리포트 다듬기(AI-07) 모델. 키 없으면 LLM 미사용(템플릿 조립만).
+    # [RIS-13] SDK 버전(anthropic==0.18.1)·모델 접근 권한 확정 필요.
+    ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
     CLOVA_API_KEY: str = ""
 
     class Config:

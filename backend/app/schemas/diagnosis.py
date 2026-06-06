@@ -1,18 +1,29 @@
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel
-from app.models.core import FluencyType, QuestionType, SessionStatus
+from app.models.core import (
+    FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
+    ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
+    PrescriptionGroup, PrescriptionType, ToneCode, Metacognition,
+)
 
 
+# ---- 세션 ----------------------------------------------------------------
 class SessionCreate(BaseModel):
-    text_id: Optional[int] = None
+    profile_id: Optional[int] = None
+    silent_mode: bool = True
+    text_id: Optional[int] = None          # 전환기 호환(1회차 텍스트 단축)
 
 
 class SessionResponse(BaseModel):
     id: int
+    session_uuid: Optional[str]
     student_id: int
+    profile_id: Optional[int]
     text_id: Optional[int]
-    status: SessionStatus
+    silent_mode: bool
+    total_rounds: int
+    status: DiagSessionStatus
     started_at: datetime
     completed_at: Optional[datetime]
 
@@ -20,6 +31,30 @@ class SessionResponse(BaseModel):
         from_attributes = True
 
 
+# ---- 회차 (적응형 단위) ---------------------------------------------------
+class RoundCreate(BaseModel):
+    diagnosis_session_id: int
+    round_number: int
+    text_id: Optional[int] = None
+    difficulty_level: Difficulty
+    genre: TextGenre
+
+
+class RoundResponse(BaseModel):
+    id: int
+    diagnosis_session_id: int
+    round_number: int
+    text_id: Optional[int]
+    difficulty_level: Difficulty
+    genre: TextGenre
+    started_at: datetime
+    completed_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ---- 유창성 (기존 유지) ---------------------------------------------------
 class OralFluencySubmit(BaseModel):
     session_id: int
     reading_time_seconds: float
@@ -31,6 +66,7 @@ class OralFluencySubmit(BaseModel):
 class SilentFluencySubmit(BaseModel):
     session_id: int
     silent_reading_time: float
+    round_id: Optional[int] = None              # 주어지면 A4(음절/초) 산출
     comprehension_check_score: Optional[float] = None
 
 
@@ -47,30 +83,118 @@ class FluencyResultResponse(BaseModel):
         from_attributes = True
 
 
-class ComprehensionSubmit(BaseModel):
-    session_id: int
-    question_type: QuestionType
-    question_index: int
-    answer: str
+# ---- 독해 문항 응답 (규칙 채점, AI-05) ------------------------------------
+class QuestionResponseSubmit(BaseModel):
+    round_id: int
+    question_id: int
+    student_answer: int                    # 1-based
+    response_time_ms: Optional[int] = None
 
 
-class ComprehensionResultResponse(BaseModel):
+class QuestionResponseResult(BaseModel):
     id: int
-    session_id: int
-    question_type: QuestionType
-    question_index: int
-    is_correct: Optional[bool]
-    score: Optional[float]
-    ai_feedback: Optional[str]
+    round_id: int
+    question_id: Optional[int]
+    student_answer: int
+    is_correct: bool
+    target_area: TargetArea
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
+# ---- 회차 집계 + 적응형 판단 (Phase B 엔진) -------------------------------
+class RoundAggregateOut(BaseModel):
+    total_questions: int
+    correct_count: int
+    round_accuracy: Optional[float]
+    betts_level: Optional[BettsLevel]
+    a5_factual_accuracy: Optional[float]
+    a6_inferential_accuracy: Optional[float]
+    a7_critical_accuracy: Optional[float]
+
+
+class AdaptiveDecisionOut(BaseModel):
+    action: str                                   # 'continue' | 'stop'
+    status: DiagSessionStatus
+    anchor_difficulty: Optional[Difficulty] = None
+    reliability_flag: Optional[ReliabilityFlag] = None
+    next_difficulty: Optional[Difficulty] = None
+    next_genre: Optional[TextGenre] = None
+
+
+class RoundCompleteResponse(BaseModel):
+    comprehension: RoundAggregateOut
+    decision: AdaptiveDecisionOut
+    next_round: Optional[RoundResponse] = None
+    text_shortage: bool = False
+    session: SessionResponse
+
+
+# ---- SYS-01 판정+처방 (Phase C) ------------------------------------------
+class JudgmentResultResponse(BaseModel):
+    id: int
+    diagnosis_session_id: int
+    fluency_level: Level3
+    fluency_source: FluencySource
+    fluency_valid: bool
+    fluency_value: Optional[float]
+    fluency_value_unit: FluencyUnit
+    comprehension_level: Level3
+    overall_accuracy: Optional[float]
+    total_correct: int
+    total_questions: int
+    weakness_profile_12: dict
+    matrix_position: str
+    label_5: Label5
+    prescription_group: PrescriptionGroup
+    anchor_difficulty: Optional[Difficulty]
+    metacognition: Optional[Metacognition]
+    d2_gap: Optional[int]
+    actual_10: Optional[int]
+    reliability_flag: ReliabilityFlag
+    disclaimer_flags: Optional[list]
+
+    class Config:
+        from_attributes = True
+
+
+class PrescriptionResultResponse(BaseModel):
+    id: int
+    judgment_id: int
+    prescription_type: PrescriptionType
+    recommended_texts: list
+    weakness_training_plan: Optional[dict]
+    type_tone: ToneCode
+    next_session_difficulty: Optional[Difficulty]
+
+    class Config:
+        from_attributes = True
+
+
+class FinalizeResponse(BaseModel):
+    judgment: JudgmentResultResponse
+    prescription: PrescriptionResultResponse
+
+
+class ReportResponse(BaseModel):
+    id: int
+    judgment_id: int
+    report_type: str
+    report_content: dict
+    disclaimer_flags: Optional[list]
+    llm_polished: bool
+    review_status: str
+
+    class Config:
+        from_attributes = True
+
+
+# ---- 결과 조회 -----------------------------------------------------------
 class DiagnosisResultResponse(BaseModel):
     session: SessionResponse
+    rounds: List[RoundResponse]
     fluency_results: List[FluencyResultResponse]
-    comprehension_results: List[ComprehensionResultResponse]
+    question_responses: List[QuestionResponseResult]
     total_fluency_score: Optional[float]
-    total_comprehension_score: Optional[float]
