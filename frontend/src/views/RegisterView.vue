@@ -2,9 +2,9 @@
   <div class="register-page">
     <div class="register-card">
       <div class="card-header">
-        <div class="logo">📚 RISA</div>
+        <div class="logo">📚 STRIPE</div>
         <h1>함께 시작해요!</h1>
-        <p>RISA와 함께 독서 능력을 키워봐요 🌱</p>
+        <p>STRIPE와 함께 독서 능력을 키워봐요 🌱</p>
       </div>
 
       <form @submit.prevent="handleRegister" class="form">

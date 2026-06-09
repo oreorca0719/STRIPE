@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <div class="card-header">
-        <div class="logo">📚 RISA</div>
+        <div class="logo">📚 STRIPE</div>
         <h1>다시 만나서 반가워요!</h1>
         <p>로그인하고 오늘의 독서 여정을 시작해봐요 🌟</p>
       </div>

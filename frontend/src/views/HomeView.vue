@@ -1,7 +1,7 @@
 <template>
   <main class="home">
     <div class="hero">
-      <h1 class="title">RISA</h1>
+      <h1 class="title">STRIPE</h1>
       <p class="subtitle">읽기 능력 진단 · 처방 AI 서비스</p>
       <p class="status">🚧 서비스 준비 중입니다</p>
       <div class="api-status">
