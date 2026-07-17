@@ -5,7 +5,7 @@
       <div class="sidebar-logo">
         <span class="logo-icon">📚</span>
         <div>
-          <div class="logo-title">RISA</div>
+          <div class="logo-title">STRIPE</div>
           <div class="logo-sub">관리자</div>
         </div>
       </div>

@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.api.router import api_router
 
 app = FastAPI(
-    title="RISA API",
+    title="STRIPE API",
     description="읽기 능력 진단·처방 AI 서비스",
     version="0.1.0",
     docs_url="/api/docs" if settings.ENV == "dev" else None,

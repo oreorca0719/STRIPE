@@ -12,7 +12,7 @@ services:
       - "8000:8000"
     environment:
       - ENV=dev
-      - DATABASE_URL=postgresql+asyncpg://risa:risa@postgres:5432/risa
+      - DATABASE_URL=postgresql+asyncpg://stripe:stripe@postgres:5432/stripe
       - SECRET_KEY=local-dev-secret-key
       - ALLOWED_ORIGINS=http://localhost:5173
     depends_on:
@@ -27,15 +27,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: risa
-      POSTGRES_PASSWORD: risa
-      POSTGRES_DB: risa
+      POSTGRES_USER: stripe
+      POSTGRES_PASSWORD: stripe
+      POSTGRES_DB: stripe
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U risa"]
+      test: ["CMD-SHELL", "pg_isready -U stripe"]
       interval: 5s
       timeout: 5s
       retries: 5

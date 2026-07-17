@@ -4,10 +4,10 @@ from typing import List
 
 class Settings(BaseSettings):
     ENV: str = "dev"
-    APP_NAME: str = "RISA"
+    APP_NAME: str = "STRIPE"
 
     # DB
-    DATABASE_URL: str = "postgresql+asyncpg://risaadmin:risa2026!Dev@localhost:5432/risadb"
+    DATABASE_URL: str = "postgresql+asyncpg://stripeadmin:stripe2026!Dev@localhost:5432/stripedb"
 
     # Auth
     SECRET_KEY: str = "change-me-in-production"

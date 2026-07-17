@@ -1,7 +1,7 @@
 """MVP1 진단 1사이클 통합 테스트 (실 Postgres 필요).
 
 기본 `pytest tests/`에서는 SKIP. 실행:
-    RISA_IT=1 DATABASE_URL=postgresql+asyncpg://risa:risa@localhost:5432/risa \
+    STRIPE_IT=1 DATABASE_URL=postgresql+asyncpg://stripe:stripe@localhost:5432/stripe \
         pytest tests/test_integration_flow.py -s
 (사전: alembic upgrade head 로 스키마 적용)
 
@@ -13,8 +13,8 @@ import os
 import asyncio
 import pytest
 
-if not os.getenv("RISA_IT"):
-    pytest.skip("통합 테스트 — RISA_IT=1 + Postgres 필요", allow_module_level=True)
+if not os.getenv("STRIPE_IT"):
+    pytest.skip("통합 테스트 — STRIPE_IT=1 + Postgres 필요", allow_module_level=True)
 
 from httpx import AsyncClient, ASGITransport
 from fastapi import FastAPI
