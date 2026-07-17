@@ -1,7 +1,7 @@
 <div align="center">
 
 # 📚 STRIPE
-### AI Reading Diagnosis & Prescription Platform
+### Structured Tracking of Reading, Interpretation, Profile, and Evaluation
 **초등~중학교 학습자를 위한 AI 기반 읽기 능력 진단·처방 플랫폼**
 
 [![Frontend](https://img.shields.io/badge/Frontend-Vue.js%203-4FC08D?style=flat-square&logo=vue.js)](https://vuejs.org/)
