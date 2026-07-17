@@ -38,11 +38,12 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 |---|---|
 | **Frontend** | Vue.js 3 · TypeScript · Vite · Pinia · Vue Router |
 | **Backend** | FastAPI (Python 3.12) · SQLAlchemy · Alembic · bcrypt · JWT |
-| **Database** | PostgreSQL 16 (AWS RDS db.t3.micro) |
-| **Infrastructure** | AWS S3 · ECS Fargate · ECR · ALB · RDS · CloudWatch |
+| **Database** | PostgreSQL 16 (로컬 개발: 무설치 바이너리 / 배포: AWS RDS 재구축 예정) |
+| **Infrastructure** | AWS S3 · ECS Fargate · ECR · ALB · RDS · CloudWatch (재구축 예정) |
 | **CI/CD** | GitHub Actions (ECR push → Task Definition 자동 갱신 → ECS 배포) |
-| **AI** | Anthropic Claude API (리포트 표현 다듬기 — 선택적 연결 구현 / 텍스트·문항 생성 예정) · Clova Speech STT (어댑터 구현, MVP1 비활성) |
+| **AI** | Anthropic Claude API (`anthropic` 0.117): 진단 콘텐츠 생성(sonnet-5, 오프라인 시드) + 리포트 표현 다듬기(선택적) · Clova Speech STT (어댑터 구현, MVP1 비활성) |
 | **진단 엔진** | 규칙 기반(LLM 미사용): 채점·Betts·적응형(max_rounds=2)·매트릭스 판정·처방 |
+| **로컬 개발** | Docker 대신 로컬 Python venv + 무설치 PostgreSQL (Win11 Home·WSL2 제약 회피, Docker/WSL은 배포 페이즈로 이연) |
 
 ---
 
@@ -81,20 +82,23 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 
 ---
 
-## 🚀 MVP1 묵독 진단 1사이클 (v1.2 기획상세명세 기반)
+## 🚀 MVP1 묵독 수직 슬라이스 — **브라우저 완주 검증 완료** ✅
 
-기획상세명세 v1.2 기준 **묵독전용 진단 1사이클**을 백엔드에 구현. 채점·판정·처방은
-전부 **규칙 기반(LLM 미사용)**, 리포트에서만 선택적 Claude 다듬기.
+도메인 지식 기반 **묵독전용 진단 1사이클**을 엔진부터 UI까지 **end-to-end로 완성**. 실제 학생이
+브라우저에서 로그인→진단→리포트까지 처음부터 끝까지 완주하는 것을 검증했다. 채점·판정·처방은
+전부 **규칙 기반(LLM 미사용)**, 리포트 표현만 선택적 Claude 다듬기.
 
 ```
-설문(독자유형 판별) → 묵독 자동성(A4) + 4지선다 독해(Betts)
-  → 적응형 반복(max_rounds=2) → 매트릭스 판정(유창성×독해 9칸 → label_5 + 처방군 G1~G6)
-  → 처방(추천 텍스트 + 약점 훈련) → 학생 리포트(3층)
+로그인 → 설문(독자유형 type_1 분류) → 묵독 자동성(A4) + 4지선다 독해(Betts)
+  → 적응형 반복(max_rounds=2, 장르 교대) → 매트릭스 판정(유창성×독해 9칸 → label_5 + 처방군 G1~G6)
+  → 처방(추천 텍스트 + 약점 훈련) → 학생 리포트(3층, 선택적 LLM 다듬기) → 결과 화면
 ```
 
 - **진단 엔진** (`backend/app/services/diagnosis/`): scoring(Betts) · adaptive · text_selection(approved 3단 + 관심주제) · judgment(매트릭스·메타인지) · prescription · pipeline(SYS-01) · report
-- **테스트**: 단위 64 + 실 Postgres 통합 1(진단 풀사이클) = **65 passed**, 마이그레이션 가역성 검증(up/down)
-- ⚠️ 잠정값(P33/P67·Betts 경계·메타인지 임계)·추천 비율배분·DB 템플릿 구동은 후속 정교화 대상
+- **콘텐츠 풀**: Claude(sonnet-5)로 7원칙 기반 지문 12편 + 4지선다 문항 72개 생성·승인 적재 (`backend/scripts/`). 학생은 승인된 풀만 소비 (생성은 오프라인 저작 — 사용자 기능 아님)
+- **프론트 연동**: `DiagnosisView`(설문·묵독타이머·문항·적응형 회차) / `ResultView`(판정·처방·리포트) 실제 API 연결
+- **테스트**: 단위 64 + 실 Postgres 통합 1 = **65 passed** + 풀사이클 API 스모크 + 브라우저 E2E 완주
+- ⚠️ **판정 경계값(P33/P67·Betts·메타인지 임계)은 파일럿 전 잠정값** — 결과에 "잠정 기준" 배지 표기. 기획자 결정/파일럿으로 확정 예정. 음독(STT)·부모/교사 리포트는 범위 밖(후속)
 
 ---
 
@@ -137,8 +141,10 @@ users ─┬─ user_relations       (부모-학생 연동)
 ### 진단
 | Method | Endpoint | 설명 |
 |---|---|---|
+| POST | `/api/diagnosis/profile` | 설문 → 학생 프로필 생성 + 독자유형(type_1) 분류 |
 | POST | `/api/diagnosis/session` | 진단 세션 생성 |
 | POST | `/api/diagnosis/session/{id}/start` | 1회차 시작 (텍스트 선택 §7) |
+| GET | `/api/diagnosis/round/{id}/content` | 회차 지문 본문 + 문항(선지) 조회 (**정답 제외** — 부정 방지) |
 | POST | `/api/diagnosis/round` | 진단 회차 생성 (수동) |
 | POST | `/api/diagnosis/fluency/silent` | 묵독 유창성 저장 (round 지정 시 A4 산출) |
 | POST | `/api/diagnosis/fluency/oral` | 음독 유창성 저장 (MVP1 비활성) |
@@ -146,6 +152,8 @@ users ─┬─ user_relations       (부모-학생 연동)
 | POST | `/api/diagnosis/round/{id}/complete` | 회차 집계+Betts → 적응형 판단 → 다음 회차/종료 |
 | POST | `/api/diagnosis/session/{id}/finalize` | **SYS-01**: 판정+처방 산출·저장 (§3+§5) |
 | POST | `/api/diagnosis/session/{id}/report` | 학생 리포트 생성 (AI-07, 선택적 LLM) |
+| GET | `/api/diagnosis/session/{id}/judgment` | 판정+처방 조회 (결과 화면용) |
+| GET | `/api/diagnosis/session/{id}/report` | 학생 리포트 조회 (결과 화면용) |
 | PATCH | `/api/diagnosis/session/{id}/complete` | 세션 완료 처리 |
 | GET | `/api/diagnosis/result/{session_id}` | 진단 결과 조회 (회차 기반) |
 
@@ -161,13 +169,14 @@ STRIPE/
 │   │   │   ├── LoginView.vue        # 로그인 (실제 API 연동)
 │   │   │   ├── RegisterView.vue     # 회원가입 (실제 API 연동)
 │   │   │   ├── StudentHomeView.vue  # 학생 홈 대시보드
-│   │   │   ├── DiagnosisView.vue    # 진단 수행 (UI 틀, API 연동 예정)
-│   │   │   ├── ResultView.vue       # 결과 열람 (UI 틀)
+│   │   │   ├── DiagnosisView.vue    # 진단 수행 (설문·묵독타이머·문항·적응형, 실제 API 연동)
+│   │   │   ├── ResultView.vue       # 결과 열람 (판정·처방·리포트, 실제 API 연동)
 │   │   │   └── admin/               # 관리자 포털 5개 페이지
 │   │   ├── components/
 │   │   │   ├── NavBar.vue           # 학생 네비게이션
 │   │   │   └── admin/AdminLayout.vue
 │   │   ├── stores/auth.ts           # Pinia 인증 스토어 (JWT)
+│   │   ├── api.ts                   # 공용 axios 인스턴스 (프록시/토큰)
 │   │   └── router/index.ts          # 라우트 가드 포함
 │   └── Dockerfile
 ├── backend/                     # FastAPI
@@ -197,6 +206,11 @@ STRIPE/
 │   │   ├── 003_mvp1_phase_a.py      # texts 재정의 + item_sets/questions/rounds 등
 │   │   ├── 004_mvp1_phase_c.py      # judgment_results/prescription_results
 │   │   └── 005_mvp1_reports.py      # reports 재정의 + report_templates
+│   ├── scripts/                     # 콘텐츠 저작·검증 도구 (오프라인)
+│   │   ├── generate_content.py      # Claude로 지문·문항 생성 (모델A 시드)
+│   │   ├── load_content.py          # 생성 콘텐츠 DB 승인 적재
+│   │   ├── smoke_flow.py            # 진단 풀사이클 API 스모크
+│   │   └── generated/seed_content.json
 │   ├── tests/                       # 진단 엔진 단위 + 통합 테스트 (65 passed)
 │   ├── main.py
 │   ├── start.sh                 # alembic upgrade head → uvicorn
@@ -206,6 +220,30 @@ STRIPE/
 │   └── backend.yml              # ECR push → TD 자동 갱신 → ECS 배포
 └── docker-compose.yml
 ```
+
+---
+
+## 💻 로컬 개발 실행
+
+> Docker 없이 로컬 Python + PostgreSQL로 구동 (Win11 Home·WSL2 제약 회피).
+
+```bash
+# 1) PostgreSQL (무설치 바이너리) 기동 후 DB 생성 — role/db: stripe/stripe
+# 2) 백엔드
+cd backend
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+# .env 에 DATABASE_URL, ANTHROPIC_API_KEY 설정 (.env 는 .gitignore)
+.venv/Scripts/python -m alembic upgrade head          # 스키마
+.venv/Scripts/python scripts/generate_content.py --per-combo 2   # 콘텐츠 생성(선택)
+.venv/Scripts/python scripts/load_content.py --reset             # 콘텐츠 승인 적재
+.venv/Scripts/python -m uvicorn main:app --reload --port 8000    # API
+
+# 3) 프론트 (Vite 프록시로 /api → :8000)
+cd frontend && npm install && npm run dev
+```
+
+- 테스트: `python -m pytest tests/` (단위) / `STRIPE_IT=1 DATABASE_URL=... pytest tests/test_integration_flow.py` (통합)
+- 진행 관리: IMPM(별도 PM 툴) STRIPE 보드에서 에픽·이슈로 트래킹
 
 ---
 
