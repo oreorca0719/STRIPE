@@ -4,8 +4,48 @@ from pydantic import BaseModel
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
-    PrescriptionGroup, PrescriptionType, ToneCode, Metacognition,
+    PrescriptionGroup, PrescriptionType, ToneCode, Metacognition, ReaderType1,
 )
+
+
+# ---- 학생 프로필 (설문 → 독자유형) ----------------------------------------
+class ProfileCreate(BaseModel):
+    grade: int                                   # 4~7 (7=중1)
+    reading_freq: Optional[int] = None           # A-2 독서빈도 (1~6)
+    reading_attitude: Optional[int] = None       # A-3 독서태도 (1~6)
+    interest_topics: Optional[List[str]] = None  # C-1 관심주제 태그 코드
+    predicted_correct: Optional[int] = None      # D-2 예상 정답 수 (0~10, 메타인지)
+
+
+class ProfileResponse(BaseModel):
+    id: int
+    user_id: int
+    grade: Optional[int]
+    type_1: Optional[ReaderType1]
+    interest_topics: Optional[list]
+
+    class Config:
+        from_attributes = True
+
+
+# ---- 회차 콘텐츠 (지문 + 문항, 정답 제외) ---------------------------------
+class QuestionPublic(BaseModel):
+    """학생에게 내려보내는 문항 (answer_index·evidence·explanation 제외)."""
+    id: int
+    target_area: TargetArea
+    question_text: str
+    choices: list
+
+
+class RoundContentResponse(BaseModel):
+    round_id: int
+    text_id: int
+    title: str
+    content: str
+    syllable_count: int
+    genre: TextGenre
+    difficulty_level: Difficulty
+    questions: List[QuestionPublic]
 
 
 # ---- 세션 ----------------------------------------------------------------

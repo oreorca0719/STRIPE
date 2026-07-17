@@ -5,7 +5,8 @@ from app.core.database import get_db
 from app.models.core import (
     DiagnosisSession, DiagnosisRound, FluencyResult, QuestionResponse, Question,
     ComprehensionResult, StudentProfile, TextContent,
-    DiagSessionStatus, FluencyType,
+    JudgmentResult, PrescriptionResult, Report,
+    DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus,
 )
 from app.schemas.diagnosis import (
     SessionCreate, SessionResponse,
@@ -15,6 +16,7 @@ from app.schemas.diagnosis import (
     RoundAggregateOut, AdaptiveDecisionOut, RoundCompleteResponse,
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
+    ProfileCreate, ProfileResponse, RoundContentResponse, QuestionPublic,
 )
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 
@@ -24,6 +26,83 @@ router = APIRouter()
 def _utcnow():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
+
+
+def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
+    """독자유형 1차 분류 (§4-1, §8-4). 독서빈도·태도(각 1~6) 기반 단순 규칙.
+
+    주: 잠정 규칙(경계값 잠정). 정교화·type_2(비독자 하위)는 후속(A-4 생애그래프 필요).
+    """
+    f = reading_freq or 0
+    a = reading_attitude or 0
+    if f >= 4 and a >= 4:
+        return ReaderType1.enthusiast
+    if f <= 2 and a <= 2:
+        return ReaderType1.non_reader
+    return ReaderType1.intermittent
+
+
+@router.post("/profile", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
+async def create_profile(data: ProfileCreate, student_id: int, db: AsyncSession = Depends(get_db)):
+    """설문 → 학생 프로필 생성 + 독자유형(type_1) 분류 (§1-3, §4).
+
+    MVP1 최소 설문: 학년·독서빈도·태도·관심주제·예상정답수(D-2 메타인지).
+    """
+    type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
+    profile = StudentProfile(
+        user_id=student_id,
+        grade=data.grade,
+        reading_freq=data.reading_freq,
+        reading_attitude=data.reading_attitude,
+        interest_topics=data.interest_topics,
+        predicted_correct=data.predicted_correct,
+        type_1=type_1,
+    )
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+
+@router.get("/round/{round_id}/content", response_model=RoundContentResponse)
+async def get_round_content(round_id: int, db: AsyncSession = Depends(get_db)):
+    """회차의 지문 본문 + 문항(선지) 조회. 정답·근거·해설은 내려보내지 않음 (부정 방지)."""
+    r_q = await db.execute(select(DiagnosisRound).where(DiagnosisRound.id == round_id))
+    round_ = r_q.scalar_one_or_none()
+    if not round_ or round_.text_id is None:
+        raise HTTPException(status_code=404, detail="회차 또는 지문을 찾을 수 없습니다.")
+
+    t_q = await db.execute(select(TextContent).where(TextContent.id == round_.text_id))
+    text = t_q.scalar_one_or_none()
+    if not text:
+        raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
+
+    q_q = await db.execute(
+        select(Question)
+        .where(
+            Question.text_id == text.id,
+            Question.question_review_status == ReviewStatus.approved,
+        )
+        .order_by(Question.id)
+    )
+    questions = q_q.scalars().all()
+
+    return RoundContentResponse(
+        round_id=round_.id,
+        text_id=text.id,
+        title=text.title,
+        content=text.content,
+        syllable_count=text.syllable_count,
+        genre=text.genre,
+        difficulty_level=text.difficulty_level,
+        questions=[
+            QuestionPublic(
+                id=q.id, target_area=q.target_area,
+                question_text=q.question_text, choices=q.choices,
+            )
+            for q in questions
+        ],
+    )
 
 
 @router.post("/session", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -381,6 +460,48 @@ async def generate_report(session_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(rpt)
     return rpt
+
+
+@router.get("/session/{session_id}/judgment", response_model=FinalizeResponse)
+async def get_judgment(session_id: int, db: AsyncSession = Depends(get_db)):
+    """세션의 판정+처방 조회 (finalize 이후). 결과 화면용."""
+    j_q = await db.execute(
+        select(JudgmentResult)
+        .where(JudgmentResult.diagnosis_session_id == session_id)
+        .order_by(JudgmentResult.id.desc())
+    )
+    judgment = j_q.scalars().first()
+    if not judgment:
+        raise HTTPException(status_code=404, detail="판정 결과가 없습니다. 먼저 finalize를 실행하세요.")
+    p_q = await db.execute(
+        select(PrescriptionResult).where(PrescriptionResult.judgment_id == judgment.id)
+    )
+    prescription = p_q.scalars().first()
+    if not prescription:
+        raise HTTPException(status_code=404, detail="처방 결과가 없습니다.")
+    return FinalizeResponse(judgment=judgment, prescription=prescription)
+
+
+@router.get("/session/{session_id}/report", response_model=ReportResponse)
+async def get_report(session_id: int, db: AsyncSession = Depends(get_db)):
+    """세션의 학생 리포트 조회 (report 생성 이후). 결과 화면용."""
+    j_q = await db.execute(
+        select(JudgmentResult)
+        .where(JudgmentResult.diagnosis_session_id == session_id)
+        .order_by(JudgmentResult.id.desc())
+    )
+    judgment = j_q.scalars().first()
+    if not judgment:
+        raise HTTPException(status_code=404, detail="판정 결과가 없습니다.")
+    r_q = await db.execute(
+        select(Report)
+        .where(Report.judgment_id == judgment.id)
+        .order_by(Report.id.desc())
+    )
+    report = r_q.scalars().first()
+    if not report:
+        raise HTTPException(status_code=404, detail="리포트가 없습니다. 먼저 리포트를 생성하세요.")
+    return report
 
 
 @router.get("/result/{session_id}", response_model=DiagnosisResultResponse)
