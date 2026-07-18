@@ -99,6 +99,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { api } from '@/api'
+import { labelInfo } from '@/utils/diagnosis'
 
 const router = useRouter()
 const route = useRoute()
@@ -109,13 +110,7 @@ const judgment = ref<any>(null)
 const prescription = ref<any>(null)
 const report = ref<any>(null)
 
-const LABELS: Record<string, { lv: number; ko: string; msg: string; emoji: string }> = {
-  excellent: { lv: 5, ko: '아주 잘함', msg: '정말 훌륭해요! 더 넓은 책의 세계로 나아가 볼까요?', emoji: '🌟' },
-  observe:   { lv: 4, ko: '잘함',     msg: '잘하고 있어요! 조금만 더 하면 최고 수준이에요.',   emoji: '😊' },
-  caution:   { lv: 3, ko: '보통',     msg: '또래와 비슷해요. 꾸준히 읽으면 쑥쑥 늘어요 💪',    emoji: '🌱' },
-  risk:      { lv: 2, ko: '조금 부족', msg: '이 부분을 함께 연습해봐요. 할 수 있어요!',        emoji: '🤗' },
-  urgent:    { lv: 1, ko: '도움 필요', msg: '천천히 하나씩 같이 해봐요. 괜찮아요!',            emoji: '🌈' },
-}
+// 등급 표현은 홈·이력 화면과 공유한다(@/utils/diagnosis). 화면마다 다른 말이 나오면 안 된다.
 
 const accuracyPct = computed(() =>
   judgment.value?.overall_accuracy != null ? Math.round(judgment.value.overall_accuracy * 100) : 0)
@@ -123,7 +118,7 @@ const donutStyle = computed(() => ({
   background: `conic-gradient(var(--mint) ${accuracyPct.value * 3.6}deg, #eef2f6 0deg)`,
 }))
 
-const levelInfo = computed(() => LABELS[judgment.value?.label_5] || { lv: 3, ko: '보통', msg: '' })
+const levelInfo = computed(() => labelInfo(judgment.value?.label_5))
 const studentLabel = computed(() => report.value?.report_content?.layer1?.label || levelInfo.value.ko)
 const strengths = computed<string[]>(() => report.value?.report_content?.layer1?.strengths || [])
 const weaknessCells = computed<string[]>(() => report.value?.report_content?.layer2?.weakness_training || [])

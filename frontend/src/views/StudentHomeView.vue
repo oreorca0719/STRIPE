@@ -19,11 +19,13 @@
           <div class="card-badge">시작하기 →</div>
         </div>
 
-        <div class="card card-result" @click="router.push('/student/result')">
+        <div class="card card-result" :class="{ 'card--disabled': !latest }" @click="goResult">
           <div class="card-icon">📊</div>
           <h2>내 결과</h2>
-          <p>지난 진단 결과를 확인해봐요</p>
-          <div class="card-badge card-badge--gray">결과 보기 →</div>
+          <p>{{ latest ? '가장 최근 진단 결과를 확인해봐요' : '아직 진단 결과가 없어요' }}</p>
+          <div class="card-badge" :class="latest ? 'card-badge--gray' : 'card-badge--muted'">
+            {{ latest ? '결과 보기 →' : '진단 먼저 하기' }}
+          </div>
         </div>
 
         <div class="card card-books">
@@ -34,49 +36,114 @@
         </div>
       </div>
 
+      <div v-if="resumeId" class="resume-banner">
+        <span class="resume-icon">⏸️</span>
+        <div class="resume-text">
+          <strong>진행하던 진단이 있어요</strong>
+          <span>이어서 하거나 새로 시작할 수 있어요.</span>
+        </div>
+        <button class="resume-btn" @click="router.push('/student/diagnosis')">이어서 하기</button>
+      </div>
+
       <div class="status-section">
-        <h2>내 학습 현황</h2>
+        <div class="status-head">
+          <h2>내 학습 현황</h2>
+          <button v-if="completedCount > 0" class="link-btn" @click="router.push('/student/history')">
+            전체 이력 보기 →
+          </button>
+        </div>
+
         <div class="status-cards">
           <div class="status-card">
             <div class="status-icon">🏆</div>
             <div class="status-info">
-              <span class="status-value">-</span>
+              <span class="status-value">{{ loading ? '…' : completedCount }}</span>
               <span class="status-label">진단 횟수</span>
             </div>
           </div>
           <div class="status-card">
             <div class="status-icon">⭐</div>
             <div class="status-info">
-              <span class="status-value">-</span>
+              <span class="status-value">{{ loading ? '…' : levelText }}</span>
               <span class="status-label">읽기 수준</span>
             </div>
           </div>
           <div class="status-card">
             <div class="status-icon">📅</div>
             <div class="status-info">
-              <span class="status-value">-</span>
+              <span class="status-value">{{ loading ? '…' : lastDateText }}</span>
               <span class="status-label">마지막 진단</span>
             </div>
           </div>
         </div>
-        <p class="status-hint">진단을 완료하면 나의 읽기 수준을 알 수 있어요!</p>
+
+        <p v-if="error" class="status-hint status-hint--error">
+          현황을 불러오지 못했어요. 잠시 뒤 새로고침해 주세요.
+        </p>
+        <p v-else-if="!loading && completedCount === 0" class="status-hint">
+          진단을 완료하면 나의 읽기 수준을 알 수 있어요!
+        </p>
+        <p v-else-if="!loading" class="status-hint">
+          진단 기준은 아직 다듬는 중이에요. 결과는 참고용으로 봐주세요.
+        </p>
       </div>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
+import { api } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { LABEL_5_KO, formatDateKo } from '@/utils/diagnosis'
 
 const router = useRouter()
-const studentName = ref('학생') // TODO: 실제 사용자 정보 연동
+const auth = useAuthStore()
+
+const studentName = computed(() => auth.user?.name || '학생')
+
+const loading = ref(true)
+const error = ref(false)
+const completedCount = ref(0)
+const latest = ref<any | null>(null)
+const resumeId = ref<number | null>(null)
+
+// 판정 등급은 아동에게 그대로 보여주지 않고 친화 표현으로 바꾼다(§2 SCR-13).
+const levelText = computed(() =>
+  latest.value?.label_5 ? LABEL_5_KO[latest.value.label_5] ?? '-' : '-',
+)
+const lastDateText = computed(() =>
+  latest.value ? formatDateKo(latest.value.completed_at || latest.value.started_at) : '-',
+)
+
+function goResult() {
+  if (!latest.value) {
+    router.push('/student/diagnosis')
+    return
+  }
+  router.push({ path: '/student/result', query: { session: latest.value.session_id } })
+}
+
+async function load() {
+  try {
+    const res = await api.get('/api/diagnosis/my/summary')
+    completedCount.value = res.data.completed_count
+    latest.value = res.data.latest
+    resumeId.value = res.data.in_progress_session_id
+  } catch {
+    error.value = true
+  } finally {
+    loading.value = false
+  }
+}
 
 function handleLogout() {
-  // TODO: 로그아웃 처리
   router.push('/login')
 }
+
+onMounted(load)
 </script>
 
 <style scoped>
@@ -129,7 +196,40 @@ function handleLogout() {
 .card-badge--gray { background: var(--gray-light); color: var(--gray); }
 .card-badge--yellow { background: var(--yellow); color: var(--navy); }
 
-.status-section h2 { font-size: 1.2rem; font-weight: 800; margin-bottom: 1rem; }
+.card--disabled { opacity: 0.8; }
+.card-badge--muted { background: var(--gray-light); color: var(--gray); }
+
+.resume-banner {
+  display: flex; align-items: center; gap: 1rem;
+  background: #FFF8E1; border: 2px solid var(--yellow);
+  border-radius: var(--radius-sm); padding: 1rem 1.2rem; margin-bottom: 2rem;
+}
+.resume-icon { font-size: 1.6rem; }
+.resume-text { display: flex; flex-direction: column; flex: 1; }
+.resume-text strong { color: var(--navy); font-weight: 800; }
+.resume-text span { font-size: 0.85rem; color: var(--gray); }
+.resume-btn {
+  background: var(--navy); color: white; border: none; border-radius: 99px;
+  padding: 0.6rem 1.3rem; font-weight: 800; cursor: pointer; min-height: 44px;
+}
+.resume-btn:hover { opacity: 0.9; }
+
+.status-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
+}
+.link-btn {
+  background: none; border: none; color: var(--mint-dark);
+  font-weight: 800; font-size: 0.9rem; cursor: pointer; padding: 0.4rem;
+}
+.link-btn:hover { text-decoration: underline; }
+
+.status-section h2 { font-size: 1.2rem; font-weight: 800; }
+.status-hint--error { color: var(--coral); }
+
+@media (max-width: 720px) {
+  .cards-grid, .status-cards { grid-template-columns: 1fr; }
+  .resume-banner { flex-wrap: wrap; }
+}
 .status-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

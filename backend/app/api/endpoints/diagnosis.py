@@ -17,7 +17,9 @@ from app.schemas.diagnosis import (
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
     ProfileCreate, ProfileResponse, RoundContentResponse, QuestionPublic,
+    MySessionItem, MySummaryResponse,
 )
+from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
@@ -68,6 +70,78 @@ def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
     if f <= 2 and a <= 2:
         return ReaderType1.non_reader
     return ReaderType1.intermittent
+
+
+# --- 본인 진단 이력 (학생 홈·이력 화면) ------------------------------------
+# 경로가 /my/* 로 시작해 세션 id 경로와 충돌하지 않는다. 토큰의 학생만 조회하므로
+# 별도 소유권 검증이 필요 없다(쿼리에 student_id를 강제로 건다).
+
+# 판정이 끝난 세션만 '결과 있음'으로 본다. 판정 전 세션은 진행 중이거나 중단된 것.
+_JUDGED_STATUSES = (DiagSessionStatus.completed, DiagSessionStatus.early_stop)
+
+
+def _to_my_item(session: DiagnosisSession, judgment: Optional[JudgmentResult]) -> MySessionItem:
+    return MySessionItem(
+        session_id=session.id,
+        status=session.status,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        total_rounds=session.total_rounds,
+        label_5=judgment.label_5 if judgment else None,
+        prescription_group=judgment.prescription_group if judgment else None,
+        fluency_level=judgment.fluency_level if judgment else None,
+        fluency_valid=judgment.fluency_valid if judgment else None,
+        comprehension_level=judgment.comprehension_level if judgment else None,
+        overall_accuracy=judgment.overall_accuracy if judgment else None,
+        reliability_flag=judgment.reliability_flag if judgment else None,
+    )
+
+
+async def _my_sessions(db: AsyncSession, user: User, limit: Optional[int] = None):
+    """본인 세션을 최신순으로. 판정 결과가 있으면 함께 실어 준다."""
+    q = (
+        select(DiagnosisSession, JudgmentResult)
+        .outerjoin(JudgmentResult,
+                   JudgmentResult.diagnosis_session_id == DiagnosisSession.id)
+        .where(DiagnosisSession.student_id == user.id)
+        .order_by(DiagnosisSession.started_at.desc(), DiagnosisSession.id.desc())
+    )
+    if limit:
+        q = q.limit(limit)
+    return (await db.execute(q)).all()
+
+
+@router.get("/my/sessions", response_model=List[MySessionItem])
+async def my_sessions(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """내 진단 이력 목록 (최신순). 진행 중·중단 세션도 포함해 상태를 그대로 보여준다."""
+    rows = await _my_sessions(db, user, limit=min(limit, 200))
+    return [_to_my_item(s, j) for s, j in rows]
+
+
+@router.get("/my/summary", response_model=MySummaryResponse)
+async def my_summary(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """학생 홈 요약 — 완료 횟수·최근 결과·진행 중 세션.
+
+    진단 이력이 없으면 completed_count=0, latest=None 으로 내려간다(빈 상태 화면용).
+    """
+    rows = await _my_sessions(db, user)
+    judged = [(s, j) for s, j in rows if j is not None and s.status in _JUDGED_STATUSES]
+    in_progress = next(
+        (s for s, _ in rows if s.status == DiagSessionStatus.in_progress), None
+    )
+    latest = _to_my_item(*judged[0]) if judged else None
+    return MySummaryResponse(
+        completed_count=len(judged),
+        in_progress_session_id=in_progress.id if in_progress else None,
+        latest=latest,
+    )
 
 
 @router.post("/profile", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)

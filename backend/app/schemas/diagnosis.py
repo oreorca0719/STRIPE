@@ -238,3 +238,27 @@ class DiagnosisResultResponse(BaseModel):
     fluency_results: List[FluencyResultResponse]
     question_responses: List[QuestionResponseResult]
     total_fluency_score: Optional[float]
+
+
+# ---- 본인 진단 이력 (학생 홈·이력 화면) -----------------------------------
+class MySessionItem(BaseModel):
+    """이력 목록 한 줄. 판정 전(미완료) 세션은 판정 필드가 전부 None."""
+    session_id: int
+    status: DiagSessionStatus
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    total_rounds: int
+    label_5: Optional[Label5] = None
+    prescription_group: Optional[PrescriptionGroup] = None
+    fluency_level: Optional[Level3] = None
+    fluency_valid: Optional[bool] = None
+    comprehension_level: Optional[Level3] = None
+    overall_accuracy: Optional[float] = None
+    reliability_flag: Optional[ReliabilityFlag] = None
+
+
+class MySummaryResponse(BaseModel):
+    """학생 홈 요약. 진단 이력이 없으면 completed_count=0, latest=None."""
+    completed_count: int
+    in_progress_session_id: Optional[int] = None   # 이어하기 안내용(STR-76에서 활용)
+    latest: Optional[MySessionItem] = None
