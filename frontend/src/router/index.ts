@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { guest: true }
     },
     {
+      path: '/change-credentials',
+      name: 'change-credentials',
+      component: () => import('@/views/ChangeCredentialsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/student',
       name: 'student-home',
       component: () => import('@/views/StudentHomeView.vue'),
@@ -79,6 +85,15 @@ router.beforeEach((to, _from, next) => {
   // 비로그인 상태에서 인증 필요 페이지 접근 → 로그인으로
   if (to.meta.requiresAuth && !token) {
     return next('/login')
+  }
+
+  // 최초 로그인(임시 비밀번호) → 자격증명 변경 강제. 새로고침·직접 URL 접근도 차단.
+  if (token && user?.must_change_password && to.name !== 'change-credentials') {
+    return next('/change-credentials')
+  }
+  // 변경 완료 후 해당 페이지 재접근 시 역할별 홈으로
+  if (token && user && !user.must_change_password && to.name === 'change-credentials') {
+    return next(user.role === 'admin' ? '/admin' : '/student')
   }
 
   // 로그인 상태에서 guest 페이지 접근 → 역할별 홈으로

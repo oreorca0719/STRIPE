@@ -28,6 +28,20 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data
   }
 
+  async function changeCredentials(data: {
+    username: string
+    current_password: string
+    new_username?: string
+    new_password: string
+  }) {
+    const res = await axios.post(`${API}/api/auth/change-credentials`, data)
+    token.value = res.data.access_token
+    user.value = res.data.user
+    localStorage.setItem('token', token.value!)
+    localStorage.setItem('user', JSON.stringify(user.value))
+    return res.data.user
+  }
+
   function logout() {
     token.value = null
     user.value = null
@@ -39,5 +53,5 @@ export const useAuthStore = defineStore('auth', () => {
     return !!token.value
   }
 
-  return { token, user, login, register, logout, isLoggedIn }
+  return { token, user, login, register, changeCredentials, logout, isLoggedIn }
 })
