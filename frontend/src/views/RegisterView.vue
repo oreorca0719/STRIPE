@@ -25,11 +25,14 @@
         </div>
         <div class="field">
           <label>비밀번호</label>
-          <input v-model="form.password" type="password" placeholder="비밀번호를 입력하세요 (6자 이상)" required />
+          <input v-model="form.password" type="password" placeholder="비밀번호를 입력하세요 (6자 이상)" required
+                 @keydown="onKey" @keyup="onKey" @blur="reset" />
         </div>
         <div class="field">
           <label>비밀번호 확인</label>
-          <input v-model="form.passwordConfirm" type="password" placeholder="비밀번호를 다시 입력하세요" required />
+          <input v-model="form.passwordConfirm" type="password" placeholder="비밀번호를 다시 입력하세요" required
+                 @keydown="onKey" @keyup="onKey" @blur="reset" />
+          <p v-if="capsOn" class="caps-warn">⇪ Caps Lock이 켜져 있어요</p>
         </div>
 
         <div v-if="error" class="error-msg">{{ error }}</div>
@@ -53,6 +56,9 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useCapsLock } from '@/composables/useCapsLock'
+
+const { capsOn, onKey, reset } = useCapsLock()
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -132,6 +138,11 @@ input, select {
   background: white;
 }
 input:focus, select:focus { border-color: var(--mint); }
+.caps-warn {
+  margin-top: 0.4rem; font-size: 0.8rem; font-weight: 800;
+  color: #b8860b; background: #fff8dd; padding: 0.4rem 0.7rem; border-radius: var(--radius-sm);
+}
+
 .error-msg {
   background: #fff0f0; color: var(--coral);
   padding: 0.7rem 1rem; border-radius: var(--radius-sm);

@@ -19,20 +19,25 @@
         <label class="field">
           <span>현재 비밀번호</span>
           <input v-model="currentPassword" type="password" autocomplete="current-password"
-                 placeholder="발급받은 임시 비밀번호" required />
+                 placeholder="발급받은 임시 비밀번호" required
+                 @keydown="onKey" @keyup="onKey" @blur="reset" />
         </label>
 
         <label class="field">
           <span>새 비밀번호</span>
           <input v-model="newPassword" type="password" autocomplete="new-password"
-                 placeholder="6자 이상" required />
+                 placeholder="6자 이상" required
+                 @keydown="onKey" @keyup="onKey" @blur="reset" />
         </label>
 
         <label class="field">
           <span>새 비밀번호 확인</span>
           <input v-model="confirmPassword" type="password" autocomplete="new-password"
-                 placeholder="한 번 더 입력" required />
+                 placeholder="한 번 더 입력" required
+                 @keydown="onKey" @keyup="onKey" @blur="reset" />
         </label>
+
+        <p v-if="capsOn" class="caps-warn">⇪ Caps Lock이 켜져 있어요 — 비밀번호가 대문자로 입력됩니다</p>
 
         <p v-if="error" class="err">{{ error }}</p>
 
@@ -50,7 +55,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useCapsLock } from '@/composables/useCapsLock'
 
+const { capsOn, onKey, reset } = useCapsLock()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -118,6 +125,10 @@ form { width: 100%; display: flex; flex-direction: column; gap: 1rem; margin-top
 }
 .field input:focus { border-color: var(--mint); }
 .hint { color: var(--gray); font-size: 0.78rem; font-weight: 600; }
+.caps-warn {
+  font-size: 0.82rem; font-weight: 800; color: #b8860b;
+  background: #fff8dd; padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); text-align: center;
+}
 .err { color: var(--coral); font-weight: 700; font-size: 0.9rem; text-align: center; }
 .btn-primary {
   background: var(--mint); color: white; border: none; padding: 0.9rem 1rem;
