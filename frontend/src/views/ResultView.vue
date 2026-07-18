@@ -24,30 +24,40 @@
       <!-- 결과 -->
       <div v-else class="result-content">
         <div class="level-card">
-          <div class="level-badge">Lv. {{ levelInfo.lv }}</div>
-          <h2>읽기 수준: <span class="highlight">{{ studentLabel }}</span></h2>
+          <div class="hero-emoji">{{ levelInfo.emoji }}</div>
+          <div class="level-badge">Lv. {{ levelInfo.lv }} / 5</div>
+          <h2>읽기 수준 <span class="highlight">{{ studentLabel }}</span></h2>
           <p>{{ report?.report_content?.layer1?.encouragement || levelInfo.msg }}</p>
           <span class="provisional">※ 판정 기준은 파일럿 전 잠정값이에요</span>
         </div>
 
-        <div class="chart-grid">
-          <div class="chart-card">
-            <h3>👁️ 묵독 유창성</h3>
-            <div class="bar-wrap"><div class="bar" :style="{ width: levelPct(judgment.fluency_level) + '%' }"></div></div>
-            <span class="score">{{ levelKo(judgment.fluency_level) }}</span>
-            <p v-if="judgment.fluency_value" class="sub">{{ judgment.fluency_value }} {{ unitKo(judgment.fluency_value_unit) }}</p>
+        <div class="metric-grid">
+          <!-- 묵독 유창성: 3단계 게이지 -->
+          <div class="metric-card">
+            <h3>👁️ 얼마나 빨리 읽나</h3>
+            <div class="gauge">
+              <div v-for="lv in ['low','mid','high']" :key="lv" class="seg"
+                   :class="{ active: judgment.fluency_level === lv }">
+                <span class="seg-txt">{{ levelKo(lv) }}</span>
+              </div>
+            </div>
+            <p class="metric-main">{{ levelKo(judgment.fluency_level) }}</p>
+            <p v-if="judgment.fluency_value" class="sub">
+              1초에 약 <strong>{{ Math.round(judgment.fluency_value) }}글자</strong> 읽어요
+            </p>
           </div>
-          <div class="chart-card">
-            <h3>🧠 독해 이해</h3>
-            <div class="bar-wrap"><div class="bar bar--yellow" :style="{ width: levelPct(judgment.comprehension_level) + '%' }"></div></div>
-            <span class="score">{{ levelKo(judgment.comprehension_level) }}</span>
-            <p v-if="judgment.overall_accuracy != null" class="sub">정답률 {{ Math.round(judgment.overall_accuracy * 100) }}%</p>
-          </div>
-          <div class="chart-card">
-            <h3>🎯 종합</h3>
-            <div class="bar-wrap"><div class="bar bar--coral" :style="{ width: levelInfo.lv * 20 + '%' }"></div></div>
-            <span class="score">{{ studentLabel }}</span>
-            <p class="sub">처방군 {{ judgment.prescription_group }}</p>
+
+          <!-- 독해: 정답률 도넛 -->
+          <div class="metric-card">
+            <h3>🧠 얼마나 잘 이해했나</h3>
+            <div class="donut" :style="donutStyle">
+              <div class="donut-hole">
+                <span class="donut-pct">{{ accuracyPct }}%</span>
+                <span class="donut-cap">정답률</span>
+              </div>
+            </div>
+            <p class="metric-main">{{ levelKo(judgment.comprehension_level) }}</p>
+            <p class="sub">{{ judgment.total_questions }}문제 중 <strong>{{ judgment.total_correct }}문제</strong> 맞혔어요</p>
           </div>
         </div>
 
@@ -99,13 +109,19 @@ const judgment = ref<any>(null)
 const prescription = ref<any>(null)
 const report = ref<any>(null)
 
-const LABELS: Record<string, { lv: number; ko: string; msg: string }> = {
-  excellent: { lv: 5, ko: '아주 잘함', msg: '정말 훌륭해요! 더 넓은 책의 세계로 나아가 볼까요?' },
-  observe:   { lv: 4, ko: '잘함',     msg: '잘하고 있어요! 조금만 더 하면 최고 수준이에요.' },
-  caution:   { lv: 3, ko: '보통',     msg: '또래와 비슷해요. 꾸준히 읽으면 쑥쑥 늘어요 💪' },
-  risk:      { lv: 2, ko: '조금 부족', msg: '이 부분을 함께 연습해봐요. 할 수 있어요!' },
-  urgent:    { lv: 1, ko: '도움 필요', msg: '천천히 하나씩 같이 해봐요. 괜찮아요!' },
+const LABELS: Record<string, { lv: number; ko: string; msg: string; emoji: string }> = {
+  excellent: { lv: 5, ko: '아주 잘함', msg: '정말 훌륭해요! 더 넓은 책의 세계로 나아가 볼까요?', emoji: '🌟' },
+  observe:   { lv: 4, ko: '잘함',     msg: '잘하고 있어요! 조금만 더 하면 최고 수준이에요.',   emoji: '😊' },
+  caution:   { lv: 3, ko: '보통',     msg: '또래와 비슷해요. 꾸준히 읽으면 쑥쑥 늘어요 💪',    emoji: '🌱' },
+  risk:      { lv: 2, ko: '조금 부족', msg: '이 부분을 함께 연습해봐요. 할 수 있어요!',        emoji: '🤗' },
+  urgent:    { lv: 1, ko: '도움 필요', msg: '천천히 하나씩 같이 해봐요. 괜찮아요!',            emoji: '🌈' },
 }
+
+const accuracyPct = computed(() =>
+  judgment.value?.overall_accuracy != null ? Math.round(judgment.value.overall_accuracy * 100) : 0)
+const donutStyle = computed(() => ({
+  background: `conic-gradient(var(--mint) ${accuracyPct.value * 3.6}deg, #eef2f6 0deg)`,
+}))
 
 const levelInfo = computed(() => LABELS[judgment.value?.label_5] || { lv: 3, ko: '보통', msg: '' })
 const studentLabel = computed(() => report.value?.report_content?.layer1?.label || levelInfo.value.ko)
@@ -183,15 +199,47 @@ onMounted(load)
 .level-card p { opacity: 0.95; line-height: 1.6; }
 .provisional { font-size: 0.78rem; opacity: 0.8; margin-top: 0.3rem; }
 
-.chart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-.chart-card { background: var(--white); border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 0.7rem; }
-.chart-card h3 { font-size: 1rem; font-weight: 800; }
-.bar-wrap { background: var(--gray-light); border-radius: 99px; height: 12px; overflow: hidden; }
-.bar { background: var(--mint); height: 100%; border-radius: 99px; transition: width 1s ease; }
-.bar--yellow { background: var(--yellow-dark); }
-.bar--coral { background: var(--coral); }
-.score { font-size: 1.4rem; font-weight: 900; color: var(--navy); }
-.sub { font-size: 0.85rem; color: var(--gray); font-weight: 700; }
+.hero-emoji { font-size: 3.2rem; line-height: 1; }
+
+.metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.metric-card {
+  background: var(--white); border-radius: var(--radius); padding: 1.8rem;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; gap: 0.9rem; text-align: center;
+}
+.metric-card h3 { font-size: 1rem; font-weight: 800; color: var(--navy); }
+.metric-main { font-size: 1.6rem; font-weight: 900; color: var(--mint-dark); }
+.sub { font-size: 0.9rem; color: var(--gray); font-weight: 700; line-height: 1.5; }
+.sub strong { color: var(--navy); }
+
+/* 3단계 레벨 게이지 — "내가 어디쯤인지" 직관적으로 */
+.gauge { display: flex; gap: 0.4rem; width: 100%; }
+.seg {
+  flex: 1; padding: 0.6rem 0.2rem; border-radius: var(--radius-sm);
+  background: var(--gray-light); color: var(--gray);
+  font-weight: 800; font-size: 0.85rem; transition: all 0.3s;
+  border: 2px solid transparent;
+}
+.seg.active {
+  background: var(--mint); color: white; border-color: var(--mint-dark);
+  transform: translateY(-3px); box-shadow: 0 4px 12px rgba(78,205,196,0.35);
+}
+
+/* 정답률 도넛 */
+.donut {
+  width: 130px; height: 130px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.8s ease;
+}
+.donut-hole {
+  width: 96px; height: 96px; border-radius: 50%; background: var(--white);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem;
+}
+.donut-pct { font-size: 1.7rem; font-weight: 900; color: var(--navy); line-height: 1; }
+.donut-cap { font-size: 0.72rem; font-weight: 800; color: var(--gray); }
+
+@media (max-width: 640px) {
+  .metric-grid { grid-template-columns: 1fr; }
+}
 
 .info-card { background: var(--white); border-radius: var(--radius); padding: 1.5rem 2rem; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 0.9rem; }
 .info-card h3 { font-size: 1.05rem; font-weight: 800; }

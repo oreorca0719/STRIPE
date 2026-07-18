@@ -84,18 +84,37 @@
         </div>
 
         <!-- 묵독 읽기 -->
-        <div v-else-if="phase === 'reading'" class="step-content">
-          <div class="illust">👁️</div>
-          <h2>{{ round.title }}</h2>
-          <p>속으로(소리 내지 말고) 읽고, 다 읽으면 버튼을 눌러줘!</p>
+        <div v-else-if="phase === 'reading'" class="step-content reading">
           <div class="round-badge">{{ roundNumber }}번째 글 · {{ genreKo(round.genre) }}</div>
-          <div class="text-box">
-            <p class="reading-text">{{ round.content }}</p>
+          <h2>{{ round.title }}</h2>
+          <p class="guide">
+            <strong>소리 내지 말고</strong> 눈으로 읽어요.<br />
+            다 읽으면 아래 버튼을 눌러줘!
+          </p>
+
+          <!-- 글자 크기 조절 (아동 가독성) -->
+          <div class="font-ctl" role="group" aria-label="글자 크기 조절">
+            <span>글자 크기</span>
+            <button v-for="s in fontSizes" :key="s.v" class="size-btn"
+                    :class="{ sel: fontScale === s.v }" @click="fontScale = s.v"
+                    :aria-pressed="fontScale === s.v">{{ s.t }}</button>
           </div>
+
+          <div class="text-box" :class="{ dim: !timerRunning && !hasRead }">
+            <p class="reading-text" :style="{ fontSize: fontScale + 'rem' }">{{ round.content }}</p>
+            <div v-if="!timerRunning && !hasRead" class="text-veil">
+              <span>준비되면 <strong>읽기 시작</strong>을 눌러줘</span>
+            </div>
+          </div>
+
           <div class="timer-area">
-            <div class="timer">⏱ {{ timerDisplay }}</div>
-            <button v-if="!timerRunning" class="btn-primary" @click="startReading">읽기 시작</button>
-            <button v-else class="btn-stop" @click="stopReading" :disabled="busy">
+            <div class="timer" :class="{ running: timerRunning }">
+              <span class="timer-dot" v-if="timerRunning"></span>⏱ {{ timerDisplay }}
+            </div>
+            <button v-if="!timerRunning" class="btn-primary btn-lg" @click="startReading">
+              {{ hasRead ? '다시 읽기' : '읽기 시작' }}
+            </button>
+            <button v-else class="btn-stop btn-lg" @click="stopReading" :disabled="busy">
               {{ busy ? '저장 중…' : '다 읽었어요! ✋' }}
             </button>
           </div>
@@ -103,27 +122,41 @@
 
         <!-- 독해 문항 -->
         <div v-else-if="phase === 'questions'" class="step-content questions">
-          <div class="illust">🧠</div>
           <h2>이제 문제를 풀어볼까?</h2>
-          <p>방금 읽은 글을 생각하며 답을 골라줘!</p>
-          <div v-for="(q, qi) in round.questions" :key="q.id" class="question-card">
+          <p class="guide">방금 읽은 글을 생각하며 답을 골라줘!</p>
+
+          <!-- 답한 문항 진행률 -->
+          <div class="answer-progress">
+            <div class="ap-bar"><div class="ap-fill" :style="{ width: answeredPct + '%' }"></div></div>
+            <span class="ap-label">{{ answeredCount }} / {{ round.questions.length }} 문제 완료</span>
+          </div>
+
+          <div v-for="(q, qi) in round.questions" :key="q.id" class="question-card"
+               :class="{ done: !!answers[q.id] }" :ref="el => setQRef(q.id, el)">
             <div class="q-top">
               <span class="q-num">문제 {{ qi + 1 }}</span>
               <span class="area-chip">{{ areaKo(q.target_area) }}</span>
+              <span v-if="answers[q.id]" class="q-done">✓</span>
             </div>
             <p class="question-text">{{ q.question_text }}</p>
             <div class="options-col">
               <label v-for="(c, ci) in q.choices" :key="ci" class="option"
                      :class="{ sel: answers[q.id] === ci + 1 }">
                 <input type="radio" :name="'q' + q.id" :value="ci + 1" v-model.number="answers[q.id]" />
-                <span class="opt-num">{{ ci + 1 }}</span><span>{{ c }}</span>
+                <span class="opt-num">{{ answers[q.id] === ci + 1 ? '✓' : ci + 1 }}</span>
+                <span class="opt-text">{{ c }}</span>
               </label>
             </div>
           </div>
-          <button class="btn-primary" :disabled="!allAnswered || busy" @click="submitAnswers">
-            {{ busy ? '채점 중…' : '제출하기 📨' }}
-          </button>
-          <p v-if="!allAnswered" class="muted">모든 문제에 답하면 제출할 수 있어요</p>
+
+          <div class="submit-area">
+            <button class="btn-primary btn-lg" :disabled="!allAnswered || busy" @click="submitAnswers">
+              {{ busy ? '채점 중…' : '제출하기 📨' }}
+            </button>
+            <button v-if="!allAnswered" class="btn-text" @click="goToFirstUnanswered">
+              아직 {{ round.questions.length - answeredCount }}문제 남았어요 · 안 푼 문제로 이동
+            </button>
+          </div>
         </div>
 
         <!-- 처리 중 -->
@@ -187,6 +220,22 @@ const answers = reactive<Record<number, number>>({})
 const silentSeconds = ref(0)
 
 const allAnswered = computed(() => round.questions.length > 0 && round.questions.every(q => answers[q.id]))
+const answeredCount = computed(() => round.questions.filter(q => !!answers[q.id]).length)
+const answeredPct = computed(() =>
+  round.questions.length ? Math.round((answeredCount.value / round.questions.length) * 100) : 0)
+
+// 지문 글자 크기 (아동 가독성 — 기본을 크게)
+const fontSizes = [ { t: '가', v: 1.15 }, { t: '가', v: 1.35 }, { t: '가', v: 1.6 } ]
+const fontScale = ref(1.35)
+const hasRead = ref(false)
+
+// 안 푼 문제로 스크롤 이동
+const qRefs: Record<number, HTMLElement | null> = {}
+function setQRef(id: number, el: any) { qRefs[id] = el as HTMLElement | null }
+function goToFirstUnanswered() {
+  const first = round.questions.find(q => !answers[q.id])
+  if (first && qRefs[first.id]) qRefs[first.id]!.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 
 // 타이머
 const timerRunning = ref(false)
@@ -230,7 +279,9 @@ async function loadRound(roundId: number) {
   round.questions = r.data.questions
   for (const k of Object.keys(answers)) delete answers[Number(k)]
   timerSeconds.value = 0; timerRunning.value = false; silentSeconds.value = 0
+  hasRead.value = false
   phase.value = 'reading'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function startReading() {
@@ -241,6 +292,7 @@ function startReading() {
 async function stopReading() {
   if (timerInterval) clearInterval(timerInterval)
   timerRunning.value = false
+  hasRead.value = true
   silentSeconds.value = Math.max(1, timerSeconds.value)
   busy.value = true; error.value = ''
   try {
@@ -344,38 +396,80 @@ p { color: var(--gray); line-height: 1.6; }
 .slider-val { font-weight: 900; color: var(--mint-dark); min-width: 3rem; }
 
 /* 읽기 */
+.reading { gap: 1rem; }
+.guide { font-size: 1rem; line-height: 1.7; }
 .round-badge { background: var(--yellow); color: var(--navy); font-weight: 800; font-size: 0.85rem; padding: 0.4rem 1rem; border-radius: 99px; }
-.text-box {
-  background: var(--gray-light); border-radius: var(--radius-sm);
-  padding: 1.8rem 2rem; width: 100%; border-left: 5px solid var(--mint); text-align: left;
+
+.font-ctl { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 800; color: var(--gray); }
+.size-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: 2px solid #e8ecf0;
+  background: var(--white); color: var(--navy); font-weight: 900; line-height: 1;
 }
-.reading-text { font-size: 1.15rem; line-height: 2.0; color: var(--navy); white-space: pre-wrap; }
+.size-btn:nth-of-type(1) { font-size: 0.85rem; }
+.size-btn:nth-of-type(2) { font-size: 1.05rem; }
+.size-btn:nth-of-type(3) { font-size: 1.3rem; }
+.size-btn.sel { border-color: var(--mint); background: var(--mint-light); color: var(--mint-dark); }
+
+.text-box {
+  background: var(--white); border: 2px solid #eef2f6; border-radius: var(--radius-sm);
+  padding: 2rem 2.2rem; width: 100%; border-left: 6px solid var(--mint);
+  text-align: left; position: relative; transition: opacity 0.25s;
+}
+.text-box.dim .reading-text { filter: blur(3px); opacity: 0.45; user-select: none; }
+.text-veil {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm); background: rgba(255,255,255,0.55);
+}
+.text-veil span { background: var(--navy); color: white; font-weight: 800; font-size: 0.95rem; padding: 0.7rem 1.4rem; border-radius: 99px; }
+.reading-text { line-height: 2.1; color: var(--navy); white-space: pre-wrap; word-break: keep-all; letter-spacing: -0.01em; }
+
 .timer-area { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
-.timer { font-size: 2.5rem; font-weight: 900; color: var(--mint-dark); }
+.timer { font-size: 2.4rem; font-weight: 900; color: var(--gray); display: flex; align-items: center; gap: 0.5rem; transition: color 0.2s; }
+.timer.running { color: var(--mint-dark); }
+.timer-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--coral); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
 
 /* 문항 */
-.questions { align-items: stretch; }
-.questions > .illust, .questions > h2, .questions > p { align-self: center; }
-.question-card { background: var(--gray-light); border-radius: var(--radius-sm); padding: 1.5rem; width: 100%; text-align: left; }
-.q-top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
-.q-num { font-size: 0.85rem; font-weight: 800; color: var(--mint-dark); }
-.area-chip { font-size: 0.72rem; font-weight: 800; color: var(--gray); background: var(--white); padding: 0.15rem 0.6rem; border-radius: 99px; }
-.question-text { font-size: 1.08rem; font-weight: 800; color: var(--navy); margin-bottom: 1rem; line-height: 1.5; }
-.options-col { display: flex; flex-direction: column; gap: 0.6rem; }
-.option {
-  display: flex; align-items: center; gap: 0.7rem; background: white;
-  border-radius: var(--radius-sm); padding: 0.8rem 1rem; cursor: pointer;
-  font-weight: 700; color: var(--navy); border: 2px solid #e8ecf0; transition: all 0.15s;
+.questions { align-items: stretch; gap: 1rem; }
+.questions > h2, .questions > .guide { align-self: center; }
+
+.answer-progress { display: flex; align-items: center; gap: 0.9rem; width: 100%; margin-bottom: 0.3rem; }
+.ap-bar { flex: 1; height: 10px; background: var(--gray-light); border-radius: 99px; overflow: hidden; }
+.ap-fill { height: 100%; background: var(--mint); border-radius: 99px; transition: width 0.35s ease; }
+.ap-label { font-size: 0.85rem; font-weight: 800; color: var(--mint-dark); white-space: nowrap; }
+
+.question-card {
+  background: var(--white); border: 2px solid #eef2f6; border-radius: var(--radius-sm);
+  padding: 1.6rem; width: 100%; text-align: left; transition: border-color 0.2s;
 }
-.option:hover { border-color: var(--mint); }
-.option.sel { border-color: var(--mint); background: var(--mint-light); color: var(--mint-dark); }
+.question-card.done { border-color: #d6f0ee; background: #fbfffe; }
+.q-top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
+.q-num { font-size: 0.9rem; font-weight: 900; color: var(--mint-dark); }
+.area-chip { font-size: 0.72rem; font-weight: 800; color: var(--gray); background: var(--gray-light); padding: 0.2rem 0.65rem; border-radius: 99px; }
+.q-done { margin-left: auto; color: var(--mint); font-weight: 900; font-size: 1.1rem; }
+.question-text { font-size: 1.15rem; font-weight: 800; color: var(--navy); margin-bottom: 1.1rem; line-height: 1.6; word-break: keep-all; }
+.options-col { display: flex; flex-direction: column; gap: 0.7rem; }
+.option {
+  display: flex; align-items: center; gap: 0.85rem; background: var(--white);
+  border-radius: var(--radius-sm); padding: 1.05rem 1.1rem; cursor: pointer;
+  font-weight: 700; color: var(--navy); border: 2px solid #e8ecf0; transition: all 0.15s;
+  min-height: 56px; /* 아동 터치 영역 확보 */
+  font-size: 1.02rem; line-height: 1.5; word-break: keep-all;
+}
+.option:hover { border-color: var(--mint); background: #fbfffe; }
+.option.sel { border-color: var(--mint); background: var(--mint-light); color: var(--mint-dark); box-shadow: 0 2px 10px rgba(78,205,196,0.18); }
 .option input { display: none; }
+.opt-text { flex: 1; }
 .opt-num {
-  width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%;
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%;
   background: var(--white); border: 2px solid #dfe6ee; color: var(--gray);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem;
+  display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.9rem;
 }
 .option.sel .opt-num { background: var(--mint); color: white; border-color: var(--mint); }
+
+.submit-area { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; margin-top: 0.5rem; }
+.btn-text { background: none; border: none; color: var(--coral); font-weight: 800; font-size: 0.88rem; text-decoration: underline; }
+.btn-lg { padding: 1.05rem 3rem; font-size: 1.08rem; }
 
 .done-badge { background: var(--mint-light); color: var(--mint-dark); font-weight: 800; padding: 0.8rem 2rem; border-radius: 99px; }
 

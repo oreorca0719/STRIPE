@@ -40,8 +40,23 @@ jobs:
           python -m alembic upgrade head
           python -m pytest tests/test_integration_flow.py -q
 
+  # 프론트 빌드는 EC2에서 수행되므로, 배포 전에 CI에서 먼저 검증한다
+  # (빌드 오류가 배포 단계에서야 터지는 것을 방지)
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install & build
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
   deploy:
-    needs: test
+    needs: [test, build-frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH (git pull + compose up --build)
