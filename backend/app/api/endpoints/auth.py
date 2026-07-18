@@ -10,10 +10,33 @@ from app.core.security import hash_password
 from app.api.deps import require_admin
 from app.models.user import User, UserRole
 
+from app.models.user import GradeLevel
+
 # 공개 회원가입으로 허용되는 역할. 특권 역할(admin·teacher)은 관리자만 발급 가능.
 SELF_SIGNUP_ROLES = {UserRole.student, UserRole.parent}
 
+# 서비스 대상 학년 (PM 결정 2026-07-18, 도메인 문서 §대상 초4~중1).
+# 대상 밖 학년은 맞는 난도의 지문이 없어 진단이 성립하지 않는다 — 콘텐츠 풀도
+# G4_G6·G7 두 학년군으로만 구성돼 있다.
+SERVICE_GRADES = {GradeLevel.elem4, GradeLevel.elem5, GradeLevel.elem6, GradeLevel.mid1}
+
 router = APIRouter()
+
+
+def _validate_student_grade(data: UserRegister) -> None:
+    """학생 계정은 서비스 대상 학년이어야 한다. 학부모·교사는 학년이 없다."""
+    if data.role != UserRole.student:
+        return
+    if data.grade is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="학생 계정은 학년을 선택해야 합니다.",
+        )
+    if data.grade not in SERVICE_GRADES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="현재 초등학교 4학년부터 중학교 1학년까지 이용할 수 있습니다.",
+        )
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -24,6 +47,7 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="해당 역할은 직접 가입할 수 없습니다. 관리자에게 계정 발급을 요청하세요.",
         )
+    _validate_student_grade(data)
     existing = await get_user_by_username(db, data.username)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디입니다.")
@@ -38,6 +62,7 @@ async def admin_create_user(
     _admin: User = Depends(require_admin),
 ):
     """관리자 전용 계정 발급. 임시 비밀번호로 만들고 최초 로그인 시 변경을 강제한다."""
+    _validate_student_grade(data)      # 파일럿 계정 일괄 발급에도 같은 기준을 적용
     existing = await get_user_by_username(db, data.username)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 아이디입니다.")

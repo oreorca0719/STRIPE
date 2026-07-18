@@ -70,10 +70,9 @@ const form = ref({
   name: '', username: '', grade: '', password: '', passwordConfirm: ''
 })
 
+// 서비스 대상은 초4~중1 (PM 결정 2026-07-18). 콘텐츠 풀이 G4_G6·G7 두 학년군으로만
+// 구성돼 있어 대상 밖 학년은 맞는 난도의 지문이 없다. 서버도 같은 기준으로 검증한다.
 const grades = [
-  { value: 'elem1', label: '초등학교 1학년' },
-  { value: 'elem2', label: '초등학교 2학년' },
-  { value: 'elem3', label: '초등학교 3학년' },
   { value: 'elem4', label: '초등학교 4학년' },
   { value: 'elem5', label: '초등학교 5학년' },
   { value: 'elem6', label: '초등학교 6학년' },

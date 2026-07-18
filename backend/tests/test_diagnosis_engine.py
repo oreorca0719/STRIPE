@@ -156,6 +156,25 @@ def test_grade_to_group():
     assert text_selection.grade_to_group(7) == text_selection.GradeGroup.G7
 
 
+# --- 서비스 대상 학년 (초4~중1) -------------------------------------------
+# 학년이 계정(users.grade)과 설문(student_profiles.grade) 두 곳에 저장되고
+# 텍스트 선정은 설문 값만 쓴다. 두 정의가 어긋나면 맞지 않는 난도의 지문이 나가므로
+# 허용 범위가 한쪽만 바뀌는 것을 막는다.
+
+def test_service_grades_cover_engine_grade_groups():
+    """가입 가능한 학년은 전부 엔진이 아는 학년군으로 매핑돼야 한다."""
+    from app.api.endpoints.auth import SERVICE_GRADES
+    from app.models.user import GradeLevel
+
+    expected = {GradeLevel.elem4, GradeLevel.elem5, GradeLevel.elem6, GradeLevel.mid1}
+    assert SERVICE_GRADES == expected, "서비스 대상 학년이 초4~중1을 벗어났다"
+
+    # 중1은 반드시 G7 로 가야 한다 — G4_G6 로 새면 G7 지문이 사장된다.
+    assert text_selection.grade_to_group(7) == text_selection.GradeGroup.G7
+    for g in (4, 5, 6):
+        assert text_selection.grade_to_group(g) == text_selection.GradeGroup.G4_G6
+
+
 def test_topic_match_score():
     assert text_selection.topic_match_score(["animal", "science"], ["science"]) == 1
     assert text_selection.topic_match_score(["animal"], ["history"]) == 0

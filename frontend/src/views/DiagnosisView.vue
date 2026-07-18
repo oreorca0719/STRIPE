@@ -53,11 +53,15 @@
           <div class="q-block">
             <label class="q-label">몇 학년이야?</label>
             <div class="chips">
-              <button v-for="g in [4,5,6]" :key="g" class="chip"
-                      :class="{ sel: survey.grade === g }" @click="survey.grade = g">
-                {{ g }}학년
+              <button v-for="g in gradeOpts" :key="g.v" class="chip"
+                      :class="{ sel: survey.grade === g.v }" @click="survey.grade = g.v">
+                {{ g.t }}
               </button>
             </div>
+            <p v-if="gradeMismatch" class="grade-hint">
+              가입할 때는 <strong>{{ accountGradeLabel }}</strong>이라고 했어요.
+              다르면 그대로 골라도 괜찮아요.
+            </p>
           </div>
 
           <div class="q-block">
@@ -228,10 +232,31 @@ const topicOpts = [
   { t: '🌱 자연', v: 'NATURE' }, { t: '🚀 우주', v: 'SPACE' }, { t: '🏛 역사', v: 'HISTORY' }, { t: '🏠 일상', v: 'DAILY' },
 ]
 
+// 서비스 대상 초4~중1. 엔진은 grade 7 을 중1(G7)로 매핑한다(text_selection.grade_to_group).
+// 여기에 7이 없으면 G7 지문이 학생에게 도달하지 못한다.
+const gradeOpts = [
+  { v: 4, t: '4학년' }, { v: 5, t: '5학년' }, { v: 6, t: '6학년' }, { v: 7, t: '중1' },
+]
+const ACCOUNT_GRADE_TO_NUM: Record<string, number> = {
+  elem4: 4, elem5: 5, elem6: 6, mid1: 7,
+}
+
 const survey = reactive<{
   grade: number | null; reading_freq: number | null; reading_attitude: number | null;
   interest_topics: string[]; predicted_correct: number
 }>({ grade: null, reading_freq: null, reading_attitude: null, interest_topics: [], predicted_correct: 5 })
+
+// 계정 학년을 기본값으로 채운다. 학년이 계정과 설문 두 곳에 따로 저장되는데
+// 텍스트 선정은 설문 값만 쓰기 때문에, 비워두면 학생이 다른 학년을 골라도
+// 아무도 모른 채 맞지 않는 난도의 지문이 나간다.
+const accountGradeNum = computed(() => ACCOUNT_GRADE_TO_NUM[auth.user?.grade] ?? null)
+const accountGradeLabel = computed(() =>
+  gradeOpts.find(g => g.v === accountGradeNum.value)?.t ?? '',
+)
+const gradeMismatch = computed(() =>
+  accountGradeNum.value !== null && survey.grade !== null
+  && survey.grade !== accountGradeNum.value,
+)
 
 const surveyValid = computed(() =>
   survey.grade !== null && survey.reading_freq !== null && survey.reading_attitude !== null)
@@ -306,6 +331,9 @@ async function submitSurvey() {
 // --- 중단 세션 감지 · 이어하기 ---------------------------------------------
 
 async function checkResume() {
+  if (survey.grade === null && accountGradeNum.value !== null) {
+    survey.grade = accountGradeNum.value
+  }
   try {
     const res = await api.get('/api/diagnosis/my/summary')
     if (res.data.in_progress_session_id) {
@@ -507,6 +535,11 @@ onMounted(checkResume)
 .illust { font-size: 4rem; }
 
 /* 이어하기 선택 */
+.grade-hint {
+  font-size: 0.85rem; color: var(--gray); margin-top: 0.6rem; line-height: 1.5;
+}
+.grade-hint strong { color: var(--navy); }
+
 .resume-desc { color: var(--gray); line-height: 1.7; margin-bottom: 1.5rem; }
 .resume-actions { display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
 .btn-ghost {
