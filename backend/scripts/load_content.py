@@ -149,7 +149,7 @@ async def verify():
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reset", action="store_true", help="기존 풀 삭제 후 적재")
-    ap.add_argument("--file", default=str(BACKEND_DIR / "scripts" / "generated" / "seed_content.json"))
+    ap.add_argument("--file", default=str(BACKEND_DIR / "scripts" / "generated" / "seed_all.json"))
     args = ap.parse_args()
     path = Path(args.file)
     if not path.exists():

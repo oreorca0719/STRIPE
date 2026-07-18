@@ -21,3 +21,8 @@ dist/
 
 # Logs
 *.log
+
+# 콘텐츠 생성 중간 산출물 (배치별 파일)
+# 적재에 쓰이는 통합 시드 seed_all.json 만 추적한다 — 배치는 언제든 재생성 가능.
+backend/scripts/generated/expand_*.json
+backend/scripts/generated/_*.json

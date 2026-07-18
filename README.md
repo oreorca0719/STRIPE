@@ -120,7 +120,9 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 - **콘텐츠 풀**: Claude(sonnet-5)로 7원칙 기반 지문 **48편** + 4지선다 문항 **288개** 생성·승인 적재 (`backend/scripts/`). 학생은 승인된 풀만 소비 (생성은 오프라인 저작 — 사용자 기능 아님)
   - 초4~6(G4_G6) 36편 = 장르2 × 난도3 × 6편, 중1(G7) 12편 = 장르2 × 난도3 × 2편
   - 생성: `generate_content.py --grade-group {G4_G6|G7} --per-combo N --topic-offset K` → 배치별 파일
-  - 병합: `merge_seed.py out.json in1.json …` → 적재: `load_content.py --file … --reset`
+  - 병합: `merge_seed.py generated/seed_all.json generated/<배치>.json …`
+  - 적재: `load_content.py --reset` (기본 입력 = `generated/seed_all.json`)
+  - 저장소에는 통합본 `seed_all.json`만 추적한다. 배치 파일은 재생성 가능하므로 gitignore.
 - **프론트 연동**: `DiagnosisView`(설문·묵독타이머·문항·적응형 회차) / `ResultView`(판정·처방·리포트) 실제 API 연결
 - **테스트**: 단위 73 + 실 Postgres 통합 1 = **74 passed** + 풀사이클 API 스모크 + 브라우저 E2E 완주
 
