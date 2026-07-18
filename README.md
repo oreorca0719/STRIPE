@@ -29,8 +29,8 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 
 | 항목 | 내용 |
 |---|---|
-| **서비스 URL** | **https://13-192-160-135.nip.io** |
-| 인프라 | AWS EC2 `t3.small` (ap-northeast-1) · Elastic IP · EBS 20GB |
+| **서비스 URL** | **https://54-180-21-185.nip.io** |
+| 인프라 | AWS EC2 `t3.small` (**ap-northeast-2 서울**) · Elastic IP · EBS 20GB |
 | 구성 | Docker Compose — `caddy`(TLS) · `frontend`(nginx) · `backend`(FastAPI) · `postgres` |
 | TLS | Let's Encrypt 실인증서, Caddy가 자동 발급·갱신 (HTTP→HTTPS 301) |
 | 배포 | `main` push → GitHub Actions(테스트·빌드) → EC2 SSH 자동 배포 |
@@ -38,6 +38,12 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 
 > **도메인 미구매 상태**라 `nip.io`(IP→호스트명 무료 DNS)로 실인증서를 받고 있다.
 > 도메인 구매 시 `Caddyfile`의 호스트명만 교체하면 된다.
+>
+> **리전은 서울(ap-northeast-2)이어야 한다.** 초기에는 도쿄(ap-northeast-1)에 있었으나,
+> 한국 아동의 개인정보가 국외에 저장되면 개인정보보호법상 국외 이전에 해당해
+> 법정대리인의 별도 동의가 필요해진다. 도쿄를 택했던 사유(App Runner 서울 미지원)는
+> App Runner를 쓰지 않는 현재 EC2+compose 구조에는 해당하지 않아 2026-07-18 이전 완료.
+> DB 원본과 S3 백업 모두 서울에 있어야 하며, 리전을 되돌리지 말 것.
 >
 > 비용: 상시 가동 시 약 $19/월. 사용하지 않을 땐 인스턴스를 **정지**하면 EBS 비용(~$1/월)만 발생하며,
 > Elastic IP·데이터는 유지된다.
@@ -111,7 +117,10 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 ```
 
 - **진단 엔진** (`backend/app/services/diagnosis/`): scoring(Betts) · adaptive · text_selection(approved 3단 + 관심주제) · judgment(매트릭스·메타인지) · prescription · pipeline(SYS-01) · report
-- **콘텐츠 풀**: Claude(sonnet-5)로 7원칙 기반 지문 12편 + 4지선다 문항 72개 생성·승인 적재 (`backend/scripts/`). 학생은 승인된 풀만 소비 (생성은 오프라인 저작 — 사용자 기능 아님)
+- **콘텐츠 풀**: Claude(sonnet-5)로 7원칙 기반 지문 **48편** + 4지선다 문항 **288개** 생성·승인 적재 (`backend/scripts/`). 학생은 승인된 풀만 소비 (생성은 오프라인 저작 — 사용자 기능 아님)
+  - 초4~6(G4_G6) 36편 = 장르2 × 난도3 × 6편, 중1(G7) 12편 = 장르2 × 난도3 × 2편
+  - 생성: `generate_content.py --grade-group {G4_G6|G7} --per-combo N --topic-offset K` → 배치별 파일
+  - 병합: `merge_seed.py out.json in1.json …` → 적재: `load_content.py --file … --reset`
 - **프론트 연동**: `DiagnosisView`(설문·묵독타이머·문항·적응형 회차) / `ResultView`(판정·처방·리포트) 실제 API 연결
 - **테스트**: 단위 73 + 실 Postgres 통합 1 = **74 passed** + 풀사이클 API 스모크 + 브라우저 E2E 완주
 
@@ -332,7 +341,7 @@ cd frontend && npm install && npm run dev
 |---|---|
 | `EC2_HOST` | 배포 대상 EC2 공인 IP |
 | `EC2_USER` | SSH 사용자 (`ec2-user`) |
-| `EC2_SSH_KEY` | 배포용 개인키 (`stripe-deploy`) |
+| `EC2_SSH_KEY` | 배포용 개인키 (`stripe-deploy-seoul`) |
 
 > 앱 시크릿(`SECRET_KEY`·`ANTHROPIC_API_KEY`·DB 접속정보)은 GitHub가 아니라
 > **EC2의 `~/stripe/.env`** 에만 존재한다. 배포는 코드만 갱신하므로 시크릿이 CI를 통과하지 않는다.
