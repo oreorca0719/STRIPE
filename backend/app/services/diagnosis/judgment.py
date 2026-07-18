@@ -22,6 +22,24 @@ COMPREHENSION_P = {  # 독해 정답률 경계
 }
 METACOG_TOLERANCE = 1  # |예측-실제10| ≤ 1 → accurate (해석값, Jun 확인)
 
+# --- A4 타당성 범위 (측정 신뢰도 게이트) -----------------------------------
+# 지문을 읽지 않고 버튼만 눌러도 '유창성 높음'으로 판정되던 문제를 막는다.
+# 유창성만으로 오진하지 않는 것이 진단 설계의 전제이므로(2층 구조), 물리적으로
+# 불가능한 속도는 측정 실패로 간주하고 판정에서 제외한다.
+#
+# 한국어 묵독 속도 참고: 초등 고학년은 대체로 3~8음절/초 범위.
+# 상한 15는 '속독 최상위'도 넘어서는 값 → 미독(건너뛰기)으로 간주.
+# 하한 0.3은 200음절 기준 11분 이상 → 이탈/중단으로 간주.
+A4_PLAUSIBLE_MIN = 0.3   # 음절/초
+A4_PLAUSIBLE_MAX = 15.0  # 음절/초
+
+
+def is_plausible_a4(value: Optional[float]) -> bool:
+    """A4 값이 사람이 실제로 읽은 결과로 볼 수 있는 범위인지."""
+    if value is None:
+        return False
+    return A4_PLAUSIBLE_MIN <= value <= A4_PLAUSIBLE_MAX
+
 
 # =========================================================================
 # §3-1 유창성 판정 (silent_mode A4 기반)
@@ -38,9 +56,18 @@ class FluencyJudgment:
 
 
 def judge_fluency(a4_values: Sequence[float], grade_group: GradeGroup) -> FluencyJudgment:
-    """A4(음절/초) 목록 → 유창성 수준. 빈 입력은 unavailable/unstable."""
-    values = [v for v in a4_values if v is not None]
+    """A4(음절/초) 목록 → 유창성 수준.
+
+    타당성 범위를 벗어난 값(미독으로 인한 과속·이탈로 인한 과속저하)은 제외한다.
+    남는 값이 없으면 '측정 불가'로 처리해 유창성이 매트릭스 판정을 왜곡하지 않게 한다.
+    """
+    raw = [v for v in a4_values if v is not None]
+    values = [v for v in raw if is_plausible_a4(v)]
+    dropped = len(raw) - len(values)
+
     if not values:
+        # 값이 아예 없는 경우와, 있었지만 전부 비정상인 경우를 구분해 알린다.
+        flags = ["fluency_unavailable"] if not raw else ["fluency_unavailable", "fluency_implausible"]
         return FluencyJudgment(
             fluency_level=Level3.mid,            # 내부 매트릭스 배치용
             fluency_source=FluencySource.unavailable,
@@ -48,8 +75,24 @@ def judge_fluency(a4_values: Sequence[float], grade_group: GradeGroup) -> Fluenc
             fluency_value=None,
             fluency_value_unit=FluencyUnit.none,
             reliability_flag=ReliabilityFlag.unstable,
-            disclaimer_flags=["fluency_unavailable"],
+            disclaimer_flags=flags,
         )
+
+    # 일부만 비정상이면 나머지로 판정하되 신뢰도를 낮추고 사유를 남긴다.
+    if dropped:
+        value = float(median(values))
+        p33, p67 = FLUENCY_P[grade_group]
+        level = Level3.low if value <= p33 else (Level3.high if value >= p67 else Level3.mid)
+        return FluencyJudgment(
+            fluency_level=level,
+            fluency_source=FluencySource.silent,
+            fluency_valid=True,
+            fluency_value=round(value, 3),
+            fluency_value_unit=FluencyUnit.SPS,
+            reliability_flag=ReliabilityFlag.low,
+            disclaimer_flags=["fluency_partial_implausible"],
+        )
+
     value = float(median(values))   # 짝수 개수 → 두 중간값 평균
     p33, p67 = FLUENCY_P[grade_group]
     if value <= p33:

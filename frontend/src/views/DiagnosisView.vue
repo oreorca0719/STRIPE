@@ -107,6 +107,8 @@
             </div>
           </div>
 
+          <p v-if="tooFastWarning" class="too-fast">{{ tooFastWarning }}</p>
+
           <div class="timer-area">
             <div class="timer" :class="{ running: timerRunning }">
               <span class="timer-dot" v-if="timerRunning"></span>⏱ {{ timerDisplay }}
@@ -214,8 +216,10 @@ function toggleTopic(v: string) {
 // 진단 상태
 const sessionId = ref<number | null>(null)
 const roundNumber = ref(1)
-const round = reactive<{ roundId: number | null; title: string; content: string; genre: string; questions: any[] }>(
-  { roundId: null, title: '', content: '', genre: '', questions: [] })
+const round = reactive<{
+  roundId: number | null; title: string; content: string; genre: string
+  syllableCount: number; questions: any[]
+}>({ roundId: null, title: '', content: '', genre: '', syllableCount: 0, questions: [] })
 const answers = reactive<Record<number, number>>({})
 const silentSeconds = ref(0)
 
@@ -276,10 +280,11 @@ async function loadRound(roundId: number) {
   round.title = r.data.title
   round.content = r.data.content
   round.genre = r.data.genre
+  round.syllableCount = r.data.syllable_count || 0
   round.questions = r.data.questions
   for (const k of Object.keys(answers)) delete answers[Number(k)]
   timerSeconds.value = 0; timerRunning.value = false; silentSeconds.value = 0
-  hasRead.value = false
+  hasRead.value = false; tooFastWarned.value = false
   phase.value = 'reading'
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -289,11 +294,32 @@ function startReading() {
   timerInterval = setInterval(() => timerSeconds.value++, 1000)
 }
 
+// 지문을 실제로 읽었다고 보기 어려운 속도면 되묻는다.
+// (엔진에도 동일 취지의 타당성 게이트가 있으나, 여기서 먼저 막아 재측정을 유도)
+const MAX_PLAUSIBLE_SPS = 15   // 음절/초 — 이보다 빠르면 미독으로 간주
+const tooFastWarned = ref(false)
+const tooFastWarning = ref('')
+
 async function stopReading() {
+  const elapsed = Math.max(1, timerSeconds.value)
+  const syllables = round.syllableCount || 0
+  const sps = syllables ? syllables / elapsed : 0
+
+  // 너무 빠른 첫 시도는 경고 후 되돌린다 (두 번째 시도는 학생 의사를 존중해 진행)
+  if (syllables && sps > MAX_PLAUSIBLE_SPS && !tooFastWarned.value) {
+    tooFastWarned.value = true
+    timerRunning.value = false
+    if (timerInterval) clearInterval(timerInterval)
+    tooFastWarning.value = '너무 빨라요! 글을 끝까지 읽었는지 확인하고 다시 읽어줘 📖'
+    timerSeconds.value = 0
+    return
+  }
+
   if (timerInterval) clearInterval(timerInterval)
   timerRunning.value = false
   hasRead.value = true
-  silentSeconds.value = Math.max(1, timerSeconds.value)
+  tooFastWarning.value = ''
+  silentSeconds.value = elapsed
   busy.value = true; error.value = ''
   try {
     await api.post('/api/diagnosis/fluency/silent', {
@@ -423,6 +449,10 @@ p { color: var(--gray); line-height: 1.6; }
 .text-veil span { background: var(--navy); color: white; font-weight: 800; font-size: 0.95rem; padding: 0.7rem 1.4rem; border-radius: 99px; }
 .reading-text { line-height: 2.1; color: var(--navy); white-space: pre-wrap; word-break: keep-all; letter-spacing: -0.01em; }
 
+.too-fast {
+  background: #fff3e0; color: #e67e22; font-weight: 800; font-size: 0.92rem;
+  padding: 0.8rem 1.3rem; border-radius: 99px;
+}
 .timer-area { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
 .timer { font-size: 2.4rem; font-weight: 900; color: var(--gray); display: flex; align-items: center; gap: 0.5rem; transition: color 0.2s; }
 .timer.running { color: var(--mint-dark); }

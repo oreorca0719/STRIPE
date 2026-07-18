@@ -45,6 +45,49 @@ def test_fluency_g7_thresholds_differ():
     assert J.judge_fluency([2.7], GradeGroup.G4_G6).fluency_level == Level3.mid
 
 
+# ---- A4 타당성 게이트 (미독 방지) ----------------------------------------
+# 지문을 읽지 않고 버튼만 눌러도 '유창성 높음'으로 판정되던 결함에 대한 회귀 방지.
+
+@pytest.mark.parametrize("v,ok", [
+    (0.2, False),    # 이탈 수준으로 느림
+    (0.3, True),     # 하한 경계
+    (3.5, True),     # 정상 범위
+    (15.0, True),    # 상한 경계
+    (15.1, False),   # 상한 초과
+    (70.0, False),   # 버튼만 누른 경우
+    (None, False),
+])
+def test_a4_plausibility_range(v, ok):
+    assert J.is_plausible_a4(v) is ok
+
+
+def test_fluency_all_implausible_is_unavailable():
+    """전부 비정상이면 유창성을 판정에 쓰지 않는다(매트릭스 왜곡 방지)."""
+    r = J.judge_fluency([70.0, 65.0], GradeGroup.G4_G6)
+    assert r.fluency_valid is False
+    assert r.fluency_source == FluencySource.unavailable
+    assert r.fluency_value is None
+    assert r.reliability_flag == ReliabilityFlag.unstable
+    assert "fluency_implausible" in r.disclaimer_flags
+
+
+def test_fluency_partial_implausible_uses_rest_with_low_reliability():
+    """일부만 비정상이면 나머지로 판정하되 신뢰도를 낮춘다."""
+    r = J.judge_fluency([70.0, 3.0], GradeGroup.G4_G6)
+    assert r.fluency_valid is True
+    assert r.fluency_value == 3.0            # 비정상값 제외 후 산출
+    assert r.reliability_flag == ReliabilityFlag.low
+    assert "fluency_partial_implausible" in r.disclaimer_flags
+
+
+def test_fluency_normal_values_unaffected():
+    """정상 범위 값만 있으면 기존 동작 그대로."""
+    r = J.judge_fluency([3.0, 4.0], GradeGroup.G4_G6)
+    assert r.fluency_valid is True
+    assert r.reliability_flag == ReliabilityFlag.normal
+    assert r.disclaimer_flags == []
+
+
 # ---- §3-2 독해 + 12셀 ----------------------------------------------------
 def _cells(spec):
     out = []
