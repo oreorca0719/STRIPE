@@ -56,7 +56,7 @@
             <tr v-else-if="!filtered.length"><td colspan="10">
               <div class="empty-state"><span>🔍</span><span>조건에 맞는 텍스트가 없습니다</span></div>
             </td></tr>
-            <tr v-else v-for="t in filtered" :key="t.id">
+            <tr v-else v-for="t in filtered" :key="t.id" class="row" @click="openDetail(t.id)">
               <td class="mono">{{ t.text_code }}</td>
               <td class="title-cell">{{ t.title }}</td>
               <td>{{ t.grade_group === 'G4_G6' ? '초4~6' : '중1' }}</td>
@@ -71,6 +71,55 @@
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- 지문 상세 (본문 + 문항 + 정답) -->
+      <div v-if="detailOpen" class="modal-backdrop" @click.self="closeDetail">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <h2 class="m-title">{{ detail?.title || '불러오는 중…' }}</h2>
+              <p v-if="detail" class="m-sub">
+                <span class="mono">{{ detail.text_code }}</span> ·
+                {{ detail.grade_group === 'G4_G6' ? '초4~6' : '중1' }} ·
+                {{ detail.genre === 'narrative' ? '이야기글' : '설명글' }} ·
+                {{ diffKo(detail.difficulty) }} · {{ detail.syllable_count }}음절
+                <template v-if="detail.topic_tags?.length"> · {{ detail.topic_tags.join(', ') }}</template>
+              </p>
+            </div>
+            <button class="close-btn" @click="closeDetail">✕</button>
+          </div>
+
+          <div v-if="detailLoading" class="empty-state"><span>⏳</span><span>불러오는 중…</span></div>
+
+          <template v-else-if="detail">
+            <div class="m-section">
+              <h3 class="m-h3">지문 본문</h3>
+              <p class="passage">{{ detail.content }}</p>
+            </div>
+
+            <div class="m-section">
+              <h3 class="m-h3">문항 {{ detail.questions.length }}개 <span class="dim">(정답 표시)</span></h3>
+              <div v-for="(q, i) in detail.questions" :key="q.id" class="q-block">
+                <div class="q-head">
+                  <span class="q-no">문제 {{ i + 1 }}</span>
+                  <span class="area-chip">{{ areaKo(q.target_area) }}</span>
+                  <span class="mono dim">{{ q.question_code }}</span>
+                </div>
+                <p class="q-text">{{ q.question_text }}</p>
+                <div class="q-choices">
+                  <div v-for="(c, ci) in q.choices" :key="ci" class="choice"
+                       :class="{ correct: ci + 1 === q.answer_index }">
+                    <span class="c-no">{{ ci + 1 }}</span>{{ c }}
+                    <span v-if="ci + 1 === q.answer_index" class="c-mark">정답</span>
+                  </div>
+                </div>
+                <p v-if="q.evidence_text" class="q-meta"><b>근거</b> {{ q.evidence_text }}</p>
+                <p v-if="q.explanation" class="q-meta"><b>해설</b> {{ q.explanation }}</p>
+              </div>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- 구성 현황 -->
@@ -143,6 +192,22 @@ function coverageCells(gradeGroup: string) {
       t.difficulty === diff && t.review_status === 'approved').length,
   }))
 }
+
+// 지문 상세 (본문·문항·정답)
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detail = ref<any>(null)
+
+function areaKo(a: string) {
+  return ({ A5: '사실적 이해', A6: '추론적 이해', A7: '비판적 이해' } as any)[a] || a
+}
+
+async function openDetail(id: number) {
+  detailOpen.value = true; detailLoading.value = true; detail.value = null
+  try { detail.value = (await api.get(`/api/admin/texts/${id}`)).data }
+  catch { detail.value = null } finally { detailLoading.value = false }
+}
+function closeDetail() { detailOpen.value = false; detail.value = null }
 
 async function load() {
   try {
@@ -241,4 +306,48 @@ select:focus { border-color: #4ECDC4; }
 .ok-chip { background: rgba(78,205,196,0.15); color: #4ECDC4; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
 .warn-chip { background: #252836; color: #666; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
 .pool-count { font-weight: 800; color: #4ECDC4; font-size: 0.9rem; }
+.row { cursor: pointer; }
+.dim { color: #555; }
+
+/* 지문 상세 모달 */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center; padding: 2rem; z-index: 50;
+}
+.modal {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  width: 100%; max-width: 780px; max-height: 85vh; overflow-y: auto; padding: 1.8rem;
+}
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.m-title { font-size: 1.15rem; font-weight: 900; color: #fff; }
+.m-sub { font-size: 0.8rem; color: #666; margin-top: 0.35rem; }
+.close-btn { background: #252836; border: 1px solid #2a2d3e; color: #888; width: 32px; height: 32px; border-radius: 8px; font-weight: 900; flex-shrink: 0; }
+.close-btn:hover { border-color: #FF6B6B; color: #FF6B6B; }
+
+.m-section { margin-bottom: 1.8rem; }
+.m-h3 { font-size: 0.88rem; font-weight: 800; color: #4ECDC4; margin-bottom: 0.8rem; }
+.passage {
+  background: #252836; border-left: 3px solid #4ECDC4; border-radius: 8px;
+  padding: 1.2rem 1.4rem; color: #ccc; font-size: 0.95rem; line-height: 2;
+  white-space: pre-wrap; word-break: keep-all;
+}
+
+.q-block { border-top: 1px solid #2a2d3e; padding-top: 1.1rem; margin-top: 1.1rem; }
+.q-block:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.q-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+.q-no { font-size: 0.82rem; font-weight: 900; color: #fff; }
+.area-chip { font-size: 0.7rem; font-weight: 800; color: #888; background: #252836; padding: 0.15rem 0.6rem; border-radius: 99px; }
+.q-text { font-size: 0.92rem; font-weight: 700; color: #ddd; margin-bottom: 0.7rem; line-height: 1.6; }
+.q-choices { display: flex; flex-direction: column; gap: 0.35rem; }
+.choice {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.8rem;
+  background: #252836; border-radius: 8px; font-size: 0.86rem; color: #aaa;
+  border: 1px solid transparent;
+}
+.choice.correct { background: rgba(78,205,196,0.12); border-color: rgba(78,205,196,0.4); color: #4ECDC4; }
+.c-no { font-size: 0.75rem; font-weight: 800; color: #666; flex-shrink: 0; }
+.choice.correct .c-no { color: #4ECDC4; }
+.c-mark { margin-left: auto; font-size: 0.7rem; font-weight: 900; color: #4ECDC4; }
+.q-meta { font-size: 0.78rem; color: #777; margin-top: 0.5rem; line-height: 1.6; }
+.q-meta b { color: #888; margin-right: 0.4rem; }
 </style>

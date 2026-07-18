@@ -53,6 +53,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' }
     },
     {
+      path: '/admin/diagnoses',
+      name: 'admin-diagnoses',
+      component: () => import('@/views/admin/AdminDiagnosesView.vue'),
+      meta: { requiresAuth: true, role: 'admin' }
+    },
+    {
       path: '/admin/stats',
       name: 'admin-stats',
       component: () => import('@/views/admin/AdminStatsView.vue'),
@@ -102,9 +108,10 @@ router.beforeEach((to, _from, next) => {
     return next('/student')
   }
 
-  // 역할 불일치 접근 차단 (학생이 /admin 접근 등)
-  if (to.meta.role && user && to.meta.role !== user.role) {
-    if (user.role === 'admin') return next('/admin')
+  // 역할 접근 제어
+  // - 관리자: 학생 화면도 열람 가능(운영·검수 목적). 모든 페이지 접근 허용.
+  // - 그 외: 자기 역할 페이지만 접근 가능 (학생의 /admin 접근 차단)
+  if (to.meta.role && user && to.meta.role !== user.role && user.role !== 'admin') {
     return next('/student')
   }
 

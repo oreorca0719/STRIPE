@@ -69,11 +69,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { api } from '@/api'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
 
 const router = useRouter()
-const API = import.meta.env.VITE_API_BASE_URL || ''
 
 const activeTab = ref('student')
 const search = ref('')
@@ -108,7 +107,7 @@ const filteredUsers = computed(() => {
 async function loadUsers() {
   loading.value = true
   try {
-    const res = await axios.get(`${API}/api/admin/users`, {
+    const res = await api.get(`/api/admin/users`, {
       params: { role: activeTab.value }
     })
     users.value = res.data
@@ -121,7 +120,7 @@ async function loadUsers() {
 
 async function loadCounts() {
   try {
-    const res = await axios.get(`${API}/api/admin/users/count`)
+    const res = await api.get(`/api/admin/users/count`)
     counts.value = res.data
   } catch (e) {
     console.error(e)

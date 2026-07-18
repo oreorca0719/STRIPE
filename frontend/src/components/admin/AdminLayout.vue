@@ -19,6 +19,10 @@
           <span class="nav-icon">👥</span>
           <span>사용자 관리</span>
         </RouterLink>
+        <RouterLink to="/admin/diagnoses" class="nav-item">
+          <span class="nav-icon">🗂️</span>
+          <span>진단 결과</span>
+        </RouterLink>
         <RouterLink to="/admin/stats" class="nav-item">
           <span class="nav-icon">📊</span>
           <span>진단 통계</span>
@@ -34,6 +38,10 @@
       </nav>
 
       <div class="sidebar-footer">
+        <!-- 관리자도 학생이 보는 화면을 직접 확인할 수 있게 -->
+        <RouterLink to="/student" class="student-btn">
+          <span>👀</span> 학생 화면 보기
+        </RouterLink>
         <button class="logout-btn" @click="handleLogout()">
           <span>🚪</span> 로그아웃
         </button>
@@ -148,6 +156,14 @@ function handleLogout() {
   transition: all 0.2s;
 }
 .logout-btn:hover { border-color: #FF6B6B; color: #FF6B6B; }
+
+.student-btn {
+  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+  border: 1px solid #2a2d3e; border-radius: 8px; padding: 0.6rem;
+  color: #888; font-size: 0.85rem; font-weight: 700; text-decoration: none;
+  margin-bottom: 0.5rem; transition: all 0.2s;
+}
+.student-btn:hover { border-color: #4ECDC4; color: #4ECDC4; }
 
 /* 메인 */
 .admin-main {
