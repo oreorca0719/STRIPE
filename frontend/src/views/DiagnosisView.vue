@@ -205,11 +205,12 @@ async function submitSurvey() {
   if (!studentId.value) { error.value = '로그인 정보가 없어요. 다시 로그인해줘.'; return }
   busy.value = true; error.value = ''
   try {
-    const prof = await api.post(`/api/diagnosis/profile?student_id=${studentId.value}`, {
+    // 학생 식별은 서버가 토큰에서 판별한다 (student_id 파라미터 없음)
+    const prof = await api.post('/api/diagnosis/profile', {
       grade: survey.grade, reading_freq: survey.reading_freq, reading_attitude: survey.reading_attitude,
       interest_topics: survey.interest_topics, predicted_correct: survey.predicted_correct,
     })
-    const sess = await api.post(`/api/diagnosis/session?student_id=${studentId.value}`, {
+    const sess = await api.post('/api/diagnosis/session', {
       profile_id: prof.data.id, silent_mode: true,
     })
     sessionId.value = sess.data.id

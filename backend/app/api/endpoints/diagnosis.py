@@ -19,6 +19,8 @@ from app.schemas.diagnosis import (
     ProfileCreate, ProfileResponse, RoundContentResponse, QuestionPublic,
 )
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
+from app.api.deps import get_current_user
+from app.models.user import User, UserRole
 
 router = APIRouter()
 
@@ -26,6 +28,32 @@ router = APIRouter()
 def _utcnow():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc)
+
+
+# --- 소유권 검증 -----------------------------------------------------------
+# 진단 데이터는 본인(또는 관리자)만 접근 가능. 세션·회차 단위로 확인한다.
+
+def _may_access(user: User, student_id: int) -> bool:
+    return user.role == UserRole.admin or user.id == student_id
+
+
+async def _owned_session(db: AsyncSession, session_id: int, user: User) -> DiagnosisSession:
+    q = await db.execute(select(DiagnosisSession).where(DiagnosisSession.id == session_id))
+    session = q.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    if not _may_access(user, session.student_id):
+        raise HTTPException(status_code=403, detail="이 진단 세션에 접근할 권한이 없습니다.")
+    return session
+
+
+async def _owned_round(db: AsyncSession, round_id: int, user: User) -> DiagnosisRound:
+    q = await db.execute(select(DiagnosisRound).where(DiagnosisRound.id == round_id))
+    round_ = q.scalar_one_or_none()
+    if not round_:
+        raise HTTPException(status_code=404, detail="회차를 찾을 수 없습니다.")
+    await _owned_session(db, round_.diagnosis_session_id, user)
+    return round_
 
 
 def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
@@ -43,14 +71,19 @@ def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
 
 
 @router.post("/profile", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
-async def create_profile(data: ProfileCreate, student_id: int, db: AsyncSession = Depends(get_db)):
+async def create_profile(
+    data: ProfileCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """설문 → 학생 프로필 생성 + 독자유형(type_1) 분류 (§1-3, §4).
 
+    본인 계정으로만 생성 가능(토큰에서 학생 식별).
     MVP1 최소 설문: 학년·독서빈도·태도·관심주제·예상정답수(D-2 메타인지).
     """
     type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
     profile = StudentProfile(
-        user_id=student_id,
+        user_id=user.id,
         grade=data.grade,
         reading_freq=data.reading_freq,
         reading_attitude=data.reading_attitude,
@@ -65,12 +98,15 @@ async def create_profile(data: ProfileCreate, student_id: int, db: AsyncSession 
 
 
 @router.get("/round/{round_id}/content", response_model=RoundContentResponse)
-async def get_round_content(round_id: int, db: AsyncSession = Depends(get_db)):
+async def get_round_content(
+    round_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """회차의 지문 본문 + 문항(선지) 조회. 정답·근거·해설은 내려보내지 않음 (부정 방지)."""
-    r_q = await db.execute(select(DiagnosisRound).where(DiagnosisRound.id == round_id))
-    round_ = r_q.scalar_one_or_none()
-    if not round_ or round_.text_id is None:
-        raise HTTPException(status_code=404, detail="회차 또는 지문을 찾을 수 없습니다.")
+    round_ = await _owned_round(db, round_id, user)
+    if round_.text_id is None:
+        raise HTTPException(status_code=404, detail="회차에 지문이 없습니다.")
 
     t_q = await db.execute(select(TextContent).where(TextContent.id == round_.text_id))
     text = t_q.scalar_one_or_none()
@@ -106,10 +142,21 @@ async def get_round_content(round_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/session", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-async def create_session(data: SessionCreate, student_id: int, db: AsyncSession = Depends(get_db)):
-    """진단 세션 생성 (v1.2 §1-10)"""
+async def create_session(
+    data: SessionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """진단 세션 생성 (v1.2 §1-10). 본인 계정으로만 생성."""
+    if data.profile_id is not None:
+        p_q = await db.execute(select(StudentProfile).where(StudentProfile.id == data.profile_id))
+        profile = p_q.scalar_one_or_none()
+        if not profile:
+            raise HTTPException(status_code=404, detail="프로필을 찾을 수 없습니다.")
+        if not _may_access(user, profile.user_id):
+            raise HTTPException(status_code=403, detail="이 프로필에 접근할 권한이 없습니다.")
     session = DiagnosisSession(
-        student_id=student_id,
+        student_id=user.id,
         profile_id=data.profile_id,
         text_id=data.text_id,
         silent_mode=data.silent_mode,
@@ -122,17 +169,16 @@ async def create_session(data: SessionCreate, student_id: int, db: AsyncSession 
 
 
 @router.post("/round", response_model=RoundResponse, status_code=status.HTTP_201_CREATED)
-async def create_round(data: RoundCreate, db: AsyncSession = Depends(get_db)):
+async def create_round(
+    data: RoundCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """진단 회차 생성 (적응형 단위, v1.2 §1-11)
 
     텍스트 자동 선택(§7)·난도 조절(§4)은 Phase B 엔진에서 부착. Phase A는 수동 생성.
     """
-    sess_q = await db.execute(
-        select(DiagnosisSession).where(DiagnosisSession.id == data.diagnosis_session_id)
-    )
-    session = sess_q.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session = await _owned_session(db, data.diagnosis_session_id, user)
 
     round_ = DiagnosisRound(
         diagnosis_session_id=data.diagnosis_session_id,
@@ -149,8 +195,13 @@ async def create_round(data: RoundCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/fluency/oral", response_model=FluencyResultResponse, status_code=status.HTTP_201_CREATED)
-async def submit_oral_fluency(data: OralFluencySubmit, db: AsyncSession = Depends(get_db)):
+async def submit_oral_fluency(
+    data: OralFluencySubmit,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """음독 유창성 결과 저장 (MVP1 비활성 — demo_mode 전용)"""
+    await _owned_session(db, data.session_id, user)
     accurate_syllables = data.total_syllables - data.error_count
     automaticity = (accurate_syllables / data.reading_time_seconds) * 10 if data.reading_time_seconds > 0 else 0
     accuracy = 1 - (data.error_count / data.total_syllables) if data.total_syllables > 0 else 0
@@ -172,8 +223,15 @@ async def submit_oral_fluency(data: OralFluencySubmit, db: AsyncSession = Depend
 
 
 @router.post("/fluency/silent", response_model=FluencyResultResponse, status_code=status.HTTP_201_CREATED)
-async def submit_silent_fluency(data: SilentFluencySubmit, db: AsyncSession = Depends(get_db)):
+async def submit_silent_fluency(
+    data: SilentFluencySubmit,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """묵독 유창성 결과 저장 (MVP1 기본 경로). round_id 주어지면 A4(음절/초) 산출."""
+    await _owned_session(db, data.session_id, user)
+    if data.round_id is not None:
+        await _owned_round(db, data.round_id, user)
     a4 = None
     if data.round_id is not None and data.silent_reading_time and data.silent_reading_time > 0:
         rt_q = await db.execute(
@@ -200,12 +258,17 @@ async def submit_silent_fluency(data: SilentFluencySubmit, db: AsyncSession = De
 
 
 @router.post("/comprehension", response_model=QuestionResponseResult, status_code=status.HTTP_201_CREATED)
-async def submit_question_response(data: QuestionResponseSubmit, db: AsyncSession = Depends(get_db)):
+async def submit_question_response(
+    data: QuestionResponseSubmit,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """독해 문항 응답 저장 + 규칙 채점 (AI-05, LLM 미사용)
 
     student_answer == questions.answer_index → is_correct. (v1.2 §6 AI-05)
     회차 집계(comprehension_results)·Betts·영역정답률은 Phase B 엔진에서 산출.
     """
+    await _owned_round(db, data.round_id, user)
     q = await db.execute(select(Question).where(Question.id == data.question_id))
     question = q.scalar_one_or_none()
     if not question:
@@ -226,15 +289,16 @@ async def submit_question_response(data: QuestionResponseSubmit, db: AsyncSessio
 
 
 @router.post("/session/{session_id}/start", response_model=RoundResponse, status_code=status.HTTP_201_CREATED)
-async def start_diagnosis(session_id: int, db: AsyncSession = Depends(get_db)):
+async def start_diagnosis(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """1회차 시작 (SCR-07): 텍스트 선택(§7) + 1회차 생성.
 
     기본값 difficulty=normal, genre=narrative. 학년군은 프로필 grade에서 매핑.
     """
-    sess_q = await db.execute(select(DiagnosisSession).where(DiagnosisSession.id == session_id))
-    session = sess_q.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session = await _owned_session(db, session_id, user)
     if not session.profile_id:
         raise HTTPException(status_code=400, detail="세션에 학생 프로필이 연결되어 있지 않습니다.")
 
@@ -271,20 +335,17 @@ async def start_diagnosis(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/round/{round_id}/complete", response_model=RoundCompleteResponse)
-async def complete_round(round_id: int, db: AsyncSession = Depends(get_db)):
+async def complete_round(
+    round_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """회차 완료: 집계+Betts(§3-2) → 적응형 판단(§4) → 다음 회차 또는 종료.
 
     채점 자체는 /comprehension에서 문항별 규칙 채점(AI-05) 완료된 상태를 집계.
     """
-    round_q = await db.execute(select(DiagnosisRound).where(DiagnosisRound.id == round_id))
-    round_ = round_q.scalar_one_or_none()
-    if not round_:
-        raise HTTPException(status_code=404, detail="회차를 찾을 수 없습니다.")
-
-    sess_q = await db.execute(
-        select(DiagnosisSession).where(DiagnosisSession.id == round_.diagnosis_session_id)
-    )
-    session = sess_q.scalar_one()
+    round_ = await _owned_round(db, round_id, user)
+    session = await _owned_session(db, round_.diagnosis_session_id, user)
 
     # 1) 회차 집계 + Betts
     resp_q = await db.execute(
@@ -414,13 +475,14 @@ async def complete_round(round_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/session/{session_id}/complete", response_model=SessionResponse)
-async def complete_session(session_id: int, db: AsyncSession = Depends(get_db)):
+async def complete_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """진단 세션 완료 처리"""
     from datetime import datetime, timezone
-    result = await db.execute(select(DiagnosisSession).where(DiagnosisSession.id == session_id))
-    session = result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session = await _owned_session(db, session_id, user)
     session.status = DiagSessionStatus.completed
     session.completed_at = datetime.now(timezone.utc)
     await db.commit()
@@ -429,15 +491,16 @@ async def complete_session(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/session/{session_id}/finalize", response_model=FinalizeResponse, status_code=status.HTTP_201_CREATED)
-async def finalize_session(session_id: int, db: AsyncSession = Depends(get_db)):
+async def finalize_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """SYS-01: 판정+처방 산출·저장 (§3+§5). 세션 종료 후 호출.
 
     채점·판정·처방 전부 규칙 기반(LLM 미사용). 리포트 생성(AI-07)은 C-3.
     """
-    sess_q = await db.execute(select(DiagnosisSession).where(DiagnosisSession.id == session_id))
-    session = sess_q.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session = await _owned_session(db, session_id, user)
     try:
         judgment, prescription = await pipeline.run_sys01(db, session)
     except ValueError as e:
@@ -450,8 +513,13 @@ async def finalize_session(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/session/{session_id}/report", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
-async def generate_report(session_id: int, db: AsyncSession = Depends(get_db)):
+async def generate_report(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """학생 리포트 생성 (AI-07). finalize 이후 호출. LLM은 키 있을 때만 표현 다듬기."""
+    await _owned_session(db, session_id, user)
     try:
         rpt = await report.generate_student_report(db, session_id)
     except ValueError as e:
@@ -463,8 +531,13 @@ async def generate_report(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/session/{session_id}/judgment", response_model=FinalizeResponse)
-async def get_judgment(session_id: int, db: AsyncSession = Depends(get_db)):
+async def get_judgment(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """세션의 판정+처방 조회 (finalize 이후). 결과 화면용."""
+    await _owned_session(db, session_id, user)
     j_q = await db.execute(
         select(JudgmentResult)
         .where(JudgmentResult.diagnosis_session_id == session_id)
@@ -483,8 +556,13 @@ async def get_judgment(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/session/{session_id}/report", response_model=ReportResponse)
-async def get_report(session_id: int, db: AsyncSession = Depends(get_db)):
+async def get_report(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """세션의 학생 리포트 조회 (report 생성 이후). 결과 화면용."""
+    await _owned_session(db, session_id, user)
     j_q = await db.execute(
         select(JudgmentResult)
         .where(JudgmentResult.diagnosis_session_id == session_id)
@@ -505,12 +583,13 @@ async def get_report(session_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/result/{session_id}", response_model=DiagnosisResultResponse)
-async def get_result(session_id: int, db: AsyncSession = Depends(get_db)):
+async def get_result(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """진단 결과 조회 (회차 기반 구조)"""
-    result = await db.execute(select(DiagnosisSession).where(DiagnosisSession.id == session_id))
-    session = result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    session = await _owned_session(db, session_id, user)
 
     rounds_q = await db.execute(
         select(DiagnosisRound)

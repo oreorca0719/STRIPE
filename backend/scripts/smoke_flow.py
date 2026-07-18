@@ -48,9 +48,14 @@ async def answer_for(qid: int) -> int:
 async def main():
     uid = await ensure_student()
     print(f"학생 user_id={uid}")
-    async with httpx.AsyncClient(base_url=BASE, timeout=30) as ac:
-        # 1) 프로필 (설문 → type_1)
-        r = await ac.post(f"/api/diagnosis/profile?student_id={uid}", json={
+    # 진단 API는 인증 필요 — 시드 학생의 토큰 생성
+    from app.core.security import create_access_token
+    token = create_access_token({"sub": str(uid), "role": "student"})
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with httpx.AsyncClient(base_url=BASE, timeout=30, headers=headers) as ac:
+        # 1) 프로필 (설문 → type_1) — 학생 식별은 토큰에서
+        r = await ac.post("/api/diagnosis/profile", json={
             "grade": 4, "reading_freq": 5, "reading_attitude": 5,
             "interest_topics": ["ANIMAL"], "predicted_correct": 5,
         })
@@ -58,7 +63,7 @@ async def main():
         print(f"프로필 id={prof['id']}, type_1={prof['type_1']}")
 
         # 2) 세션
-        r = await ac.post(f"/api/diagnosis/session?student_id={uid}",
+        r = await ac.post("/api/diagnosis/session",
                           json={"profile_id": prof["id"], "silent_mode": True})
         r.raise_for_status(); sid = r.json()["id"]
         print(f"세션 id={sid}")

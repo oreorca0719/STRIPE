@@ -104,9 +104,19 @@ async def _run():
     app.include_router(diagnosis.router, prefix="/api/diagnosis")
     transport = ASGITransport(app=app)
 
-    async with AsyncClient(transport=transport, base_url="http://t") as ac:
-        # 세션 생성
-        r = await ac.post(f"/api/diagnosis/session?student_id={uid}",
+    # 리포트는 결정적 템플릿 조립 경로를 검증한다. 개발자 로컬 .env에 키가 있어도
+    # 결과가 달라지지 않도록 LLM 다듬기를 명시적으로 비활성화(환경 무관 재현성).
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+
+    # 진단 API는 인증 필요 — 시드한 학생의 토큰으로 호출
+    from app.core.security import create_access_token
+    token = create_access_token({"sub": str(uid), "role": "student"})
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=auth_headers) as ac:
+        # 세션 생성 (학생 식별은 토큰에서)
+        r = await ac.post("/api/diagnosis/session",
                           json={"profile_id": pid, "silent_mode": True})
         assert r.status_code == 201, r.text
         sid = r.json()["id"]
