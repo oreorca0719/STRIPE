@@ -1,7 +1,18 @@
+# 로그 회전 공통 설정.
+# frontend(nginx) 접속 로그에는 X-Forwarded-For로 실제 접속자 IP가 남는다. IP는
+# 개인정보이므로 무기한 적재하면 개인정보 처리방침의 보관기간과 어긋나고, 디스크도
+# 무한히 찬다. 컨테이너당 최대 30MB(10MB × 3)로 제한한다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # 엣지 프록시 — TLS 종단(Let's Encrypt 자동 발급·갱신)
   caddy:
     image: caddy:2-alpine
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -15,6 +26,7 @@ services:
 
   frontend:
     build: ./frontend
+    logging: *default-logging
     # 호스트 포트 미공개 — caddy를 통해서만 접근
     expose:
       - "80"
@@ -24,6 +36,7 @@ services:
 
   backend:
     build: ./backend
+    logging: *default-logging
     environment:
       - ENV=prod
       - DATABASE_URL=postgresql+asyncpg://stripe:${POSTGRES_PASSWORD}@postgres:5432/stripe
@@ -38,6 +51,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     environment:
       POSTGRES_USER: stripe
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
