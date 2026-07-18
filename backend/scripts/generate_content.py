@@ -32,9 +32,31 @@ from anthropic import Anthropic  # noqa: E402
 # 생성 모델 (품질 우선). 실패 시 폴백.
 MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
 
-GRADE_GROUP = "G4_G6"          # 초4~초6
 GENRES = ["narrative", "expository"]
 DIFFICULTIES = ["easy", "normal", "hard"]
+
+# 학년군별 대상·어휘 수준. 난도 가이드는 학년군마다 절대 길이가 달라야 한다
+# (같은 'hard'라도 초등 고학년과 중1의 상한이 다름).
+GRADE_SPECS = {
+    "G4_G6": {
+        "audience_ko": "초등 4~6학년",
+        "expert_ko": "초등",
+        "length_guide": {
+            "easy":   "150~250자, 짧고 단순한 문장, 쉬운 일상 어휘, 구체적 내용",
+            "normal": "250~400자, 중간 길이 문장, 학년 표준 어휘, 한두 개의 연결 관계",
+            "hard":   "400~550자, 복문·수식 포함, 다소 추상적 어휘, 정보 밀도 높음",
+        },
+    },
+    "G7": {
+        "audience_ko": "중학교 1학년",
+        "expert_ko": "중등",
+        "length_guide": {
+            "easy":   "250~400자, 평이한 문장, 중1 표준 어휘, 내용 전개가 명시적",
+            "normal": "400~600자, 복문 포함, 중1 교과 수준 어휘, 두세 개의 논리 관계",
+            "hard":   "600~800자, 추상적 개념어와 복합 논증, 정보 밀도 높음",
+        },
+    },
+}
 
 # B7 관심주제 태그 (시드용 최소 taxonomy — text_selection 관심매칭에 사용)
 TOPIC_TAGS = {
@@ -42,19 +64,12 @@ TOPIC_TAGS = {
     "expository": ["SCIENCE", "NATURE", "SPACE", "HISTORY", "DAILY"],
 }
 
-# 난도별 지문 길이(한글 음절 수) 가이드
-LENGTH_GUIDE = {
-    "easy":   "150~250자, 짧고 단순한 문장, 쉬운 일상 어휘, 구체적 내용",
-    "normal": "250~400자, 중간 길이 문장, 학년 표준 어휘, 한두 개의 연결 관계",
-    "hard":   "400~550자, 복문·수식 포함, 다소 추상적 어휘, 정보 밀도 높음",
-}
-
 GENRE_KO = {"narrative": "이야기글(서사)", "expository": "설명글(정보)"}
 DIFF_KO = {"easy": "쉬움", "normal": "보통", "hard": "어려움"}
 
-SYSTEM_PROMPT = (
-    "당신은 한국 초등 읽기 능력 진단 도구를 설계하는 국어교육 전문가입니다. "
-    "초등 4~6학년 학생의 묵독(소리 없이 읽기) 진단에 쓸 지문과 4지선다 문항을 만듭니다. "
+SYSTEM_TEMPLATE = (
+    "당신은 한국 {expert_ko} 읽기 능력 진단 도구를 설계하는 국어교육 전문가입니다. "
+    "{audience_ko} 학생의 묵독(소리 없이 읽기) 진단에 쓸 지문과 4지선다 문항을 만듭니다. "
     "반드시 이은주(2026)의 텍스트 선정 7원칙을 지킵니다: "
     "(1)특정 배경지식 없이도 읽을 수 있게, (2)특정 문화권 편향 배제, "
     "(3)요청 장르 충실, (4)학년 수준 어휘, (5)요청 길이 준수, "
@@ -65,7 +80,7 @@ SYSTEM_PROMPT = (
 
 USER_TEMPLATE = """다음 조건으로 묵독 진단용 지문 1편과 문항 6개를 생성하세요.
 
-- 대상: 초등 4~6학년
+- 대상: {audience_ko}
 - 장르: {genre_ko}
 - 난도: {diff_ko} — {length_guide}
 - 관심주제 태그: {topic} (지문이 이 주제와 자연스럽게 관련되게)
@@ -140,13 +155,18 @@ def validate_item(item: dict) -> list[str]:
     return errs
 
 
-def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, topic: str) -> dict:
+def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, topic: str,
+                 grade_group: str) -> dict:
+    spec = GRADE_SPECS[grade_group]
     user = USER_TEMPLATE.format(
-        genre_ko=GENRE_KO[genre], diff_ko=DIFF_KO[difficulty],
-        length_guide=LENGTH_GUIDE[difficulty], topic=topic,
+        audience_ko=spec["audience_ko"], genre_ko=GENRE_KO[genre], diff_ko=DIFF_KO[difficulty],
+        length_guide=spec["length_guide"][difficulty], topic=topic,
+    )
+    system = SYSTEM_TEMPLATE.format(
+        expert_ko=spec["expert_ko"], audience_ko=spec["audience_ko"],
     )
     resp = client.messages.create(
-        model=model, max_tokens=12000, system=SYSTEM_PROMPT,
+        model=model, max_tokens=12000, system=system,
         messages=[{"role": "user", "content": user}],
     )
     parts = [getattr(b, "text", None) for b in resp.content if getattr(b, "type", None) == "text"]
@@ -155,7 +175,7 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
         raise ValueError(f"빈 응답 (stop_reason={getattr(resp,'stop_reason',None)}, blocks={[getattr(b,'type',None) for b in resp.content]})")
     data = json.loads(_extract_json(body))
     # 주입 메타
-    data["grade_group"] = GRADE_GROUP
+    data["grade_group"] = grade_group
     data["genre"] = genre
     data["difficulty_level"] = difficulty
     data["topic_tags"] = [topic]
@@ -166,6 +186,10 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-combo", type=int, default=1, help="조합(장르×난도)당 지문 수")
+    ap.add_argument("--grade-group", default="G4_G6", choices=sorted(GRADE_SPECS),
+                    help="대상 학년군")
+    ap.add_argument("--topic-offset", type=int, default=0,
+                    help="주제 태그 시작 인덱스. 기존 지문과 같은 주제가 반복되지 않도록 이월분 생성 시 지정")
     ap.add_argument("--out", default=str(BACKEND_DIR / "scripts" / "generated" / "seed_content.json"))
     args = ap.parse_args()
 
@@ -189,16 +213,19 @@ def main():
         sys.exit(1)
     print(f"[모델] {model}")
 
+    print(f"[학년군] {args.grade_group} ({GRADE_SPECS[args.grade_group]['audience_ko']})")
+
     items = []
     combos = [(g, d) for g in GENRES for d in DIFFICULTIES]
     for gi, (genre, difficulty) in enumerate(combos):
         tags = TOPIC_TAGS[genre]
         for n in range(args.per_combo):
-            topic = tags[n % len(tags)]
-            label = f"{genre}/{difficulty}/{topic}#{n+1}"
+            topic = tags[(n + args.topic_offset) % len(tags)]
+            label = f"{args.grade_group}/{genre}/{difficulty}/{topic}#{n+1}"
             for attempt in range(3):
                 try:
-                    item = generate_one(client, model, genre, difficulty, topic)
+                    item = generate_one(client, model, genre, difficulty, topic,
+                                        args.grade_group)
                     errs = validate_item(item)
                     if errs:
                         print(f"  [검증실패] {label} (시도{attempt+1}): {errs[:3]}")

@@ -5,12 +5,12 @@
 #
 # Caddy가 frontend(nginx)로 프록시하고, nginx가 SPA 서빙 + /api → backend 프록시.
 
-13-192-160-135.nip.io {
+54-180-21-185.nip.io {
 	encode gzip
 	reverse_proxy frontend:80
 }
 
 # IP로 직접 접근한 경우(인증서 없음) → HTTPS 호스트명으로 안내 리다이렉트
 :80 {
-	redir https://13-192-160-135.nip.io{uri} permanent
+	redir https://54-180-21-185.nip.io{uri} permanent
 }

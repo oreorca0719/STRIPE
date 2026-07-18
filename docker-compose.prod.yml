@@ -26,7 +26,7 @@ services:
     build: ./backend
     environment:
       - ENV=prod
-      - DATABASE_URL=postgresql+asyncpg://stripe:stripe@postgres:5432/stripe
+      - DATABASE_URL=postgresql+asyncpg://stripe:${POSTGRES_PASSWORD}@postgres:5432/stripe
       - SECRET_KEY=${SECRET_KEY}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -40,7 +40,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: stripe
-      POSTGRES_PASSWORD: stripe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: stripe
     volumes:
       - postgres_data:/var/lib/postgresql/data
