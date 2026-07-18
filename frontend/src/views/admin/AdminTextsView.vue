@@ -16,13 +16,13 @@
             <option value="expository">설명글 (정보)</option>
           </select>
           <select v-model="filterLevel">
-            <option value="">전체 수준</option>
-            <option value="low">하</option>
-            <option value="mid">중</option>
-            <option value="high">상</option>
+            <option value="">전체 난도</option>
+            <option value="easy">쉬움</option>
+            <option value="normal">보통</option>
+            <option value="hard">어려움</option>
           </select>
         </div>
-        <button class="add-btn">+ 텍스트 추가</button>
+        <span class="pool-count">총 {{ filtered.length }}편</span>
       </div>
 
       <!-- 원칙 안내 -->
@@ -39,24 +39,35 @@
         <table class="data-table">
           <thead>
             <tr>
+              <th>코드</th>
               <th>제목</th>
-              <th>학년</th>
+              <th>학년군</th>
               <th>장르</th>
-              <th>수준</th>
-              <th>어절 수</th>
-              <th>7원칙</th>
-              <th>등록일</th>
-              <th>관리</th>
+              <th>난도</th>
+              <th>음절 수</th>
+              <th>문항</th>
+              <th>주제</th>
+              <th>승인</th>
+              <th>출처</th>
             </tr>
           </thead>
           <tbody>
-            <tr class="coming-soon-row">
-              <td colspan="8">
-                <div class="empty-state">
-                  <span>🔧</span>
-                  <span>텍스트 풀 데이터 등록 및 API 연동 준비 중</span>
-                </div>
-              </td>
+            <tr v-if="loading"><td colspan="10"><div class="empty-state"><span>⏳</span><span>불러오는 중…</span></div></td></tr>
+            <tr v-else-if="!filtered.length"><td colspan="10">
+              <div class="empty-state"><span>🔍</span><span>조건에 맞는 텍스트가 없습니다</span></div>
+            </td></tr>
+            <tr v-else v-for="t in filtered" :key="t.id">
+              <td class="mono">{{ t.text_code }}</td>
+              <td class="title-cell">{{ t.title }}</td>
+              <td>{{ t.grade_group === 'G4_G6' ? '초4~6' : '중1' }}</td>
+              <td>{{ t.genre === 'narrative' ? '이야기글' : '설명글' }}</td>
+              <td><span class="lv-chip" :class="t.difficulty">{{ diffKo(t.difficulty) }}</span></td>
+              <td>{{ t.syllable_count }}</td>
+              <td>{{ t.question_count }}개</td>
+              <td>{{ (t.topic_tags || []).join(', ') }}</td>
+              <td><span class="ok-chip" v-if="t.review_status === 'approved'">승인</span>
+                  <span class="warn-chip" v-else>{{ t.review_status }}</span></td>
+              <td>{{ t.created_by_role === 'ai' ? 'AI 생성' : (t.created_by_role || '-') }}</td>
             </tr>
           </tbody>
         </table>
@@ -65,20 +76,23 @@
       <!-- 구성 현황 -->
       <div class="coverage-panel">
         <h2 class="panel-title">텍스트 풀 구성 현황</h2>
-        <p class="coverage-desc">학년별 × 장르별 × 수준별 최소 1개 이상 필요 (총 42개 이상)</p>
+        <p class="coverage-desc">
+          학년군 × 장르 × 난도 조합별 승인 지문 수. 적응형 진단이 막히지 않으려면 각 칸에 최소 1편 이상 필요합니다.
+        </p>
         <div class="coverage-grid">
           <div class="coverage-header">
             <span></span>
-            <span>이야기글 (하)</span>
-            <span>이야기글 (중)</span>
-            <span>이야기글 (상)</span>
-            <span>설명글 (하)</span>
-            <span>설명글 (중)</span>
-            <span>설명글 (상)</span>
+            <span>이야기글 (쉬움)</span>
+            <span>이야기글 (보통)</span>
+            <span>이야기글 (어려움)</span>
+            <span>설명글 (쉬움)</span>
+            <span>설명글 (보통)</span>
+            <span>설명글 (어려움)</span>
           </div>
           <div class="coverage-row" v-for="g in gradeOptions" :key="g.value">
             <span class="grade-name">{{ g.label }}</span>
-            <span class="cell empty" v-for="i in 6" :key="i">-</span>
+            <span v-for="c in coverageCells(g.value)" :key="c.key"
+                  class="cell" :class="c.n > 0 ? 'filled' : 'empty'">{{ c.n || '-' }}</span>
           </div>
         </div>
       </div>
@@ -87,26 +101,58 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
+import { api } from '@/api'
 
 const router = useRouter()
 const filterGrade = ref('')
 const filterGenre = ref('')
 const filterLevel = ref('')
 
+const texts = ref<any[]>([])
+const loading = ref(true)
+
+// 실제 스키마의 학년군(G4_G6 / G7) 기준
 const gradeOptions = [
-  { value: 'elem1', label: '초등 1학년' },
-  { value: 'elem2', label: '초등 2학년' },
-  { value: 'elem3', label: '초등 3학년' },
-  { value: 'elem4', label: '초등 4학년' },
-  { value: 'elem5', label: '초등 5학년' },
-  { value: 'elem6', label: '초등 6학년' },
-  { value: 'mid1',  label: '중등 1학년' },
+  { value: 'G4_G6', label: '초4~초6' },
+  { value: 'G7', label: '중1' },
 ]
 
+function diffKo(d: string) {
+  return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
+}
+
+const filtered = computed(() => texts.value.filter(t =>
+  (!filterGrade.value || t.grade_group === filterGrade.value) &&
+  (!filterGenre.value || t.genre === filterGenre.value) &&
+  (!filterLevel.value || t.difficulty === filterLevel.value)
+))
+
+// 학년군별 (장르 × 난도) 6칸 커버리지
+function coverageCells(gradeGroup: string) {
+  const combos = [
+    ['narrative', 'easy'], ['narrative', 'normal'], ['narrative', 'hard'],
+    ['expository', 'easy'], ['expository', 'normal'], ['expository', 'hard'],
+  ]
+  return combos.map(([genre, diff]) => ({
+    key: `${gradeGroup}-${genre}-${diff}`,
+    n: texts.value.filter(t =>
+      t.grade_group === gradeGroup && t.genre === genre &&
+      t.difficulty === diff && t.review_status === 'approved').length,
+  }))
+}
+
+async function load() {
+  try {
+    const r = await api.get('/api/admin/texts')
+    texts.value = r.data
+  } catch { texts.value = [] } finally { loading.value = false }
+}
+
 function handleLogout() { router.push('/login') }
+onMounted(load)
 </script>
 
 <style scoped>
@@ -176,4 +222,23 @@ select:focus { border-color: #4ECDC4; }
   background: #252836; border-radius: 6px; padding: 0.5rem;
   text-align: center; font-size: 0.8rem; color: #444; font-weight: 700;
 }
+.cell.filled { background: rgba(78,205,196,0.15); color: #4ECDC4; }
+.cell.empty { background: rgba(255,107,107,0.08); color: #7a4a4a; }
+
+/* 다크 테마 대응 */
+.table-wrap { overflow-x: auto; }
+.data-table { min-width: 900px; }
+.data-table th, .data-table td { white-space: nowrap; }
+.data-table td { color: #aaa; font-size: 0.87rem; }
+.data-table td.title-cell { white-space: normal; min-width: 12rem; }
+.data-table tbody tr:hover td { background: #1e2130; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #555; }
+.title-cell { font-weight: 800; color: #fff; }
+.lv-chip { padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
+.lv-chip.easy { background: rgba(78,205,196,0.15); color: #4ECDC4; }
+.lv-chip.normal { background: rgba(255,230,109,0.15); color: #FFE66D; }
+.lv-chip.hard { background: rgba(255,107,107,0.15); color: #FF6B6B; }
+.ok-chip { background: rgba(78,205,196,0.15); color: #4ECDC4; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
+.warn-chip { background: #252836; color: #666; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
+.pool-count { font-weight: 800; color: #4ECDC4; font-size: 0.9rem; }
 </style>

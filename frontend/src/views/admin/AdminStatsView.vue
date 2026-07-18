@@ -14,63 +14,45 @@
         </div>
       </div>
 
-      <!-- 차트 영역 -->
-      <div class="charts-grid">
-        <div class="chart-panel">
-          <h2 class="panel-title">독자 유형 분포</h2>
-          <div class="donut-placeholder">
-            <div class="donut-ring"></div>
-            <div class="donut-center">준비 중</div>
-          </div>
-          <div class="legend">
-            <div class="legend-item"><span class="dot dot-mint"></span> 애독자</div>
-            <div class="legend-item"><span class="dot dot-yellow"></span> 간헐적 독자</div>
-            <div class="legend-item"><span class="dot dot-coral"></span> 비독자</div>
-          </div>
-        </div>
-
-        <div class="chart-panel">
-          <h2 class="panel-title">읽기 수준 분포</h2>
-          <div class="bar-chart">
-            <div class="bar-row" v-for="level in readingLevels" :key="level.name">
-              <span class="bar-label">{{ level.name }}</span>
-              <div class="bar-track">
-                <div class="bar-fill" :style="{ width: level.pct, background: level.color }"></div>
-              </div>
-              <span class="bar-pct">{{ level.pct }}</span>
-            </div>
-          </div>
-          <p class="coming-soon">🔧 실제 데이터 연동 준비 중</p>
+      <div v-if="!hasJudgments" class="empty-panel">
+        <span>📊</span>
+        <div>
+          <strong>아직 완료된 진단이 없습니다</strong>
+          <p>학생이 진단을 완주하면 판정 등급 분포와 평균 정답률이 집계됩니다.</p>
         </div>
       </div>
 
       <div class="charts-grid">
+        <!-- 판정 등급 분포 -->
         <div class="chart-panel">
-          <h2 class="panel-title">층위별 평균 점수</h2>
-          <div class="score-bars">
-            <div class="score-row" v-for="score in scoreData" :key="score.label">
-              <span class="score-label">{{ score.label }}</span>
-              <div class="score-track">
-                <div class="score-fill" :style="{ width: score.pct, background: score.color }"></div>
+          <h2 class="panel-title">판정 등급 분포</h2>
+          <p class="panel-sub">유창성 × 독해 매트릭스 판정 결과 (label_5)</p>
+          <div class="bar-chart">
+            <div class="bar-row" v-for="l in labelRows" :key="l.key">
+              <span class="bar-label">{{ l.name }}</span>
+              <div class="bar-track">
+                <div class="bar-fill" :style="{ width: l.pct + '%', background: l.color }"></div>
               </div>
-              <span class="score-val">-점</span>
+              <span class="bar-pct">{{ l.count }}명</span>
             </div>
           </div>
-          <p class="coming-soon">🔧 채점 데이터 연동 준비 중</p>
+          <p class="note">※ 판정 경계값은 파일럿 전 잠정값입니다</p>
         </div>
 
+        <!-- 텍스트 풀 분포 -->
         <div class="chart-panel">
-          <h2 class="panel-title">학년별 진단 참여율</h2>
-          <div class="grade-list">
-            <div class="grade-item" v-for="g in grades" :key="g.name">
-              <span class="grade-name">{{ g.name }}</span>
-              <div class="grade-track">
-                <div class="grade-fill"></div>
+          <h2 class="panel-title">텍스트 풀 분포</h2>
+          <p class="panel-sub">승인된 지문의 장르 × 난도 구성</p>
+          <div class="bar-chart">
+            <div class="bar-row" v-for="t in textRows" :key="t.key">
+              <span class="bar-label">{{ t.name }}</span>
+              <div class="bar-track">
+                <div class="bar-fill" :style="{ width: t.pct + '%', background: t.color }"></div>
               </div>
-              <span class="grade-count">-명</span>
+              <span class="bar-pct">{{ t.count }}편</span>
             </div>
           </div>
-          <p class="coming-soon">🔧 사용자 데이터 연동 준비 중</p>
+          <p v-if="!textRows.length" class="note">적재된 지문이 없습니다</p>
         </div>
       </div>
     </div>
@@ -78,98 +60,110 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
+import { api } from '@/api'
 
 const router = useRouter()
+const stats = ref<any>(null)
+const ov = ref<any>(null)
 
-const summaryStats = [
-  { icon: '📝', label: '총 진단 횟수', value: '-' },
-  { icon: '👨‍🎓', label: '참여 학생 수', value: '-' },
-  { icon: '📈', label: '평균 읽기 수준', value: '-' },
-  { icon: '✅', label: '완료율', value: '-' },
-]
+const hasJudgments = computed(() => (stats.value?.judgments_total ?? 0) > 0)
 
-const readingLevels = [
-  { name: 'Lv.1 기초', pct: '0%', color: '#FF6B6B' },
-  { name: 'Lv.2 초급', pct: '0%', color: '#FFE66D' },
-  { name: 'Lv.3 중급', pct: '0%', color: '#4ECDC4' },
-  { name: 'Lv.4 고급', pct: '0%', color: '#38b2ab' },
-  { name: 'Lv.5 최상', pct: '0%', color: '#2C3E50' },
-]
+const summaryStats = computed(() => [
+  { icon: '🎯', label: '완료 판정', value: stats.value?.judgments_total ?? '-' },
+  { icon: '📈', label: '평균 정답률',
+    value: stats.value?.avg_accuracy != null ? Math.round(stats.value.avg_accuracy * 100) + '%' : '-' },
+  { icon: '📝', label: '진단 세션', value: ov.value?.diagnosis_sessions ?? '-' },
+  { icon: '📚', label: '승인 지문', value: ov.value?.texts_approved ?? '-' },
+])
 
-const scoreData = [
-  { label: '사실적 이해', pct: '0%', color: '#4ECDC4' },
-  { label: '추론적 이해', pct: '0%', color: '#FFE66D' },
-  { label: '비판적 이해', pct: '0%', color: '#FF6B6B' },
-]
+const LABELS: Record<string, { name: string; color: string }> = {
+  excellent: { name: '아주 잘함', color: '#4ECDC4' },
+  observe:   { name: '잘함',     color: '#7ed6c4' },
+  caution:   { name: '보통',     color: '#FFE66D' },
+  risk:      { name: '조금 부족', color: '#ffab6b' },
+  urgent:    { name: '도움 필요', color: '#FF6B6B' },
+}
 
-const grades = [
-  '초등 1학년', '초등 2학년', '초등 3학년',
-  '초등 4학년', '초등 5학년', '초등 6학년', '중등 1학년'
-].map(name => ({ name }))
+const labelRows = computed(() => {
+  const dist = stats.value?.label_distribution || {}
+  const total = stats.value?.judgments_total || 0
+  return Object.keys(LABELS).map(k => ({
+    key: k, name: LABELS[k].name, color: LABELS[k].color,
+    count: dist[k] || 0,
+    pct: total ? Math.round(((dist[k] || 0) / total) * 100) : 0,
+  }))
+})
+
+const GENRE_KO: Record<string, string> = { narrative: '이야기글', expository: '설명글' }
+const DIFF_KO: Record<string, string> = { easy: '쉬움', normal: '보통', hard: '어려움' }
+const DIFF_COLOR: Record<string, string> = { easy: '#4ECDC4', normal: '#FFE66D', hard: '#FF6B6B' }
+
+const textRows = computed(() => {
+  const dist = stats.value?.text_distribution || []
+  const max = Math.max(1, ...dist.map((d: any) => d.count))
+  return dist.map((d: any) => ({
+    key: `${d.genre}-${d.difficulty}`,
+    name: `${GENRE_KO[d.genre] || d.genre} · ${DIFF_KO[d.difficulty] || d.difficulty}`,
+    count: d.count, pct: Math.round((d.count / max) * 100),
+    color: DIFF_COLOR[d.difficulty] || '#4ECDC4',
+  }))
+})
+
+async function load() {
+  try {
+    const [s, o] = await Promise.all([
+      api.get('/api/admin/stats'),
+      api.get('/api/admin/overview'),
+    ])
+    stats.value = s.data; ov.value = o.data
+  } catch { /* 권한 없음/오류 시 기본값 */ }
+}
 
 function handleLogout() { router.push('/login') }
+onMounted(load)
 </script>
 
 <style scoped>
 .stats-page { display: flex; flex-direction: column; gap: 1.2rem; }
 
-.stat-row {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
-}
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
 .mini-stat {
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px;
-  padding: 1.2rem 1.5rem; display: flex; align-items: center; gap: 1rem;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 1.2rem 1.4rem; display: flex; align-items: center; gap: 0.9rem;
 }
-.mini-icon { font-size: 1.8rem; }
-.mini-value { font-size: 1.5rem; font-weight: 900; color: #fff; }
-.mini-label { font-size: 0.75rem; color: #666; font-weight: 600; }
+.mini-icon { font-size: 1.5rem; }
+.mini-value { font-size: 1.5rem; font-weight: 900; color: #fff; line-height: 1.2; }
+.mini-label { font-size: 0.78rem; color: #666; font-weight: 700; }
 
-.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.empty-panel {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 1.5rem; display: flex; align-items: center; gap: 1rem;
+}
+.empty-panel > span { font-size: 1.6rem; }
+.empty-panel strong { color: #fff; font-size: 0.95rem; }
+.empty-panel p { color: #666; font-size: 0.85rem; margin-top: 0.2rem; }
+
+.charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
 .chart-panel {
-  background: #1a1d27; border: 1px solid #2a2d3e;
-  border-radius: 16px; padding: 1.5rem;
-  display: flex; flex-direction: column; gap: 1.2rem;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px; padding: 1.5rem;
 }
 .panel-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
+.panel-sub { font-size: 0.78rem; color: #555; margin: 0.25rem 0 1.1rem; }
 
-/* 도넛 placeholder */
-.donut-placeholder {
-  display: flex; align-items: center; justify-content: center;
-  height: 160px; position: relative;
-}
-.donut-ring {
-  width: 120px; height: 120px; border-radius: 50%;
-  border: 16px solid #252836; position: relative;
-}
-.donut-center {
-  position: absolute; font-size: 0.8rem; color: #555; font-weight: 700;
-}
-.legend { display: flex; gap: 1rem; }
-.legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #888; font-weight: 700; }
-.dot { width: 10px; height: 10px; border-radius: 50%; }
-.dot-mint { background: #4ECDC4; }
-.dot-yellow { background: #FFE66D; }
-.dot-coral { background: #FF6B6B; }
+.bar-chart { display: flex; flex-direction: column; gap: 0.7rem; }
+.bar-row { display: flex; align-items: center; gap: 0.8rem; }
+.bar-label { font-size: 0.82rem; color: #aaa; font-weight: 700; width: 7rem; flex-shrink: 0; }
+.bar-track { flex: 1; height: 10px; background: #252836; border-radius: 99px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+.bar-pct { font-size: 0.78rem; color: #888; font-weight: 800; width: 3rem; text-align: right; flex-shrink: 0; }
 
-/* 바 차트 */
-.bar-chart, .score-bars, .grade-list { display: flex; flex-direction: column; gap: 0.8rem; }
-.bar-row, .score-row, .grade-item {
-  display: flex; align-items: center; gap: 0.8rem;
-}
-.bar-label, .score-label, .grade-name {
-  width: 90px; font-size: 0.8rem; color: #888; font-weight: 700; flex-shrink: 0;
-}
-.bar-track, .score-track, .grade-track {
-  flex: 1; height: 10px; background: #252836; border-radius: 99px; overflow: hidden;
-}
-.bar-fill, .score-fill, .grade-fill {
-  height: 100%; border-radius: 99px; background: #4ECDC4; transition: width 0.8s;
-}
-.bar-pct, .score-val, .grade-count {
-  width: 35px; font-size: 0.8rem; color: #666; font-weight: 700; text-align: right;
-}
+.note { margin-top: 1rem; font-size: 0.75rem; color: #555; }
 
-.coming-soon { font-size: 0.8rem; color: #444; }
+@media (max-width: 900px) {
+  .charts-grid { grid-template-columns: 1fr; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+}
 </style>

@@ -1,153 +1,167 @@
 <template>
   <AdminLayout @logout="handleLogout">
-    <template #title>시스템 모니터링</template>
+    <template #title>시스템</template>
 
     <div class="system-page">
-      <!-- 서비스 상태 -->
-      <div class="section">
-        <h2 class="section-title">서비스 상태</h2>
-        <div class="service-grid">
-          <div class="service-card" v-for="svc in services" :key="svc.name">
-            <div class="svc-header">
-              <span class="svc-icon">{{ svc.icon }}</span>
-              <span class="svc-name">{{ svc.name }}</span>
-              <span class="svc-status" :class="svc.status">
-                {{ svc.status === 'ok' ? '● 정상' : svc.status === 'warn' ? '● 확인 필요' : '● 오류' }}
-              </span>
-            </div>
-            <div class="svc-detail">{{ svc.detail }}</div>
-          </div>
-        </div>
-      </div>
+      <div v-if="loading" class="loading">불러오는 중…</div>
+      <div v-else-if="error" class="err-box">{{ error }}</div>
 
-      <!-- AWS 리소스 -->
-      <div class="section">
-        <h2 class="section-title">AWS 인프라</h2>
-        <div class="infra-grid">
-          <div class="infra-card" v-for="r in awsResources" :key="r.name">
-            <div class="infra-icon">{{ r.icon }}</div>
-            <div class="infra-info">
-              <div class="infra-name">{{ r.name }}</div>
-              <div class="infra-value">{{ r.value }}</div>
+      <template v-else-if="sys">
+        <!-- 서비스 상태 -->
+        <div class="section">
+          <h2 class="section-title">서비스 상태</h2>
+          <div class="service-grid">
+            <div class="service-card" v-for="svc in services" :key="svc.name">
+              <div class="svc-header">
+                <span class="svc-icon">{{ svc.icon }}</span>
+                <span class="svc-name">{{ svc.name }}</span>
+                <span class="svc-status" :class="svc.status">
+                  {{ svc.status === 'ok' ? '● 정상' : svc.status === 'off' ? '● 미사용' : '● 확인 필요' }}
+                </span>
+              </div>
+              <div class="svc-detail">{{ svc.detail }}</div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 에러 로그 -->
-      <div class="section">
-        <h2 class="section-title">에러 로그</h2>
-        <div class="log-panel">
-          <div class="log-empty">
-            <span>🔧</span>
-            <span>CloudWatch 로그 연동 준비 중입니다</span>
+        <!-- 콘텐츠 현황 -->
+        <div class="section">
+          <h2 class="section-title">콘텐츠 현황</h2>
+          <div class="stat-row">
+            <div class="stat-box"><span class="sv">{{ ov?.texts_approved ?? '-' }}</span><span class="sl">승인 지문</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.questions_approved ?? '-' }}</span><span class="sl">승인 문항</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.students ?? '-' }}</span><span class="sl">학생</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.diagnosis_completed ?? '-' }}</span><span class="sl">완료 진단</span></div>
           </div>
         </div>
-      </div>
 
-      <!-- API 응답 시간 -->
-      <div class="section">
-        <h2 class="section-title">API 엔드포인트 상태</h2>
-        <div class="endpoint-list">
-          <div class="endpoint-row" v-for="ep in endpoints" :key="ep.path">
-            <span class="method" :class="ep.method.toLowerCase()">{{ ep.method }}</span>
-            <span class="path">{{ ep.path }}</span>
-            <span class="ep-status">준비 중</span>
-            <span class="latency">-ms</span>
+        <!-- 배포 구성 -->
+        <div class="section">
+          <h2 class="section-title">배포 구성</h2>
+          <div class="infra-grid">
+            <div class="infra-card" v-for="r in infra" :key="r.name">
+              <div class="infra-icon">{{ r.icon }}</div>
+              <div class="infra-info">
+                <div class="infra-name">{{ r.name }}</div>
+                <div class="infra-value">{{ r.value }}</div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
+import { api } from '@/api'
 
 const router = useRouter()
+const loading = ref(true)
+const error = ref('')
+const sys = ref<any>(null)
+const ov = ref<any>(null)
 
-const services = [
-  { icon: '⚡', name: 'FastAPI 서버', status: 'warn', detail: 'ECS Fargate — 연동 확인 필요' },
-  { icon: '🗄️', name: 'PostgreSQL RDS', status: 'warn', detail: 'db.t3.micro — 연결 대기 중' },
-  { icon: '⚡', name: 'Redis Cache', status: 'warn', detail: 'ElastiCache — 설정 필요' },
-  { icon: '🎤', name: 'Clova STT', status: 'warn', detail: 'API 키 미설정' },
-  { icon: '🤖', name: 'Claude API', status: 'warn', detail: 'API 키 미설정' },
-  { icon: '📦', name: 'S3 (Frontend)', status: 'ok', detail: 'risa-frontend-dev — 배포 완료' },
-]
+const services = computed(() => {
+  if (!sys.value) return []
+  const s = sys.value
+  return [
+    { icon: '⚡', name: 'FastAPI 서버', status: 'ok',
+      detail: `가동 중 · 환경 ${s.app.env}` },
+    { icon: '🗄️', name: 'PostgreSQL', status: s.database.ok ? 'ok' : 'warn',
+      detail: s.database.ok
+        ? `${s.database.version || 'PostgreSQL'} · 마이그레이션 ${s.database.migration || '-'}`
+        : '연결 실패' },
+    { icon: '🌐', name: 'HTTPS (Caddy)', status: isHttps ? 'ok' : 'warn',
+      detail: isHttps
+        ? `${currentHost} · Let's Encrypt 자동 갱신`
+        : `${currentHost} · 로컬 개발(HTTP) — 배포 환경에서만 TLS 적용` },
+    { icon: '🤖', name: 'Claude API', status: s.app.llm_configured ? 'ok' : 'off',
+      detail: s.app.llm_configured ? `연결됨 · ${s.app.llm_model}` : '미설정 (리포트는 템플릿으로 동작)' },
+    { icon: '🎤', name: 'Clova STT', status: s.app.stt_configured ? 'ok' : 'off',
+      detail: s.app.stt_configured ? '연결됨' : '미설정 (음독 진단 MVP1 범위 밖)' },
+    { icon: '💾', name: 'DB 백업', status: 'ok', detail: s.deployment.backup },
+  ]
+})
 
-const awsResources = [
-  { icon: '🌐', name: 'ALB URL', value: 'risa-backend-alb-1783502255.ap-northeast-1.elb.amazonaws.com' },
-  { icon: '🏗️', name: 'ECS Cluster', value: 'risa-dev' },
-  { icon: '📦', name: 'ECR Repository', value: 'risa-backend' },
-  { icon: '🗃️', name: 'S3 Bucket', value: 'risa-frontend-dev' },
-  { icon: '🌏', name: 'Region', value: 'ap-northeast-1 (Tokyo)' },
-]
+const currentHost = typeof window !== 'undefined' ? window.location.host : ''
+const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
 
-const endpoints = [
-  { method: 'GET', path: '/api/health' },
-  { method: 'POST', path: '/api/auth/login' },
-  { method: 'POST', path: '/api/auth/register' },
-  { method: 'POST', path: '/api/diagnosis/session' },
-  { method: 'POST', path: '/api/diagnosis/fluency/oral' },
-  { method: 'POST', path: '/api/diagnosis/comprehension' },
-  { method: 'GET', path: '/api/diagnosis/result/{id}' },
-]
+const infra = computed(() => {
+  if (!sys.value) return []
+  const d = sys.value.deployment
+  return [
+    { icon: '🖥️', name: '플랫폼', value: d.platform },
+    { icon: '🐳', name: '런타임', value: d.runtime },
+    { icon: '🔒', name: 'TLS', value: d.tls },
+    { icon: '🔄', name: 'CI/CD', value: d.cicd },
+    { icon: '🌏', name: '접속 주소', value: currentHost },
+  ]
+})
+
+async function load() {
+  try {
+    const [s, o] = await Promise.all([
+      api.get('/api/admin/system'),
+      api.get('/api/admin/overview'),
+    ])
+    sys.value = s.data
+    ov.value = o.data
+  } catch (e: any) {
+    error.value = e?.response?.status === 403
+      ? '관리자 권한이 필요합니다.'
+      : '시스템 정보를 불러오지 못했습니다.'
+  } finally { loading.value = false }
+}
 
 function handleLogout() { router.push('/login') }
+onMounted(load)
 </script>
 
 <style scoped>
-.system-page { display: flex; flex-direction: column; gap: 1.5rem; }
-.section { display: flex; flex-direction: column; gap: 0.8rem; }
+/* 관리자 포털 다크 테마에 맞춤 (#0f1117 배경 / #1a1d27 카드 / #2a2d3e 테두리) */
+.system-page { display: flex; flex-direction: column; gap: 2rem; }
+.loading, .err-box {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 2.5rem; text-align: center; color: #666; font-weight: 700;
+}
+.err-box { color: #FF6B6B; }
+.section { display: flex; flex-direction: column; gap: 1rem; }
 .section-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
 
-.service-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+.service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
 .service-card {
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; padding: 1.2rem;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 1.3rem; display: flex; flex-direction: column; gap: 0.5rem;
 }
-.svc-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+.svc-header { display: flex; align-items: center; gap: 0.6rem; }
 .svc-icon { font-size: 1.2rem; }
-.svc-name { flex: 1; font-size: 0.9rem; font-weight: 800; color: #ccc; }
-.svc-status { font-size: 0.75rem; font-weight: 700; }
+.svc-name { font-weight: 800; color: #fff; flex: 1; font-size: 0.92rem; }
+.svc-status { font-size: 0.75rem; font-weight: 800; }
 .svc-status.ok { color: #4ECDC4; }
 .svc-status.warn { color: #FFE66D; }
-.svc-status.error { color: #FF6B6B; }
-.svc-detail { font-size: 0.78rem; color: #555; }
+.svc-status.off { color: #555; }
+.svc-detail { font-size: 0.82rem; color: #888; font-weight: 600; line-height: 1.5; }
 
-.infra-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; }
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.stat-box {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 1.3rem; display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+}
+.sv { font-size: 1.8rem; font-weight: 900; color: #4ECDC4; }
+.sl { font-size: 0.8rem; font-weight: 700; color: #666; }
+
+.infra-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
 .infra-card {
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; padding: 1rem 1.2rem;
-  display: flex; align-items: center; gap: 0.8rem;
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  padding: 1.2rem; display: flex; align-items: flex-start; gap: 0.9rem;
 }
-.infra-icon { font-size: 1.5rem; }
-.infra-name { font-size: 0.75rem; color: #555; font-weight: 700; }
-.infra-value { font-size: 0.85rem; color: #aaa; font-weight: 600; word-break: break-all; }
+.infra-icon { font-size: 1.3rem; }
+.infra-name { font-size: 0.75rem; font-weight: 800; color: #555; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.infra-value { font-size: 0.86rem; font-weight: 700; color: #ccc; word-break: break-all; line-height: 1.5; }
 
-.log-panel {
-  background: #0a0c12; border: 1px solid #2a2d3e; border-radius: 12px;
-  padding: 2rem; font-family: monospace;
-}
-.log-empty {
-  display: flex; align-items: center; gap: 0.7rem; justify-content: center;
-  color: #444; font-size: 0.9rem;
-}
-
-.endpoint-list {
-  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 12px; overflow: hidden;
-}
-.endpoint-row {
-  display: flex; align-items: center; gap: 1rem; padding: 0.8rem 1.2rem;
-  border-bottom: 1px solid #1e2130; font-size: 0.85rem;
-}
-.endpoint-row:last-child { border-bottom: none; }
-.method {
-  font-weight: 800; font-size: 0.75rem; padding: 0.2rem 0.6rem;
-  border-radius: 4px; min-width: 50px; text-align: center;
-}
-.method.get { background: rgba(78,205,196,0.15); color: #4ECDC4; }
-.method.post { background: rgba(255,230,109,0.15); color: #f5d800; }
-.path { flex: 1; color: #888; font-family: monospace; }
-.ep-status { font-size: 0.75rem; color: #555; font-weight: 700; }
-.latency { color: #555; font-size: 0.8rem; width: 50px; text-align: right; }
+@media (max-width: 720px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
 </style>
