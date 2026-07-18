@@ -17,7 +17,7 @@ from app.schemas.diagnosis import (
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
     ProfileCreate, ProfileResponse, RoundContentResponse, QuestionPublic,
-    MySessionItem, MySummaryResponse,
+    MySessionItem, MySummaryResponse, ResumeResponse,
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
@@ -141,6 +141,110 @@ async def my_summary(
         completed_count=len(judged),
         in_progress_session_id=in_progress.id if in_progress else None,
         latest=latest,
+    )
+
+
+# --- 중단 세션 이어하기 / 새로 시작 ----------------------------------------
+
+@router.post("/session/{session_id}/abandon", response_model=SessionResponse)
+async def abandon_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """중단 세션을 포기 처리. 데이터는 지우지 않는다(중도이탈 집계 근거)."""
+    session = await _owned_session(db, session_id, user)
+    if session.status != DiagSessionStatus.in_progress:
+        raise HTTPException(status_code=409, detail="진행 중인 세션이 아닙니다.")
+    session.status = DiagSessionStatus.abandoned
+    session.completed_at = _utcnow()
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+@router.post("/session/{session_id}/resume", response_model=ResumeResponse)
+async def resume_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """중단 지점부터 이어하기.
+
+    복귀 지점은 '읽기 시간이 측정됐는지'로 갈린다.
+    - 측정됨 → 문항 단계로 복귀. 이미 저장된 응답을 함께 돌려주어 화면에 복원한다.
+    - 미측정 → 읽기 단계로 복귀. 이때 지문을 새로 뽑는다.
+
+    지문을 교체하는 이유: 학생이 화면을 열었다가 나간 경우 지문을 이미 봤을 수
+    있는데, 같은 지문으로 다시 재면 읽기 시간이 실제보다 짧게 나와 유창성이
+    과대평가된다. A4 타당성 게이트(STR-62)는 극단값만 걸러내므로 '조금 빨라진'
+    경우는 통과해 버린다. 측정을 살리려면 읽지 않은 지문으로 바꾸는 편이 맞다.
+    """
+    session = await _owned_session(db, session_id, user)
+    if session.status != DiagSessionStatus.in_progress:
+        raise HTTPException(status_code=409, detail="이어할 수 있는 세션이 아닙니다.")
+
+    rq = await db.execute(
+        select(DiagnosisRound)
+        .where(DiagnosisRound.diagnosis_session_id == session.id)
+        .order_by(DiagnosisRound.round_number.desc())
+    )
+    round_ = rq.scalars().first()
+    if not round_:
+        raise HTTPException(status_code=409, detail="시작된 회차가 없습니다.")
+
+    fq = await db.execute(
+        select(FluencyResult).where(FluencyResult.round_id == round_.id)
+    )
+    has_fluency = fq.scalars().first() is not None
+
+    text_reissued = False
+    if not has_fluency:
+        # 이 세션에서 이미 노출된 지문은 제외하고 다시 고른다.
+        used_q = await db.execute(
+            select(DiagnosisRound.text_id)
+            .where(DiagnosisRound.diagnosis_session_id == session.id,
+                   DiagnosisRound.text_id.isnot(None))
+        )
+        used_ids = [t for (t,) in used_q.all()]
+
+        pq = await db.execute(
+            select(StudentProfile).where(StudentProfile.id == session.profile_id)
+        )
+        profile = pq.scalar_one_or_none()
+        grade_group = text_selection.grade_to_group(profile.grade) if profile and profile.grade else None
+
+        if grade_group:
+            new_text = await text_selection.select_text(
+                db,
+                grade_group=grade_group,
+                difficulty=round_.difficulty_level,
+                genre=round_.genre,
+                used_text_ids=used_ids,
+                interest_topics=profile.interest_topics,
+            )
+            # 대체 지문이 없으면 기존 지문을 유지한다(진행 불가보다는 낫다).
+            if new_text is not None and new_text.id != round_.text_id:
+                round_.text_id = new_text.id
+                text_reissued = True
+                await db.commit()
+                await db.refresh(round_)
+
+    answered: dict = {}
+    if has_fluency:
+        aq = await db.execute(
+            select(QuestionResponse).where(QuestionResponse.round_id == round_.id)
+        )
+        answered = {r.question_id: r.student_answer for r in aq.scalars().all()
+                    if r.question_id is not None}
+
+    return ResumeResponse(
+        session_id=session.id,
+        round=round_,
+        round_number=round_.round_number,
+        phase="questions" if has_fluency else "reading",
+        answered=answered,
+        text_reissued=text_reissued,
     )
 
 
@@ -341,6 +445,11 @@ async def submit_question_response(
 
     student_answer == questions.answer_index → is_correct. (v1.2 §6 AI-05)
     회차 집계(comprehension_results)·Betts·영역정답률은 Phase B 엔진에서 산출.
+
+    같은 (회차, 문항)에 대한 재전송은 새 행을 만들지 않고 기존 응답을 갱신한다.
+    학생이 답을 고쳐 고르거나(선택 즉시 저장), 중단 후 이어하기로 같은 문항을 다시
+    풀 수 있기 때문이다. 행이 중복되면 정답률이 문항 수보다 큰 분모로 계산돼
+    판정이 통째로 틀어진다.
     """
     await _owned_round(db, data.round_id, user)
     q = await db.execute(select(Question).where(Question.id == data.question_id))
@@ -348,15 +457,30 @@ async def submit_question_response(
     if not question:
         raise HTTPException(status_code=404, detail="문항을 찾을 수 없습니다.")
 
-    resp = QuestionResponse(
-        round_id=data.round_id,
-        question_id=question.id,
-        student_answer=data.student_answer,
-        is_correct=(data.student_answer == question.answer_index),
-        response_time_ms=data.response_time_ms,
-        target_area=question.target_area,
+    is_correct = data.student_answer == question.answer_index
+
+    existing_q = await db.execute(
+        select(QuestionResponse).where(
+            QuestionResponse.round_id == data.round_id,
+            QuestionResponse.question_id == question.id,
+        )
     )
-    db.add(resp)
+    resp = existing_q.scalars().first()
+    if resp:
+        resp.student_answer = data.student_answer
+        resp.is_correct = is_correct
+        if data.response_time_ms is not None:
+            resp.response_time_ms = data.response_time_ms
+    else:
+        resp = QuestionResponse(
+            round_id=data.round_id,
+            question_id=question.id,
+            student_answer=data.student_answer,
+            is_correct=is_correct,
+            response_time_ms=data.response_time_ms,
+            target_area=question.target_area,
+        )
+        db.add(resp)
     await db.commit()
     await db.refresh(resp)
     return resp

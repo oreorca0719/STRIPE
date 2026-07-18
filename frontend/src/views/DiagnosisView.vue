@@ -25,6 +25,26 @@
           <button class="btn-primary" @click="resetAll">처음부터 다시</button>
         </div>
 
+        <!-- 이어하기 확인 -->
+        <div v-else-if="phase === 'checking'" class="step-content">
+          <div class="illust">⏳</div>
+          <h2>잠깐만 기다려줘…</h2>
+        </div>
+
+        <div v-else-if="phase === 'resume-choice'" class="step-content">
+          <div class="illust">⏸️</div>
+          <h2>하던 진단이 있어요</h2>
+          <p class="resume-desc">
+            지난번에 끝까지 못 한 진단이 있어요.<br />
+            이어서 할까요, 아니면 처음부터 다시 할까요?
+          </p>
+          <div class="resume-actions">
+            <button class="btn-primary" :disabled="busy" @click="doResume">이어서 하기</button>
+            <button class="btn-ghost" :disabled="busy" @click="doRestart">처음부터 다시</button>
+          </div>
+          <p class="resume-note">처음부터 다시 하면 지난 기록은 결과에 쓰이지 않아요.</p>
+        </div>
+
         <!-- 설문 -->
         <div v-else-if="phase === 'survey'" class="step-content survey">
           <div class="illust">🙋</div>
@@ -87,6 +107,7 @@
         <div v-else-if="phase === 'reading'" class="step-content reading">
           <div class="round-badge">{{ roundNumber }}번째 글 · {{ genreKo(round.genre) }}</div>
           <h2>{{ round.title }}</h2>
+          <p v-if="reissuedNotice" class="reissue-notice">{{ reissuedNotice }}</p>
           <p class="guide">
             <strong>소리 내지 말고</strong> 눈으로 읽어요.<br />
             다 읽으면 아래 버튼을 눌러줘!
@@ -144,7 +165,8 @@
             <div class="options-col">
               <label v-for="(c, ci) in q.choices" :key="ci" class="option"
                      :class="{ sel: answers[q.id] === ci + 1 }">
-                <input type="radio" :name="'q' + q.id" :value="ci + 1" v-model.number="answers[q.id]" />
+                <input type="radio" :name="'q' + q.id" :value="ci + 1"
+                       v-model.number="answers[q.id]" @change="saveAnswer(q.id)" />
                 <span class="opt-num">{{ answers[q.id] === ci + 1 ? '✓' : ci + 1 }}</span>
                 <span class="opt-text">{{ c }}</span>
               </label>
@@ -174,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -185,8 +207,15 @@ const auth = useAuthStore()
 const studentId = computed(() => auth.user?.id)
 
 const stepLabels = ['설문', '읽기', '문제', '완료']
-const phase = ref<'survey' | 'reading' | 'questions' | 'processing'>('survey')
-const stepIndex = computed(() => ({ survey: 0, reading: 1, questions: 2, processing: 3 }[phase.value]))
+type Phase = 'checking' | 'resume-choice' | 'survey' | 'reading' | 'questions' | 'processing'
+const phase = ref<Phase>('checking')
+const stepIndex = computed(() => (
+  { checking: 0, 'resume-choice': 0, survey: 0, reading: 1, questions: 2, processing: 3 }[phase.value]
+))
+
+// 이어하기 대상 세션 (홈 배너 또는 직접 진입 시 감지)
+const resumeSessionId = ref<number | null>(null)
+const reissuedNotice = ref('')
 
 const busy = ref(false)
 const error = ref('')
@@ -274,6 +303,60 @@ async function submitSurvey() {
   } finally { busy.value = false }
 }
 
+// --- 중단 세션 감지 · 이어하기 ---------------------------------------------
+
+async function checkResume() {
+  try {
+    const res = await api.get('/api/diagnosis/my/summary')
+    if (res.data.in_progress_session_id) {
+      resumeSessionId.value = res.data.in_progress_session_id
+      phase.value = 'resume-choice'
+      return
+    }
+  } catch {
+    // 조회 실패는 진단 시작을 막을 이유가 아니다 — 설문부터 진행한다.
+  }
+  phase.value = 'survey'
+}
+
+async function doResume() {
+  if (!resumeSessionId.value) { phase.value = 'survey'; return }
+  busy.value = true; error.value = ''
+  try {
+    const res = await api.post(`/api/diagnosis/session/${resumeSessionId.value}/resume`)
+    const d = res.data
+    sessionId.value = d.session_id
+    roundNumber.value = d.round_number
+    await loadRound(d.round.id)
+
+    if (d.phase === 'questions') {
+      // 이미 읽기 측정이 끝난 회차 — 다시 읽히지 않고 문항으로 복귀, 기존 답 복원
+      hasRead.value = true
+      for (const [qid, ans] of Object.entries(d.answered || {})) {
+        answers[Number(qid)] = Number(ans)
+      }
+      phase.value = 'questions'
+    } else if (d.text_reissued) {
+      reissuedNotice.value = '지난번 글은 이미 봤을 수 있어서 새로운 글로 바꿨어요 📖'
+    }
+  } catch (e: any) {
+    error.value = errMsg(e)
+  } finally { busy.value = false }
+}
+
+async function doRestart() {
+  busy.value = true; error.value = ''
+  try {
+    if (resumeSessionId.value) {
+      await api.post(`/api/diagnosis/session/${resumeSessionId.value}/abandon`)
+    }
+    resumeSessionId.value = null
+    phase.value = 'survey'
+  } catch (e: any) {
+    error.value = errMsg(e)
+  } finally { busy.value = false }
+}
+
 async function loadRound(roundId: number) {
   const r = await api.get(`/api/diagnosis/round/${roundId}/content`)
   round.roundId = r.data.round_id
@@ -283,6 +366,7 @@ async function loadRound(roundId: number) {
   round.syllableCount = r.data.syllable_count || 0
   round.questions = r.data.questions
   for (const k of Object.keys(answers)) delete answers[Number(k)]
+  unsavedIds.clear()
   timerSeconds.value = 0; timerRunning.value = false; silentSeconds.value = 0
   hasRead.value = false; tooFastWarned.value = false
   phase.value = 'reading'
@@ -329,13 +413,33 @@ async function stopReading() {
   } catch (e: any) { error.value = errMsg(e) } finally { busy.value = false }
 }
 
+// 선택 즉시 서버에 저장한다. 중간에 창을 닫아도 답이 남아야 이어하기가 의미를 갖는다.
+// 서버가 (회차,문항) 단위로 갱신하므로 답을 고쳐 골라도 행이 늘지 않는다.
+// 저장 실패는 화면을 막지 않는다 — 제출 시 한 번 더 보내 보정한다.
+const unsavedIds = new Set<number>()
+
+async function saveAnswer(questionId: number) {
+  const ans = answers[questionId]
+  if (!ans || !round.roundId) return
+  try {
+    await api.post('/api/diagnosis/comprehension', {
+      round_id: round.roundId, question_id: questionId, student_answer: ans,
+    })
+    unsavedIds.delete(questionId)
+  } catch {
+    unsavedIds.add(questionId)
+  }
+}
+
 async function submitAnswers() {
   busy.value = true; error.value = ''
   try {
-    for (const q of round.questions) {
+    // 즉시 저장에 실패했던 문항만 다시 보낸다(정상 흐름에선 비어 있다).
+    for (const qid of Array.from(unsavedIds)) {
       await api.post('/api/diagnosis/comprehension', {
-        round_id: round.roundId, question_id: q.id, student_answer: answers[q.id],
+        round_id: round.roundId, question_id: qid, student_answer: answers[qid],
       })
+      unsavedIds.delete(qid)
     }
     const res = await api.post(`/api/diagnosis/round/${round.roundId}/complete`)
     const body = res.data
@@ -364,8 +468,11 @@ function errMsg(e: any): string {
 
 function resetAll() {
   error.value = ''; phase.value = 'survey'; sessionId.value = null; roundNumber.value = 1
+  resumeSessionId.value = null; reissuedNotice.value = ''; unsavedIds.clear()
 }
 function handleLogout() { router.push('/login') }
+
+onMounted(checkResume)
 </script>
 
 <style scoped>
@@ -398,6 +505,25 @@ function handleLogout() { router.push('/login') }
 }
 .step-content { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1.2rem; }
 .illust { font-size: 4rem; }
+
+/* 이어하기 선택 */
+.resume-desc { color: var(--gray); line-height: 1.7; margin-bottom: 1.5rem; }
+.resume-actions { display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
+.btn-ghost {
+  background: var(--white); color: var(--navy);
+  border: 2px solid var(--gray-light); border-radius: 99px;
+  padding: 0.9rem 2rem; font-weight: 800; font-size: 1rem;
+  cursor: pointer; min-height: 56px;
+}
+.btn-ghost:hover:not(:disabled) { border-color: var(--navy); }
+.btn-ghost:disabled { opacity: 0.5; cursor: default; }
+.resume-note { color: var(--gray); font-size: 0.85rem; margin-top: 1.2rem; }
+
+.reissue-notice {
+  background: #FFF8E1; border: 1px solid var(--yellow); border-radius: var(--radius-sm);
+  padding: 0.7rem 1rem; color: var(--navy); font-size: 0.9rem; font-weight: 700;
+  margin-bottom: 1rem;
+}
 .illust-big { font-size: 5rem; }
 h2 { font-size: 1.5rem; font-weight: 900; color: var(--navy); }
 p { color: var(--gray); line-height: 1.6; }

@@ -195,3 +195,85 @@ async def _run():
 
 def test_full_flow():
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# STR-76 이어하기 관련 회귀 — 응답 업서트 / 중단 세션 복귀
+# ---------------------------------------------------------------------------
+
+async def _run_resume():
+    """중단 후 이어하기: 응답 중복 방지, 복귀 지점 판정, 지문 교체, 새로 시작."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=headers) as ac:
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid}/start")
+        round1 = r.json()["id"]
+
+        # --- 읽기 전 이탈 → 읽기 단계로 복귀하며 지문이 교체돼야 한다 -------------
+        r = await ac.post(f"/api/diagnosis/session/{sid}/resume")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["phase"] == "reading", body
+        assert body["answered"] == {}
+        # 시드에 normal/narrative 대체 지문이 없으면 교체가 일어나지 않는다.
+        # 교체됐다면 반드시 다른 지문이어야 한다(같은 지문 재측정 금지).
+        if body["text_reissued"]:
+            assert body["round"]["text_id"] != t1, body
+        print(f"PASS 읽기 전 이탈 → reading 복귀 (지문교체={body['text_reissued']})")
+
+        # --- 묵독 측정 후 문항 일부만 응답하고 이탈 -----------------------------
+        await ac.post("/api/diagnosis/fluency/silent",
+                      json={"session_id": sid, "silent_reading_time": 40, "round_id": round1})
+        await ac.post("/api/diagnosis/comprehension",
+                      json={"round_id": round1, "question_id": qids["Q1"], "student_answer": 1})
+
+        r = await ac.post(f"/api/diagnosis/session/{sid}/resume")
+        body = r.json()
+        assert body["phase"] == "questions", body            # 다시 읽히지 않는다
+        assert body["text_reissued"] is False                # 측정 끝난 회차는 지문 유지
+        assert body["answered"] == {str(qids["Q1"]): 1} or body["answered"] == {qids["Q1"]: 1}, body
+        print("PASS 측정 후 이탈 → questions 복귀 + 기존 응답 복원")
+
+        # --- 같은 문항 재전송은 행을 늘리지 않고 갱신해야 한다 -------------------
+        # (선택 즉시 저장 + 이어하기로 같은 문항을 다시 풀 수 있으므로)
+        r = await ac.post("/api/diagnosis/comprehension",
+                          json={"round_id": round1, "question_id": qids["Q1"], "student_answer": 2})
+        assert r.status_code == 201, r.text
+        for c, ans in [("Q2", 2), ("Q3", 3)]:
+            await ac.post("/api/diagnosis/comprehension",
+                          json={"round_id": round1, "question_id": qids[c], "student_answer": ans})
+
+        r = await ac.post(f"/api/diagnosis/round/{round1}/complete")
+        comp = r.json()["comprehension"]
+        assert comp["total_questions"] == 3, f"중복 응답이 분모를 늘렸다: {comp}"
+        print(f"PASS 응답 업서트: 재전송 후에도 문항수={comp['total_questions']}")
+
+        # --- 새로 시작(포기) ---------------------------------------------------
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid2 = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid2}/abandon")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "abandoned", r.json()
+
+        # 포기한 세션은 이어할 수 없고, 홈 배너에서도 사라져야 한다
+        r = await ac.post(f"/api/diagnosis/session/{sid2}/resume")
+        assert r.status_code == 409, r.text
+        r = await ac.get("/api/diagnosis/my/summary")
+        assert r.json()["in_progress_session_id"] != sid2, r.json()
+        print("PASS 새로 시작: abandoned 처리·재이어하기 차단·배너 해제")
+
+    await engine.dispose()
+
+
+def test_resume_flow():
+    asyncio.run(_run_resume())

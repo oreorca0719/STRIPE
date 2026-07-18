@@ -260,5 +260,16 @@ class MySessionItem(BaseModel):
 class MySummaryResponse(BaseModel):
     """학생 홈 요약. 진단 이력이 없으면 completed_count=0, latest=None."""
     completed_count: int
-    in_progress_session_id: Optional[int] = None   # 이어하기 안내용(STR-76에서 활용)
+    in_progress_session_id: Optional[int] = None   # 이어하기 배너용
     latest: Optional[MySessionItem] = None
+
+
+# ---- 중단 세션 이어하기 ---------------------------------------------------
+class ResumeResponse(BaseModel):
+    """이어할 지점. 프론트는 phase 에 따라 읽기/문항 화면으로 복귀한다."""
+    session_id: int
+    round: RoundResponse
+    round_number: int
+    phase: str                       # 'reading' | 'questions'
+    answered: dict                   # {question_id: student_answer} — 복원용
+    text_reissued: bool              # 읽기 시간 미측정이라 지문을 교체했는지

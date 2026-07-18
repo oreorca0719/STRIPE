@@ -81,6 +81,8 @@ class DiagSessionStatus(str, enum.Enum):
     completed = "completed"
     early_stop = "early_stop"
     indeterminate = "indeterminate"
+    # 학생이 중단하고 새로 시작한 세션. 데이터는 보존한다(중도이탈 집계 근거).
+    abandoned = "abandoned"
 
 
 class ReliabilityFlag(str, enum.Enum):
