@@ -17,6 +17,7 @@
         </div>
         <div class="search-bar">
           <input v-model="search" placeholder="이름 또는 아이디 검색..." />
+          <button class="ghost-btn sm" @click="openBulk">파일럿 일괄 발급</button>
           <button class="issue-btn" @click="openIssue">+ 계정 발급</button>
         </div>
       </div>
@@ -129,6 +130,106 @@
                 {{ issuing ? '발급 중…' : '발급' }}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 파일럿 일괄 발급 (STR-90) -->
+      <div v-if="bulkOpen" class="modal-backdrop" @click.self="bulkOpen = false">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <h2 class="m-title">파일럿 학생 계정 일괄 발급</h2>
+              <p class="m-sub">
+                학생 1명당 계정 1개. 계정을 공유하면 응시 기록이 한 계정에 섞여
+                개인별 분포를 낼 수 없다.
+              </p>
+            </div>
+            <button class="close-btn" @click="bulkOpen = false">✕</button>
+          </div>
+
+          <div class="form">
+            <label class="field">
+              <span class="f-label">학년</span>
+              <select v-model="bulk.grade">
+                <option value="elem4">초등 4학년</option>
+                <option value="elem5">초등 5학년</option>
+                <option value="elem6">초등 6학년</option>
+                <option value="mid1">중등 1학년</option>
+              </select>
+            </label>
+
+            <div class="row2">
+              <label class="field">
+                <span class="f-label">시작 번호</span>
+                <input v-model.number="bulk.start" type="number" min="1" max="999" />
+              </label>
+              <label class="field">
+                <span class="f-label">발급 수 <span class="dim">(최대 200)</span></span>
+                <input v-model.number="bulk.count" type="number" min="1" max="200" />
+              </label>
+            </div>
+
+            <div class="preview-box">
+              <span class="f-label">생성될 아이디</span>
+              <p class="preview-ids">{{ bulkPreview }}</p>
+            </div>
+
+            <label class="check">
+              <input type="checkbox" v-model="bulk.must_change_password" />
+              <span>
+                최초 로그인 시 변경 요구
+                <span class="dim">— 파일럿은 해제 권장(아동이 변경 화면에서 이탈)</span>
+              </span>
+            </label>
+
+            <p v-if="bulkError" class="err">{{ bulkError }}</p>
+
+            <div class="form-actions">
+              <button class="ghost-btn" @click="bulkOpen = false">취소</button>
+              <button class="primary-btn" :disabled="bulkIssuing" @click="submitBulk">
+                {{ bulkIssuing ? '발급 중…' : `${bulk.count || 0}개 발급` }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 일괄 발급 결과 — CSV 저장 -->
+      <div v-if="bulkResult" class="modal-backdrop" @click.self="confirmCloseBulkResult">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <h2 class="m-title">{{ bulkResult.count }}개 계정이 발급되었습니다</h2>
+              <p class="m-sub warn">
+                임시 비밀번호는 지금만 확인할 수 있다. <strong>CSV로 먼저 저장할 것.</strong>
+                화면을 닫으면 다시 볼 수 없다.
+              </p>
+            </div>
+            <button class="close-btn" @click="confirmCloseBulkResult">✕</button>
+          </div>
+
+          <div class="bulk-table-wrap">
+            <table class="bulk-table">
+              <thead><tr><th>아이디</th><th>임시 비밀번호</th></tr></thead>
+              <tbody>
+                <tr v-for="c in bulkResult.credentials" :key="c.user.id">
+                  <td>{{ c.user.username }}</td>
+                  <td class="mono">{{ c.temp_password }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="m-sub">
+            식별코드↔학생 매핑표는 이 시스템 밖에서 따로 보관할 것. 그 표가 유일한 식별 경로다.
+          </p>
+
+          <div class="form-actions">
+            <button class="primary-btn" @click="downloadBulkCsv">
+              {{ csvSaved ? 'CSV 저장됨 ✓' : 'CSV 저장' }}
+            </button>
+            <button class="ghost-btn" @click="confirmCloseBulkResult">닫기</button>
           </div>
         </div>
       </div>
@@ -269,6 +370,82 @@ async function submitIssue() {
   } finally {
     issuing.value = false
   }
+}
+
+// ── 파일럿 일괄 발급 (STR-90) ─────────────────────────────────────────
+const bulkOpen = ref(false)
+const bulkIssuing = ref(false)
+const bulkError = ref('')
+const csvSaved = ref(false)
+const bulkResult = ref<{ grade: string; count: number; credentials: any[] } | null>(null)
+
+const bulk = ref({ grade: 'elem5', start: 1, count: 30, must_change_password: false })
+
+const bulkPreview = computed(() => {
+  const { grade, start, count } = bulk.value
+  if (!count || count < 1 || !start || start < 1) return '—'
+  const pad = (n: number) => `${grade}-${String(n).padStart(3, '0')}`
+  const last = start + count - 1
+  if (count === 1) return pad(start)
+  if (count === 2) return `${pad(start)}, ${pad(last)}`
+  return `${pad(start)}, ${pad(start + 1)} … ${pad(last)}`
+})
+
+function openBulk() {
+  bulkError.value = ''
+  bulkOpen.value = true
+}
+
+async function submitBulk() {
+  bulkError.value = ''
+  bulkIssuing.value = true
+  try {
+    const res = await api.post('/api/auth/admin/users/bulk', {
+      grade: bulk.value.grade,
+      start: bulk.value.start,
+      count: bulk.value.count,
+      must_change_password: bulk.value.must_change_password,
+    })
+    bulkOpen.value = false
+    bulkResult.value = res.data
+    csvSaved.value = false
+    activeTab.value = 'student'
+    await Promise.all([loadUsers(), loadCounts()])
+  } catch (e: any) {
+    bulkError.value = apiError(e, '일괄 발급에 실패했습니다.')
+  } finally {
+    bulkIssuing.value = false
+  }
+}
+
+function downloadBulkCsv() {
+  if (!bulkResult.value) return
+  const rows = [
+    ['username', 'name', 'grade', 'temp_password'],
+    ...bulkResult.value.credentials.map((c: any) => [
+      c.user.username, c.user.name, c.user.grade, c.temp_password,
+    ]),
+  ]
+  // Excel이 UTF-8로 열도록 BOM을 붙인다
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\r\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `pilot_${bulkResult.value.grade}_${bulkResult.value.count}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  csvSaved.value = true
+}
+
+function confirmCloseBulkResult() {
+  if (!csvSaved.value) {
+    const ok = confirm(
+      'CSV를 아직 저장하지 않았습니다.\n' +
+      '임시 비밀번호는 이 화면을 닫으면 다시 확인할 수 없습니다.\n\n그래도 닫을까요?'
+    )
+    if (!ok) return
+  }
+  bulkResult.value = null
 }
 
 // ── 행 액션 ───────────────────────────────────────────────────────────
@@ -483,6 +660,39 @@ function handleLogout() { router.push('/login') }
   font-size: 0.87rem; font-weight: 700; cursor: pointer; font-family: 'Nunito', sans-serif;
 }
 .ghost-btn:hover { border-color: #444; color: #aaa; }
+
+.ghost-btn.sm { padding: 0.55rem 0.9rem; font-size: 0.82rem; white-space: nowrap; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+
+.preview-box {
+  background: #252836; border-radius: 8px; padding: 0.8rem 1rem;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.preview-ids {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.88rem; color: #4ECDC4; letter-spacing: 0.03em;
+}
+
+.m-sub.warn { color: #FFC15E; }
+.m-sub.warn strong { color: #FFC15E; font-weight: 900; }
+
+.bulk-table-wrap {
+  max-height: 320px; overflow-y: auto;
+  background: #252836; border-radius: 8px; margin-bottom: 1rem;
+}
+.bulk-table { width: 100%; border-collapse: collapse; }
+.bulk-table th {
+  position: sticky; top: 0; background: #252836;
+  text-align: left; padding: 0.6rem 1rem;
+  font-size: 0.72rem; font-weight: 800; color: #666;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid #2a2d3e;
+}
+.bulk-table td {
+  padding: 0.5rem 1rem; font-size: 0.85rem; color: #ddd;
+  border-bottom: 1px solid #1e2130;
+}
+.bulk-table tr:last-child td { border-bottom: none; }
 
 .cred-row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;

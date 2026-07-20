@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.core.security import create_access_token
 from app.schemas.user import (
     UserRegister, UserLogin, TokenResponse, UserResponse, UserNameUpdate, CredentialChange,
-    AdminUserCreate, ActiveUpdate, IssuedCredential,
+    AdminUserCreate, ActiveUpdate, IssuedCredential, BulkUserCreate, BulkIssued,
 )
 from app.services.user_service import get_user_by_username, create_user, authenticate_user
 from app.core.security import hash_password, generate_temp_password
@@ -106,6 +106,71 @@ async def admin_create_user(
     await db.commit()
     await db.refresh(user)
     return IssuedCredential(user=UserResponse.model_validate(user), temp_password=temp_password)
+
+
+@router.post("/admin/users/bulk", response_model=BulkIssued, status_code=status.HTTP_201_CREATED)
+async def admin_bulk_create_students(
+    data: BulkUserCreate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """파일럿 학생 계정 다건 발급 (STR-90).
+
+    학생 1명당 계정 1개여야 한다. 계정을 공유하면 여러 학생의 응시 기록이 한
+    계정에 섞여 분리가 불가능해지고, 개인별 분포에서 산출하는 임계값(P33/P67)을
+    낼 수 없게 된다.
+
+    아이디가 하나라도 겹치면 아무것도 만들지 않고 409 로 되돌린다. 부분 생성은
+    식별코드 매핑표와 실제 계정이 어긋나게 만들어 나중에 추적이 불가능해진다.
+    """
+    from sqlalchemy import select
+
+    if data.grade not in SERVICE_GRADES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="현재 초등학교 4학년부터 중학교 1학년까지 이용할 수 있습니다.",
+        )
+
+    usernames = [
+        f"{data.grade.value}-{n:03d}"
+        for n in range(data.start, data.start + data.count)
+    ]
+
+    result = await db.execute(select(User.username).where(User.username.in_(usernames)))
+    taken = sorted(result.scalars().all())
+    if taken:
+        preview = ", ".join(taken[:5]) + (f" 외 {len(taken) - 5}건" if len(taken) > 5 else "")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"이미 존재하는 아이디가 있어 발급하지 않았습니다: {preview}",
+        )
+
+    credentials = []
+    for username in usernames:
+        temp_password = generate_temp_password()
+        user = User(
+            username=username,
+            password_hash=hash_password(temp_password),
+            name=username,              # 실명 미수집 — 식별코드를 이름으로 쓴다
+            role=UserRole.student,
+            grade=data.grade,
+            must_change_password=data.must_change_password,
+        )
+        db.add(user)
+        credentials.append((user, temp_password))
+
+    await db.commit()
+    for user, _ in credentials:
+        await db.refresh(user)
+
+    return BulkIssued(
+        grade=data.grade,
+        count=len(credentials),
+        credentials=[
+            IssuedCredential(user=UserResponse.model_validate(u), temp_password=pw)
+            for u, pw in credentials
+        ],
+    )
 
 
 @router.post("/admin/users/{user_id}/reset-password", response_model=IssuedCredential)

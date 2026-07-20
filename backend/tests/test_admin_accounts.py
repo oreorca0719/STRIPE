@@ -147,6 +147,120 @@ def test_issue_account_requires_admin():
     asyncio.run(_run())
 
 
+# ── 파일럿 다건 발급 (STR-90) ────────────────────────────────────────────
+
+def test_bulk_issue_creates_sequential_unique_accounts():
+    """학생 1명당 계정 1개. 공유 계정이면 개인별 분포를 낼 수 없다."""
+    async def _run():
+        app, _ = await _setup()
+        async with _client(app) as ac:
+            r = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem6", "start": 1, "count": 5,
+            })
+            assert r.status_code == 201, r.text
+            body = r.json()
+            assert body["count"] == 5
+
+            names = [c["user"]["username"] for c in body["credentials"]]
+            assert names == ["elem6-001", "elem6-002", "elem6-003", "elem6-004", "elem6-005"]
+
+            # 계정마다 서로 다른 비밀번호여야 한다
+            pws = [c["temp_password"] for c in body["credentials"]]
+            assert len(set(pws)) == 5
+
+            # 실명 미수집 — 이름은 식별코드와 같다
+            assert all(c["user"]["name"] == c["user"]["username"] for c in body["credentials"])
+            # 파일럿 기본값: 변경 화면에서 이탈하지 않도록 해제
+            assert all(c["user"]["must_change_password"] is False for c in body["credentials"])
+
+            # 발급받은 계정으로 실제 로그인이 되어야 한다
+            login = await ac.post("/api/auth/login", json={
+                "username": "elem6-003",
+                "password": next(c["temp_password"] for c in body["credentials"]
+                                 if c["user"]["username"] == "elem6-003"),
+            })
+            assert login.status_code == 200, login.text
+
+    asyncio.run(_run())
+
+
+def test_bulk_issue_honors_start_offset():
+    async def _run():
+        app, _ = await _setup()
+        async with _client(app) as ac:
+            r = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem4", "start": 17, "count": 3,
+            })
+            assert r.status_code == 201, r.text
+            names = [c["user"]["username"] for c in r.json()["credentials"]]
+            assert names == ["elem4-017", "elem4-018", "elem4-019"]
+
+    asyncio.run(_run())
+
+
+def test_bulk_issue_is_all_or_nothing_on_collision():
+    """부분 생성되면 식별코드 매핑표와 실제 계정이 어긋나 추적이 불가능해진다."""
+    async def _run():
+        app, factory = await _setup()
+        async with _client(app) as ac:
+            first = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem5", "start": 1, "count": 3,
+            })
+            assert first.status_code == 201
+
+            # 2번과 겹치도록 요청 — 겹치지 않는 4·5번도 만들어지면 안 된다
+            second = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem5", "start": 2, "count": 4,
+            })
+            assert second.status_code == 409, second.text
+
+        # 겹치지 않는 4·5번까지 전부 생성되지 않았는지 DB에서 직접 확인
+        # (elem5-017 은 _setup 이 심어둔 시드 학생)
+        from sqlalchemy import select
+        from app.models.user import User as U
+        async with factory() as db:
+            rows = (await db.execute(
+                select(U.username).where(U.username.like("elem5-%"))
+            )).scalars().all()
+        assert sorted(rows) == ["elem5-001", "elem5-002", "elem5-003", "elem5-017"]
+
+    asyncio.run(_run())
+
+
+def test_bulk_issue_rejects_out_of_service_grade_and_bad_count():
+    async def _run():
+        app, _ = await _setup()
+        async with _client(app) as ac:
+            bad_grade = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem1", "start": 1, "count": 2,
+            })
+            assert bad_grade.status_code == 422, bad_grade.text
+
+            too_many = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem5", "start": 1, "count": 999,
+            })
+            assert too_many.status_code == 422, too_many.text
+
+            zero = await ac.post("/api/auth/admin/users/bulk", headers=ADMIN_H(), json={
+                "grade": "elem5", "start": 1, "count": 0,
+            })
+            assert zero.status_code == 422, zero.text
+
+    asyncio.run(_run())
+
+
+def test_bulk_issue_requires_admin():
+    async def _run():
+        app, _ = await _setup()
+        payload = {"grade": "elem5", "start": 1, "count": 2}
+        async with _client(app) as ac:
+            assert (await ac.post("/api/auth/admin/users/bulk", json=payload)).status_code == 401
+            r = await ac.post("/api/auth/admin/users/bulk", headers=STUDENT_H(), json=payload)
+            assert r.status_code == 403
+
+    asyncio.run(_run())
+
+
 # ── 비밀번호 초기화 ──────────────────────────────────────────────────────
 
 def test_reset_password_invalidates_old_and_forces_change():
