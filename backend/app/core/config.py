@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
     CLOVA_API_KEY: str = ""
 
+    # 보호자 동의 회수 기록이 없는 학생의 응시를 차단할지 (STR-97).
+    # 기본 False — 켠 채로 배포하면 동의 기록이 아직 없는 기존·검수용 계정이
+    # 전부 응시 불가가 된다. 파일럿 시작 시점에 동의 기록을 넣고 켤 것.
+    REQUIRE_PILOT_CONSENT: bool = False
+
     class Config:
         env_file = ".env"
         case_sensitive = True

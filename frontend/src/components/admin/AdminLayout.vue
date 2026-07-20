@@ -27,6 +27,10 @@
           <span class="nav-icon">📊</span>
           <span>진단 통계</span>
         </RouterLink>
+        <RouterLink to="/admin/consents" class="nav-item">
+          <span class="nav-icon">📋</span>
+          <span>보호자 동의</span>
+        </RouterLink>
         <RouterLink to="/admin/pilot" class="nav-item">
           <span class="nav-icon">🔬</span>
           <span>파일럿 분석</span>

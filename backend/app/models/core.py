@@ -523,3 +523,41 @@ class ReportTemplate(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ConsentConfirmMethod(str, enum.Enum):
+    """동의 확인 방법. 파일럿은 서면, 정식 오픈은 휴대전화 본인인증(STR-88)."""
+    written = "written"
+    phone_verification = "phone_verification"
+
+
+# =========================================================================
+# consent_records (STR-97) — 보호자 동의 회수 기록
+# 종이로 받더라도 '동의를 받았는가'를 시스템에서 확인할 수 있어야 한다.
+# 학생 1명당 1행. 철회는 행을 지우지 않고 revoked 로 표시한다 —
+# 언제 동의했고 언제 철회했는지가 둘 다 증명 대상이다.
+# =========================================================================
+class ConsentRecord(Base):
+    __tablename__ = "consent_records"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'),
+                     nullable=False, unique=True, index=True)
+    confirm_method = Column(Enum(ConsentConfirmMethod), nullable=False)
+    # 필수(진단 서비스 제공) / 선택(연구·도구 개선) 분리 — STR-86 §동의서
+    consent_required = Column(Boolean, nullable=False, default=True)
+    consent_optional = Column(Boolean, nullable=False, default=False)
+    consented_at = Column(DateTime(timezone=True), nullable=False)
+    # 종이 원본은 학생 실명·보호자 서명을 담은 개인정보 문서다. 어디 있는지
+    # 기록해두지 않으면 파기 시점에 회수가 불가능해진다(STR-86·STR-93).
+    document_location = Column(String(200), nullable=True)
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    recorded_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    note = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    @property
+    def is_valid(self) -> bool:
+        """응시를 허용할 수 있는 상태인가. 필수 동의가 있고 철회되지 않았을 것."""
+        return bool(self.consent_required) and not self.revoked

@@ -6,8 +6,9 @@ from app.models.core import (
     DiagnosisSession, DiagnosisRound, FluencyResult, QuestionResponse, Question,
     ComprehensionResult, StudentProfile, TextContent,
     JudgmentResult, PrescriptionResult, Report,
-    DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus,
+    DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus, ConsentRecord,
 )
+from app.core.config import settings
 from app.schemas.diagnosis import (
     SessionCreate, SessionResponse,
     RoundCreate, RoundResponse,
@@ -37,6 +38,39 @@ def _utcnow():
 
 def _may_access(user: User, student_id: int) -> bool:
     return user.role == UserRole.admin or user.id == student_id
+
+
+async def _require_consent(db: AsyncSession, user: User) -> None:
+    """보호자 동의가 회수된 학생만 응시할 수 있게 한다 (STR-97).
+
+    계정을 동의 회수 후에만 배포하더라도, 운영 실수로 미동의 학생이 응시하면
+    되돌릴 수 없다(수집 자체가 이미 일어난다). 그래서 시스템에서도 막는다.
+
+    settings.REQUIRE_PILOT_CONSENT 로 켜고 끈다. 기본이 꺼짐인 이유: 켠 채로
+    배포하면 동의 기록이 아직 없는 기존·검수용 계정이 전부 응시 불가가 된다.
+    파일럿 시작 시점에 동의 기록을 넣고 켤 것.
+
+    관리자는 제외한다 — 아동이 아니고 화면 검수를 해야 한다.
+    """
+    if not settings.REQUIRE_PILOT_CONSENT:
+        return
+    if user.role == UserRole.admin:
+        return
+
+    record = (await db.execute(
+        select(ConsentRecord).where(ConsentRecord.user_id == user.id)
+    )).scalar_one_or_none()
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="보호자 동의서가 확인되지 않았어요. 선생님께 문의해주세요.",
+        )
+    if not record.is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="보호자 동의가 철회되어 진단을 시작할 수 없어요. 선생님께 문의해주세요.",
+        )
 
 
 async def _owned_session(db: AsyncSession, session_id: int, user: User) -> DiagnosisSession:
@@ -259,6 +293,9 @@ async def create_profile(
     본인 계정으로만 생성 가능(토큰에서 학생 식별).
     MVP1 최소 설문: 학년·독서빈도·태도·관심주제·예상정답수(D-2 메타인지).
     """
+    # 설문 응답도 개인정보 수집이다. 세션 생성 전에 여기서 먼저 막아야
+    # 미동의 학생의 설문 데이터가 저장되는 것을 방지할 수 있다 (STR-97).
+    await _require_consent(db, user)
     type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
     profile = StudentProfile(
         user_id=user.id,
@@ -326,6 +363,7 @@ async def create_session(
     user: User = Depends(get_current_user),
 ):
     """진단 세션 생성 (v1.2 §1-10). 본인 계정으로만 생성."""
+    await _require_consent(db, user)      # STR-97 — 미동의 학생 응시 차단
     if data.profile_id is not None:
         p_q = await db.execute(select(StudentProfile).where(StudentProfile.id == data.profile_id))
         profile = p_q.scalar_one_or_none()
