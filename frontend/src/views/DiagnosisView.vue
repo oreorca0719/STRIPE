@@ -20,9 +20,17 @@
         <!-- 오류 -->
         <div v-if="error" class="step-content">
           <div class="illust">😵</div>
-          <h2>문제가 생겼어요</h2>
+          <h2>{{ retry ? '잠깐 문제가 생겼어요' : '문제가 생겼어요' }}</h2>
           <p class="err">{{ error }}</p>
-          <button class="btn-primary" @click="resetAll">처음부터 다시</button>
+          <p v-if="retry" class="err-hint">
+            지금까지 푼 답은 저장돼 있어요. 다시 시도하면 이어서 진행돼요.
+          </p>
+          <div class="err-actions">
+            <button v-if="retry" class="btn-primary" :disabled="busy" @click="runRetry">
+              {{ busy ? '다시 시도하는 중…' : '다시 시도' }}
+            </button>
+            <button class="btn-ghost" @click="resetAll">처음부터 다시</button>
+          </div>
         </div>
 
         <!-- 이어하기 확인 -->
@@ -324,6 +332,8 @@ async function submitSurvey() {
     const r = await api.post(`/api/diagnosis/session/${sessionId.value}/start`)
     await loadRound(r.data.id)
   } catch (e: any) {
+    // 재시도를 걸지 않는다 — 이 흐름은 프로필·세션을 생성하므로 그대로 다시 부르면
+    // 중복 행이 쌓인다. 설문 단계라 잃을 응답도 없어 처음부터 다시가 안전하다.
     error.value = errMsg(e)
   } finally { busy.value = false }
 }
@@ -399,6 +409,8 @@ async function loadRound(roundId: number) {
   hasRead.value = false; tooFastWarned.value = false
   phase.value = 'reading'
   window.scrollTo({ top: 0, behavior: 'smooth' })
+  // 새로고침·재접속으로 돌아온 경우, 저장 못 했던 답을 이 회차에 한해 되살린다.
+  if (round.roundId !== null) await restoreUnsavedBackup(round.roundId)
 }
 
 function startReading() {
@@ -432,19 +444,64 @@ async function stopReading() {
   hasRead.value = true
   tooFastWarning.value = ''
   silentSeconds.value = elapsed
+  await sendSilentReading()
+}
+
+/**
+ * 측정이 끝난 묵독 시간을 전송한다. 실패 시 이 함수만 재시도한다 —
+ * stopReading 을 다시 부르면 경과 시간이 재계산돼 A4 가 오염된다.
+ */
+async function sendSilentReading() {
   busy.value = true; error.value = ''
   try {
     await api.post('/api/diagnosis/fluency/silent', {
       session_id: sessionId.value, silent_reading_time: silentSeconds.value, round_id: round.roundId,
     })
     phase.value = 'questions'
-  } catch (e: any) { error.value = errMsg(e) } finally { busy.value = false }
+  } catch (e: any) {
+    failWithRetry(e, sendSilentReading)
+  } finally { busy.value = false }
 }
 
 // 선택 즉시 서버에 저장한다. 중간에 창을 닫아도 답이 남아야 이어하기가 의미를 갖는다.
 // 서버가 (회차,문항) 단위로 갱신하므로 답을 고쳐 골라도 행이 늘지 않는다.
 // 저장 실패는 화면을 막지 않는다 — 제출 시 한 번 더 보내 보정한다.
 const unsavedIds = new Set<number>()
+
+// 저장 실패분이 메모리에만 있으면 새로고침·탭 닫기로 사라진다. 아동은 실수로
+// 새로고침하기 쉬우므로 localStorage 에 남겨 재진입 시 되살린다.
+const BACKUP_KEY = 'stripe.unsavedAnswers'
+
+function persistUnsaved() {
+  if (!round.roundId) return
+  if (unsavedIds.size === 0) return clearUnsavedBackup()
+  const payload = {
+    roundId: round.roundId,
+    answers: Object.fromEntries(Array.from(unsavedIds).map((id) => [id, answers[id]])),
+  }
+  try { localStorage.setItem(BACKUP_KEY, JSON.stringify(payload)) } catch { /* 용량 초과 무시 */ }
+}
+
+function clearUnsavedBackup() {
+  try { localStorage.removeItem(BACKUP_KEY) } catch { /* noop */ }
+}
+
+/** 같은 회차로 돌아왔을 때만 복구한다. 다른 회차 답이 섞이면 채점이 오염된다. */
+async function restoreUnsavedBackup(roundId: number) {
+  let saved: any
+  try { saved = JSON.parse(localStorage.getItem(BACKUP_KEY) || 'null') } catch { return }
+  if (!saved || saved.roundId !== roundId) return
+
+  for (const [qid, ans] of Object.entries(saved.answers || {})) {
+    const id = Number(qid)
+    const value = Number(ans)
+    if (!Number.isFinite(id) || !Number.isFinite(value)) continue
+    answers[id] = value
+    unsavedIds.add(id)
+  }
+  for (const id of Array.from(unsavedIds)) await saveAnswer(id)
+  persistUnsaved()
+}
 
 async function saveAnswer(questionId: number) {
   const ans = answers[questionId]
@@ -457,6 +514,7 @@ async function saveAnswer(questionId: number) {
   } catch {
     unsavedIds.add(questionId)
   }
+  persistUnsaved()
 }
 
 async function submitAnswers() {
@@ -468,6 +526,7 @@ async function submitAnswers() {
         round_id: round.roundId, question_id: qid, student_answer: answers[qid],
       })
       unsavedIds.delete(qid)
+      persistUnsaved()
     }
     const res = await api.post(`/api/diagnosis/round/${round.roundId}/complete`)
     const body = res.data
@@ -477,14 +536,24 @@ async function submitAnswers() {
     } else {
       await finalize()
     }
-  } catch (e: any) { error.value = errMsg(e) } finally { busy.value = false }
+  } catch (e: any) {
+    // 답안은 이미 서버에 있다. 처음부터 다시 시킬 이유가 없으므로 재시도를 건다.
+    failWithRetry(e, submitAnswers)
+  } finally { busy.value = false }
 }
 
 async function finalize() {
   phase.value = 'processing'
-  await api.post(`/api/diagnosis/session/${sessionId.value}/finalize`)
-  await api.post(`/api/diagnosis/session/${sessionId.value}/report`)
-  router.push({ name: 'result', query: { session: String(sessionId.value) } })
+  try {
+    await api.post(`/api/diagnosis/session/${sessionId.value}/finalize`)
+    await api.post(`/api/diagnosis/session/${sessionId.value}/report`)
+    clearUnsavedBackup()
+    router.push({ name: 'result', query: { session: String(sessionId.value) } })
+  } catch (e: any) {
+    // 문항은 전부 풀고 판정·리포트 생성만 실패한 상태다. 25분 응시한 아이에게
+    // 처음부터 다시 시키면 안 된다 — 재시도만 하면 된다.
+    failWithRetry(e, finalize)
+  }
 }
 
 function errMsg(e: any): string {
@@ -494,9 +563,31 @@ function errMsg(e: any): string {
   return e?.message || '알 수 없는 오류가 발생했어요.'
 }
 
+// 재시도 가능한 실패의 복구 동작. null 이면 '처음부터 다시'만 남는다.
+const retry = ref<null | (() => Promise<void>)>(null)
+
+/**
+ * 답안이 서버에 남아 있어 이어서 진행 가능한 실패를 표시한다.
+ * 401(만료)은 인터셉터가 로그인 화면으로 보내므로 여기서 다루지 않는다.
+ */
+function failWithRetry(e: any, action: () => Promise<void>) {
+  if (e?.response?.status === 401) return
+  error.value = errMsg(e)
+  retry.value = action
+}
+
+async function runRetry() {
+  const action = retry.value
+  if (!action) return
+  error.value = ''; retry.value = null
+  await action()
+}
+
 function resetAll() {
-  error.value = ''; phase.value = 'survey'; sessionId.value = null; roundNumber.value = 1
+  error.value = ''; retry.value = null
+  phase.value = 'survey'; sessionId.value = null; roundNumber.value = 1
   resumeSessionId.value = null; reissuedNotice.value = ''; unsavedIds.clear()
+  clearUnsavedBackup()
 }
 function handleLogout() { router.push('/login') }
 
@@ -561,6 +652,11 @@ onMounted(checkResume)
 h2 { font-size: 1.5rem; font-weight: 900; color: var(--navy); }
 p { color: var(--gray); line-height: 1.6; }
 .err { color: var(--coral); font-weight: 700; }
+.err-hint { color: var(--gray); font-size: 0.9rem; margin-top: 0.6rem; line-height: 1.6; }
+.err-actions {
+  display: flex; gap: 0.7rem; justify-content: center;
+  margin-top: 1.4rem; flex-wrap: wrap;
+}
 .muted { color: var(--gray); font-size: 0.85rem; font-weight: 600; }
 
 /* 설문 */

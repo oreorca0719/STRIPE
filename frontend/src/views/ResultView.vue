@@ -13,11 +13,23 @@
         <h2>결과를 불러오는 중…</h2>
       </div>
 
+      <!-- 불러오기 실패 — '결과 없음'과 구분한다. 진단은 이미 끝났는데 다시
+           응시하러 보내면 안 된다. 결과는 서버에 남아 있으므로 재시도만 하면 된다. -->
+      <div v-else-if="error" class="empty-state">
+        <div class="empty-illust">😵</div>
+        <h2>결과를 못 불러왔어요</h2>
+        <p>{{ error }}</p>
+        <p class="hint">진단 결과는 저장돼 있어요. 다시 시도해볼까요?</p>
+        <button class="btn-primary" :disabled="loading" @click="load">
+          {{ loading ? '불러오는 중…' : '다시 시도' }}
+        </button>
+      </div>
+
       <!-- 결과 없음 -->
       <div v-else-if="!judgment" class="empty-state">
         <div class="empty-illust">🔍</div>
         <h2>아직 진단 결과가 없어요</h2>
-        <p>{{ error || '진단을 완료하면 나의 읽기 수준을 알 수 있어요!' }}</p>
+        <p>진단을 완료하면 나의 읽기 수준을 알 수 있어요!</p>
         <button class="btn-primary" @click="router.push('/student/diagnosis')">지금 진단하러 가기 🚀</button>
       </div>
 
@@ -126,8 +138,6 @@ const recommended = computed<any[]>(() =>
   prescription.value?.recommended_texts || report.value?.report_content?.layer1?.recommended_preview || [])
 
 function levelKo(l: string) { return ({ low: '낮음', mid: '보통', high: '높음' } as any)[l] || l }
-function levelPct(l: string) { return ({ low: 33, mid: 66, high: 100 } as any)[l] || 50 }
-function unitKo(u: string) { return u === 'SPS' ? '음절/초' : u === 'CWPM' ? '어절/분' : '' }
 function metacogKo(m: string) {
   return ({ accurate: '내 실력을 정확하게 알고 있어요! 👍',
             overestimate: '실제보다 조금 높게 봤어요. 겸손하게 한 번 더 확인해봐요.',
@@ -148,6 +158,7 @@ function recTitle(t: any) {
 async function load() {
   const sid = route.query.session
   if (!sid) { loading.value = false; return }
+  loading.value = true; error.value = ''      // 재시도 시 이전 오류를 지운다
   try {
     const j = await api.get(`/api/diagnosis/session/${sid}/judgment`)
     judgment.value = j.data.judgment
@@ -180,6 +191,7 @@ onMounted(load)
 .empty-illust { font-size: 5rem; }
 .empty-state h2 { font-size: 1.4rem; font-weight: 900; }
 .empty-state p { color: var(--gray); }
+.empty-state .hint { font-size: 0.9rem; color: var(--gray); }
 
 .result-content { display: flex; flex-direction: column; gap: 1.5rem; }
 

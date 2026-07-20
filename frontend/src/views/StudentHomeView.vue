@@ -78,7 +78,10 @@
         </div>
 
         <p v-if="error" class="status-hint status-hint--error">
-          현황을 불러오지 못했어요. 잠시 뒤 새로고침해 주세요.
+          현황을 불러오지 못했어요.
+          <button class="retry-link" :disabled="loading" @click="load">
+            {{ loading ? '불러오는 중…' : '다시 시도' }}
+          </button>
         </p>
         <p v-else-if="!loading && completedCount === 0" class="status-hint">
           진단을 완료하면 나의 읽기 수준을 알 수 있어요!
@@ -127,6 +130,7 @@ function goResult() {
 }
 
 async function load() {
+  loading.value = true; error.value = false      // 재시도 시 이전 오류를 지운다
   try {
     const res = await api.get('/api/diagnosis/my/summary')
     completedCount.value = res.data.completed_count
@@ -225,6 +229,12 @@ onMounted(load)
 
 .status-section h2 { font-size: 1.2rem; font-weight: 800; }
 .status-hint--error { color: var(--coral); }
+.retry-link {
+  background: none; border: none; padding: 0; margin-left: 0.4rem;
+  color: var(--coral); font-weight: 800; font-size: inherit;
+  font-family: inherit; text-decoration: underline; cursor: pointer;
+}
+.retry-link:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
 
 @media (max-width: 720px) {
   .cards-grid, .status-cards { grid-template-columns: 1fr; }

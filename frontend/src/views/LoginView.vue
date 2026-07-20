@@ -7,6 +7,14 @@
         <p>로그인하고 오늘의 독서 여정을 시작해봐요 🌟</p>
       </div>
 
+      <div v-if="expired" class="notice">
+        <span class="notice-icon">⏰</span>
+        <div>
+          <strong>로그인 시간이 다 됐어요</strong>
+          <p>다시 로그인하면 이어서 할 수 있어요. 하던 진단은 저장돼 있어요!</p>
+        </div>
+      </div>
+
       <form @submit.prevent="handleLogin" class="form">
         <div class="field">
           <label>아이디</label>
@@ -39,25 +47,40 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useCapsLock } from '@/composables/useCapsLock'
 
 const { capsOn, onKey, reset } = useCapsLock()
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const form = ref({ username: '', password: '' })
 const loading = ref(false)
 const error = ref('')
+
+// 401 인터셉터가 토큰 만료로 돌려보낸 경우. 아동에게 "왜 튕겼는지"를 알려준다.
+const expired = computed(() => route.query.reason === 'expired')
 
 async function handleLogin() {
   loading.value = true
   error.value = ''
   try {
     const user = await auth.login(form.value.username, form.value.password)
-    if (user.role === 'admin') {
+    // 만료로 튕기기 전 있던 화면이 있으면 그리로 되돌린다.
+    // 쿼리는 조작될 수 있으므로 내부 절대경로만 허용한다(`//`로 시작하는 외부 URL 차단).
+    const from = route.query.from
+    const safeFrom =
+      typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') &&
+      !from.startsWith('/login')
+        ? from
+        : null
+
+    if (safeFrom) {
+      router.replace(safeFrom)
+    } else if (user.role === 'admin') {
       router.push('/admin')
     } else if (user.role === 'student') {
       router.push('/student')
@@ -117,6 +140,17 @@ input:focus { border-color: var(--mint); }
   padding: 0.4rem 0.7rem;
   border-radius: var(--radius-sm);
 }
+
+.notice {
+  display: flex; align-items: flex-start; gap: 0.7rem;
+  background: rgba(255, 193, 94, 0.12);
+  border: 1px solid rgba(255, 193, 94, 0.35);
+  border-radius: 12px; padding: 0.9rem 1.1rem; margin-bottom: 1.2rem;
+  text-align: left;
+}
+.notice-icon { font-size: 1.2rem; line-height: 1.3; }
+.notice strong { display: block; color: #E8A33D; font-size: 0.92rem; font-weight: 800; }
+.notice p { color: #B08535; font-size: 0.82rem; margin-top: 0.2rem; line-height: 1.5; }
 
 .error-msg {
   background: #fff0f0;
