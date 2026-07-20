@@ -3,6 +3,10 @@ uvicorn[standard]==0.27.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
 sqlalchemy==2.0.25
+# SQLAlchemy async 실행에 필수. SQLAlchemy 는 이 의존성을 플랫폼 조건부로만 걸어두는데
+# 마커에 aarch64 만 있어 Apple Silicon(platform_machine=arm64)에서는 설치되지 않는다.
+# 리눅스 x86_64(CI)·윈도우에서는 자동 설치되므로 그동안 드러나지 않았다.
+greenlet==3.0.3
 asyncpg==0.29.0
 alembic==1.13.1
 python-jose[cryptography]==3.3.0
@@ -14,4 +18,5 @@ redis==5.0.1
 
 # dev/test
 pytest==8.0.0
+aiosqlite==0.19.0   # 계정 운영 엔드포인트 단위 테스트용 (Postgres 없이 users 테이블만 생성)
 # build trigger

@@ -17,6 +17,7 @@
         </div>
         <div class="search-bar">
           <input v-model="search" placeholder="이름 또는 아이디 검색..." />
+          <button class="issue-btn" @click="openIssue">+ 계정 발급</button>
         </div>
       </div>
 
@@ -30,16 +31,17 @@
               <th>이름</th>
               <th v-if="activeTab === 'student'">학년</th>
               <th>상태</th>
+              <th class="th-actions">관리</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="5">
+              <td :colspan="colCount">
                 <div class="empty-state"><span>⏳</span><span>불러오는 중...</span></div>
               </td>
             </tr>
             <tr v-else-if="filteredUsers.length === 0">
-              <td colspan="5">
+              <td :colspan="colCount">
                 <div class="empty-state"><span>👤</span><span>사용자가 없습니다</span></div>
               </td>
             </tr>
@@ -52,10 +54,104 @@
                 <span class="status-badge" :class="user.is_active ? 'active' : 'inactive'">
                   {{ user.is_active ? '활성' : '비활성' }}
                 </span>
+                <span v-if="user.must_change_password" class="status-badge pending">변경대기</span>
+              </td>
+              <td class="td-actions">
+                <button class="row-btn" :disabled="busyId === user.id"
+                        @click="resetPassword(user)">비밀번호 초기화</button>
+                <button class="row-btn" :class="{ danger: user.is_active }"
+                        :disabled="busyId === user.id" @click="toggleActive(user)">
+                  {{ user.is_active ? '비활성화' : '활성화' }}
+                </button>
               </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- 계정 발급 -->
+      <div v-if="issueOpen" class="modal-backdrop" @click.self="closeIssue">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <h2 class="m-title">계정 발급</h2>
+              <p class="m-sub">비밀번호는 서버가 임시값으로 만들어 발급 직후 한 번만 보여준다.</p>
+            </div>
+            <button class="close-btn" @click="closeIssue">✕</button>
+          </div>
+
+          <div class="form">
+            <label class="field">
+              <span class="f-label">역할</span>
+              <select v-model="form.role">
+                <option value="student">학생</option>
+                <option value="parent">학부모</option>
+                <option value="teacher">교사</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="f-label">아이디 <span class="dim">(4자 이상)</span></span>
+              <input v-model.trim="form.username" placeholder="elem5-017" autocomplete="off" />
+            </label>
+
+            <label class="field">
+              <span class="f-label">
+                이름
+                <span v-if="form.role === 'student'" class="dim">(파일럿은 실명 대신 식별코드)</span>
+              </span>
+              <input v-model.trim="form.name" placeholder="elem5-017" autocomplete="off" />
+            </label>
+
+            <label v-if="form.role === 'student'" class="field">
+              <span class="f-label">학년</span>
+              <select v-model="form.grade">
+                <option value="elem4">초등 4학년</option>
+                <option value="elem5">초등 5학년</option>
+                <option value="elem6">초등 6학년</option>
+                <option value="mid1">중등 1학년</option>
+              </select>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" v-model="form.must_change_password" />
+              <span>
+                최초 로그인 시 아이디·비밀번호 변경 요구
+                <span class="dim">— 파일럿 학생 계정은 해제 권장(변경 화면에서 이탈 방지)</span>
+              </span>
+            </label>
+
+            <p v-if="issueError" class="err">{{ issueError }}</p>
+
+            <div class="form-actions">
+              <button class="ghost-btn" @click="closeIssue">취소</button>
+              <button class="primary-btn" :disabled="issuing" @click="submitIssue">
+                {{ issuing ? '발급 중…' : '발급' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 임시 비밀번호 1회 표시 -->
+      <div v-if="credential" class="modal-backdrop" @click.self="credential = null">
+        <div class="modal narrow">
+          <div class="modal-head">
+            <div>
+              <h2 class="m-title">{{ credential.title }}</h2>
+              <p class="m-sub">이 화면을 닫으면 다시 확인할 수 없다. 지금 옮겨 적을 것.</p>
+            </div>
+            <button class="close-btn" @click="credential = null">✕</button>
+          </div>
+
+          <div class="cred-row"><span class="c-key">아이디</span><span class="c-val">{{ credential.username }}</span></div>
+          <div class="cred-row"><span class="c-key">임시 비밀번호</span><span class="c-val mono">{{ credential.password }}</span></div>
+
+          <div class="form-actions">
+            <button class="ghost-btn" @click="copyCredential">{{ copied ? '복사됨' : '복사' }}</button>
+            <button class="primary-btn" @click="credential = null">확인</button>
+          </div>
+        </div>
       </div>
 
       <!-- 페이지네이션 -->
@@ -103,6 +199,126 @@ const filteredUsers = computed(() => {
     u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)
   )
 })
+
+// ID·아이디·이름·상태·관리 + 학생 탭일 때 학년
+const colCount = computed(() => (activeTab.value === 'student' ? 6 : 5))
+
+// ── 계정 발급 ─────────────────────────────────────────────────────────
+const issueOpen = ref(false)
+const issuing = ref(false)
+const issueError = ref('')
+const busyId = ref<number | null>(null)
+
+// 임시 비밀번호는 서버가 발급 응답으로 한 번만 내려준다. 저장하지 않고 화면에만 띄운다.
+const credential = ref<{ title: string; username: string; password: string } | null>(null)
+const copied = ref(false)
+
+function emptyForm() {
+  return { username: '', name: '', role: 'student', grade: 'elem5', must_change_password: true }
+}
+const form = ref(emptyForm())
+
+function openIssue() {
+  form.value = emptyForm()
+  form.value.role = activeTab.value          // 보고 있던 탭의 역할로 기본값
+  issueError.value = ''
+  issueOpen.value = true
+}
+
+function closeIssue() {
+  issueOpen.value = false
+}
+
+function apiError(e: any, fallback: string) {
+  return e?.response?.data?.detail || fallback
+}
+
+async function submitIssue() {
+  issueError.value = ''
+  if (form.value.username.length < 4) {
+    issueError.value = '아이디는 4자 이상이어야 합니다.'
+    return
+  }
+  if (!form.value.name) {
+    issueError.value = '이름을 입력하세요.'
+    return
+  }
+
+  issuing.value = true
+  try {
+    const payload: Record<string, any> = {
+      username: form.value.username,
+      name: form.value.name,
+      role: form.value.role,
+      must_change_password: form.value.must_change_password,
+    }
+    if (form.value.role === 'student') payload.grade = form.value.grade
+
+    const res = await api.post('/api/auth/admin/users', payload)
+    issueOpen.value = false
+    credential.value = {
+      title: '계정이 발급되었습니다',
+      username: res.data.user.username,
+      password: res.data.temp_password,
+    }
+    copied.value = false
+    activeTab.value = form.value.role
+    await Promise.all([loadUsers(), loadCounts()])
+  } catch (e: any) {
+    issueError.value = apiError(e, '계정 발급에 실패했습니다.')
+  } finally {
+    issuing.value = false
+  }
+}
+
+// ── 행 액션 ───────────────────────────────────────────────────────────
+async function resetPassword(user: any) {
+  if (!confirm(`${user.username} 계정의 비밀번호를 초기화합니다.\n기존 비밀번호는 즉시 사용할 수 없습니다.`)) return
+  busyId.value = user.id
+  try {
+    const res = await api.post(`/api/auth/admin/users/${user.id}/reset-password`)
+    credential.value = {
+      title: '비밀번호가 초기화되었습니다',
+      username: res.data.user.username,
+      password: res.data.temp_password,
+    }
+    copied.value = false
+    await loadUsers()
+  } catch (e: any) {
+    alert(apiError(e, '비밀번호 초기화에 실패했습니다.'))
+  } finally {
+    busyId.value = null
+  }
+}
+
+async function toggleActive(user: any) {
+  const next = !user.is_active
+  const msg = next
+    ? `${user.username} 계정을 다시 활성화합니다.`
+    : `${user.username} 계정을 비활성화합니다.\n로그인이 차단되며, 진단 기록은 그대로 보존됩니다.`
+  if (!confirm(msg)) return
+
+  busyId.value = user.id
+  try {
+    await api.patch(`/api/auth/admin/users/${user.id}/active`, { is_active: next })
+    await loadUsers()
+  } catch (e: any) {
+    alert(apiError(e, '상태 변경에 실패했습니다.'))
+  } finally {
+    busyId.value = null
+  }
+}
+
+async function copyCredential() {
+  if (!credential.value) return
+  const text = `아이디: ${credential.value.username}\n임시 비밀번호: ${credential.value.password}`
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = true
+  } catch {
+    copied.value = false
+  }
+}
 
 async function loadUsers() {
   loading.value = true
@@ -156,6 +372,7 @@ function handleLogout() { router.push('/login') }
   padding: 0.1rem 0.5rem; font-size: 0.75rem;
 }
 
+.search-bar { display: flex; align-items: center; gap: 0.7rem; }
 .search-bar input {
   background: #252836; border: 1px solid #2a2d3e; color: #fff;
   padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem;
@@ -163,6 +380,14 @@ function handleLogout() { router.push('/login') }
 }
 .search-bar input:focus { border-color: #4ECDC4; }
 .search-bar input::placeholder { color: #555; }
+
+.issue-btn {
+  background: #4ECDC4; border: none; color: #12141c;
+  padding: 0.6rem 1.1rem; border-radius: 8px;
+  font-size: 0.85rem; font-weight: 800; cursor: pointer; white-space: nowrap;
+  font-family: 'Nunito', sans-serif;
+}
+.issue-btn:hover { filter: brightness(1.08); }
 
 .table-wrap {
   background: #1a1d27; border: 1px solid #2a2d3e;
@@ -188,6 +413,84 @@ function handleLogout() { router.push('/login') }
 }
 .active { background: rgba(78,205,196,0.15); color: #4ECDC4; }
 .inactive { background: rgba(255,107,107,0.15); color: #FF6B6B; }
+.pending { background: rgba(255,193,94,0.15); color: #FFC15E; margin-left: 0.4rem; }
+
+.th-actions, .td-actions { text-align: right; white-space: nowrap; }
+.row-btn {
+  background: #252836; border: 1px solid #2a2d3e; color: #aaa;
+  padding: 0.35rem 0.8rem; border-radius: 7px; margin-left: 0.4rem;
+  font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  font-family: 'Nunito', sans-serif;
+}
+.row-btn:hover:not(:disabled) { border-color: #4ECDC4; color: #4ECDC4; }
+.row-btn.danger:hover:not(:disabled) { border-color: #FF6B6B; color: #FF6B6B; }
+.row-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 계정 발급 · 임시 비밀번호 모달 */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center; padding: 2rem; z-index: 50;
+}
+.modal {
+  background: #1a1d27; border: 1px solid #2a2d3e; border-radius: 16px;
+  width: 100%; max-width: 480px; max-height: 85vh; overflow-y: auto; padding: 1.8rem;
+}
+.modal.narrow { max-width: 400px; }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.m-title { font-size: 1.15rem; font-weight: 900; color: #fff; }
+.m-sub { font-size: 0.8rem; color: #666; margin-top: 0.35rem; line-height: 1.5; }
+.close-btn {
+  background: #252836; border: 1px solid #2a2d3e; color: #888;
+  width: 32px; height: 32px; border-radius: 8px; font-weight: 900;
+  flex-shrink: 0; cursor: pointer;
+}
+.close-btn:hover { border-color: #FF6B6B; color: #FF6B6B; }
+.dim { color: #555; font-weight: 600; }
+
+.form { display: flex; flex-direction: column; gap: 1rem; }
+.field { display: flex; flex-direction: column; gap: 0.4rem; }
+.f-label { font-size: 0.78rem; font-weight: 800; color: #888; }
+.field input, .field select {
+  background: #252836; border: 1px solid #2a2d3e; color: #fff;
+  padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.9rem;
+  outline: none; font-family: 'Nunito', sans-serif; width: 100%;
+}
+.field input:focus, .field select:focus { border-color: #4ECDC4; }
+.field input::placeholder { color: #555; }
+
+.check {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  font-size: 0.82rem; color: #aaa; line-height: 1.5; cursor: pointer;
+}
+.check input { margin-top: 0.15rem; accent-color: #4ECDC4; flex-shrink: 0; }
+
+.err {
+  background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3);
+  color: #FF6B6B; border-radius: 8px; padding: 0.6rem 0.9rem;
+  font-size: 0.82rem; font-weight: 700;
+}
+
+.form-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.5rem; }
+.primary-btn {
+  background: #4ECDC4; border: none; color: #12141c;
+  padding: 0.6rem 1.4rem; border-radius: 8px;
+  font-size: 0.87rem; font-weight: 800; cursor: pointer; font-family: 'Nunito', sans-serif;
+}
+.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ghost-btn {
+  background: none; border: 1px solid #2a2d3e; color: #888;
+  padding: 0.6rem 1.2rem; border-radius: 8px;
+  font-size: 0.87rem; font-weight: 700; cursor: pointer; font-family: 'Nunito', sans-serif;
+}
+.ghost-btn:hover { border-color: #444; color: #aaa; }
+
+.cred-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  background: #252836; border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.6rem;
+}
+.c-key { font-size: 0.78rem; font-weight: 800; color: #888; }
+.c-val { font-size: 0.95rem; font-weight: 800; color: #fff; }
+.mono { font-family: 'SFMono-Regular', Consolas, monospace; color: #4ECDC4; letter-spacing: 0.05em; }
 
 .empty-state {
   display: flex; align-items: center; gap: 0.7rem; justify-content: center;
