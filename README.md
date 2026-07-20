@@ -124,8 +124,9 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
   - 적재: `load_content.py --reset` (기본 입력 = `generated/seed_all.json`)
   - 저장소에는 통합본 `seed_all.json`만 추적한다. 배치 파일은 재생성 가능하므로 gitignore.
 - **프론트 연동**: `DiagnosisView`(설문·묵독타이머·문항·적응형 회차) / `ResultView`(판정·처방·리포트) 실제 API 연결
-- **테스트**: 단위 **92 passed**(진단 엔진 75 + 관리자 계정 운영 17) + 실 Postgres 통합 + 풀사이클 API 스모크 + 브라우저 E2E 완주
-  - 계정 운영 테스트는 SQLite 인메모리로 `users` 테이블만 만들어 돌기 때문에 Postgres 없이 `pytest tests/`에 포함된다
+- **테스트**: `pytest tests/` **92 passed**(진단 엔진 75 + 관리자 계정 운영 17) / 실 Postgres 포함 시 **98 passed** + 풀사이클 API 스모크 + 브라우저 E2E 완주
+  - 계정 운영 테스트는 SQLite 인메모리로 `users` 테이블만 만들어 돌기 때문에 Postgres 없이 포함된다
+  - 진단 테이블은 JSONB를 써서 SQLite로 만들 수 없다 → 파일럿 분석·진단 흐름 테스트는 `STRIPE_IT=1` + Postgres 필요. CI 통합 스텝은 파일명을 고정하지 않고 `pytest tests/` 전체를 돌린다
 
 ### 측정 신뢰도 장치
 
@@ -154,6 +155,7 @@ STRIPE는 초등학교 4학년부터 6학년까지의 학습자를 대상으로 
 | **파일럿 일괄 발급** | 학년×시작번호×인원 → `elem5-001…` 형식 학생 계정 일괄 생성 + CSV 저장. 학생 1명당 계정 1개(공유 계정은 개인별 분포 산출 불가). 아이디가 하나라도 겹치면 전량 취소 |
 | **진단 결과** | 응시 목록 + 상세 — 회차별 지문, **문항별 정오와 정답**, Betts, 읽기시간·A4, 영역×장르 12셀 정답률, 처방·리포트 |
 | 진단 통계 | 판정 등급 분포 · 텍스트 장르×난도 분포 · 평균 정답률 |
+| **파일럿 분석** | A4·정답률 분포 히스토그램(P33/P67 표기) · 영역별 정답률 · A4 게이트 이상치 목록 · 중도이탈 집계 · CSV 내보내기(세션별/회차별, 식별코드 익명화 옵션). 임계값 확정(STR-15)에 투입할 산출물 |
 | 텍스트 풀 | 지문 목록(문항 수·승인·출처) + **행 클릭 시 본문·문항·정답·근거·해설** + 학년군×장르×난도 커버리지(빈 칸 강조) |
 | 시스템 | 앱 환경·DB 버전/마이그레이션·LLM/STT 설정·TLS·백업 정책 |
 
@@ -225,6 +227,10 @@ users ─┬─ user_relations       (부모-학생 연동)
 | GET | `/api/admin/texts` | 텍스트 풀 목록 (문항 수·승인 상태) |
 | GET | `/api/admin/texts/{id}` | 지문 본문 + 문항 전체 (정답·근거·해설) |
 | GET | `/api/admin/stats` | 판정 등급 분포 · 텍스트 장르×난도 분포 · 평균 정답률 |
+| GET | `/api/admin/pilot/export.csv` | 진단 결과 CSV (`level=session\|round`, `anonymize`) |
+| GET | `/api/admin/pilot/distributions` | A4·정답률·영역별 분포 + P33/P50/P67 |
+| GET | `/api/admin/pilot/outliers` | A4 타당성 게이트에 걸린 응시 목록 |
+| GET | `/api/admin/pilot/dropoff` | 중도이탈 — 상태별·도달회차별·멈춘 지점 |
 | GET | `/api/admin/system` | 앱 환경 · DB 버전/마이그레이션 · LLM/STT 설정 · 배포 구성 |
 
 ### 진단

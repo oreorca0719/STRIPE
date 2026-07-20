@@ -27,6 +27,10 @@
           <span class="nav-icon">📊</span>
           <span>진단 통계</span>
         </RouterLink>
+        <RouterLink to="/admin/pilot" class="nav-item">
+          <span class="nav-icon">🔬</span>
+          <span>파일럿 분석</span>
+        </RouterLink>
         <RouterLink to="/admin/texts" class="nav-item">
           <span class="nav-icon">📝</span>
           <span>텍스트 풀</span>

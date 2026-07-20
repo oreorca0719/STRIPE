@@ -1,11 +1,12 @@
 from fastapi import APIRouter
-from app.api.endpoints import diagnosis, auth, admin, audio
+from app.api.endpoints import diagnosis, auth, admin, audio, pilot
 
 api_router = APIRouter()
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(diagnosis.router, prefix="/diagnosis", tags=["diagnosis"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+api_router.include_router(pilot.router, prefix="/admin/pilot", tags=["pilot"])
 api_router.include_router(audio.router, prefix="/audio", tags=["audio"])
 
 # TODO: 추후 추가

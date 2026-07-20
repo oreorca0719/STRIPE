@@ -31,6 +31,8 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: python -m pytest tests/ -q
+      # 파일명을 고정하지 않는다 — 새 통합 테스트를 추가할 때마다 워크플로를 고쳐야 했고,
+      # 그래서 STRIPE_IT 게이트를 건 테스트가 CI에서 누락되기 쉬웠다.
       - name: Integration test (real Postgres)
         working-directory: backend
         env:
@@ -38,7 +40,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://stripe:stripe@localhost:5432/stripe
         run: |
           python -m alembic upgrade head
-          python -m pytest tests/test_integration_flow.py -q
+          python -m pytest tests/ -q
 
   # 프론트 빌드는 EC2에서 수행되므로, 배포 전에 CI에서 먼저 검증한다
   # (빌드 오류가 배포 단계에서야 터지는 것을 방지)
