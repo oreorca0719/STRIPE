@@ -39,6 +39,10 @@
           <span class="nav-icon">📝</span>
           <span>텍스트 풀</span>
         </RouterLink>
+        <RouterLink to="/admin/books" class="nav-item">
+          <span class="nav-icon">📚</span>
+          <span>도서 카탈로그</span>
+        </RouterLink>
         <RouterLink to="/admin/disposals" class="nav-item">
           <span class="nav-icon">🗑</span>
           <span>개인정보 파기</span>

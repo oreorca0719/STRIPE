@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.user import User, UserRole
 from app.models.core import (
+    Book,
     TextContent, Question, ItemSet, DiagnosisSession, DiagnosisRound,
     ComprehensionResult, QuestionResponse, FluencyResult,
     JudgmentResult, PrescriptionResult, Report,
@@ -362,4 +363,51 @@ async def get_system(db: AsyncSession = Depends(get_db)):
             "cicd": "GitHub Actions — test · build · SSH 배포",
             "backup": "매일 03:00 UTC · pg_dump → S3 (30일 보관)",
         },
+    }
+
+
+# ── 도서 카탈로그 (STR-109) ───────────────────────────────────────────────
+
+@router.get("/books")
+async def get_books(db: AsyncSession = Depends(get_db)):
+    """도서 목록 + 커버리지. 지문 풀 화면과 같은 구조로 본다.
+
+    카탈로그가 비어 있어도 커버리지 표는 그린다 — 어느 칸을 채워야 하는지가
+    데이터 확보(STR-108)의 목표가 되기 때문이다.
+    """
+    rows = (await db.execute(
+        select(Book).order_by(Book.grade_group, Book.difficulty_level, Book.id)
+    )).scalars().all()
+
+    def cell(gg: str, genre: str, diff: str) -> int:
+        return sum(1 for b in rows
+                   if b.grade_group.value == gg and b.genre.value == genre
+                   and b.difficulty_level.value == diff
+                   and b.review_status == ReviewStatus.approved
+                   and b.is_active)
+
+    coverage = {
+        gg: {f"{genre}_{diff}": cell(gg, genre, diff)
+             for genre in ("narrative", "expository")
+             for diff in ("easy", "normal", "hard")}
+        for gg in ("G4_G6", "G7")
+    }
+
+    return {
+        "total": len(rows),
+        "approved": sum(1 for b in rows
+                        if b.review_status == ReviewStatus.approved and b.is_active),
+        "coverage": coverage,
+        "books": [
+            {
+                "id": b.id, "isbn13": b.isbn13, "title": b.title,
+                "author": b.author, "publisher": b.publisher,
+                "published_year": b.published_year, "page_count": b.page_count,
+                "grade_group": b.grade_group.value, "genre": b.genre.value,
+                "difficulty": b.difficulty_level.value, "topic_tags": b.topic_tags,
+                "difficulty_source": b.difficulty_source, "source": b.source,
+                "review_status": b.review_status.value, "is_active": b.is_active,
+            }
+            for b in rows
+        ],
     }

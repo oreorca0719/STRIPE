@@ -798,3 +798,91 @@ async def _run_content_review():
 
 def test_content_review():
     asyncio.run(_run_content_review())
+
+
+# ---------------------------------------------------------------------------
+# STR-109 — 적합도서 추천
+# ---------------------------------------------------------------------------
+
+async def _run_book_recommend():
+    """진단 결과를 근거로 책이 나오는지. 미승인 책은 절대 나가지 않는지."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.models.core import (
+        Book, GradeGroup as GG, TextGenre as TG, Difficulty as DF, ReviewStatus as RS,
+    )
+
+    stu = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=stu) as ac:
+        # --- 진단 전 --------------------------------------------------------
+        r = await ac.get("/api/diagnosis/my/books")
+        assert r.status_code == 200, r.text
+        assert r.json()["reason"] == "no_diagnosis", r.json()
+        print("PASS 진단 전: no_diagnosis 안내")
+
+        # --- 진단 1회 완주 ---------------------------------------------------
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid}/start")
+        rid = r.json()["id"]
+        await ac.post("/api/diagnosis/fluency/silent",
+                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+        for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
+            await ac.post("/api/diagnosis/comprehension",
+                          json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
+        await ac.post(f"/api/diagnosis/round/{rid}/complete")
+        await ac.post(f"/api/diagnosis/session/{sid}/finalize")
+
+        # --- 카탈로그가 비었을 때 -------------------------------------------
+        r = await ac.get("/api/diagnosis/my/books")
+        body = r.json()
+        assert body["catalog_empty"] is True, body
+        assert body["reason"] == "catalog_empty"
+        assert body["based_on"] is not None, "판정 근거는 있어야 한다"
+        print(f"PASS 카탈로그 빔: 근거는 표시됨 (난도 {body['based_on']['difficulties']})")
+
+        difficulties = body["based_on"]["difficulties"]
+
+        # --- 책을 넣는다: 승인 1권 + 미승인 1권 -------------------------------
+        async with AsyncSessionLocal() as db:
+            db.add(Book(
+                title="승인된 책", author="가", grade_group=GG.G4_G6, genre=TG.narrative,
+                difficulty_level=DF(difficulties[0]), topic_tags=["animal"],
+                page_count=80, review_status=RS.approved, is_active=True,
+            ))
+            db.add(Book(
+                title="미승인 책", author="나", grade_group=GG.G4_G6, genre=TG.narrative,
+                difficulty_level=DF(difficulties[0]), topic_tags=["animal"],
+                page_count=60, review_status=RS.draft, is_active=True,
+            ))
+            db.add(Book(
+                title="비활성 책", author="다", grade_group=GG.G4_G6, genre=TG.narrative,
+                difficulty_level=DF(difficulties[0]), topic_tags=["animal"],
+                page_count=60, review_status=RS.approved, is_active=False,
+            ))
+            await db.commit()
+
+        r = await ac.get("/api/diagnosis/my/books")
+        body = r.json()
+        titles = [b["title"] for b in body["books"]]
+        assert body["ready"] is True, body
+        assert titles == ["승인된 책"], f"미승인·비활성이 새어 나왔다: {titles}"
+        print(f"PASS 3단 게이트: 승인·활성만 추천 ({titles})")
+
+        # 추천 사유가 함께 나가야 한다 — 근거 없이 목록만 주면 '추천도서'와 다를 바 없다
+        b0 = body["books"][0]
+        assert b0["matched_topics"] == ["animal"], b0
+        print(f"PASS 추천 사유: 관심주제 {b0['matched_topics']} 일치 표시")
+
+    await engine.dispose()
+
+
+def test_book_recommend():
+    asyncio.run(_run_book_recommend())

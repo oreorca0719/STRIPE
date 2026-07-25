@@ -26,3 +26,4 @@ dist/
 # 적재에 쓰이는 통합 시드 seed_all.json 만 추적한다 — 배치는 언제든 재생성 가능.
 backend/scripts/generated/expand_*.json
 backend/scripts/generated/_*.json
+backend/scripts/generated/*.backup.json

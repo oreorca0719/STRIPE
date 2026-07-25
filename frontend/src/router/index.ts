@@ -101,6 +101,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' }
     },
     {
+      path: '/admin/books',
+      name: 'admin-books',
+      component: () => import('@/views/admin/AdminBooksView.vue'),
+      meta: { requiresAuth: true, role: 'admin' }
+    },
+    {
       path: '/admin/system',
       name: 'admin-system',
       component: () => import('@/views/admin/AdminSystemView.vue'),
