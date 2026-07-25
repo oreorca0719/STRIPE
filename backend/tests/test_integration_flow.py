@@ -359,3 +359,79 @@ async def _run_no_repeat():
 
 def test_no_repeat_across_sessions():
     asyncio.run(_run_no_repeat())
+
+
+# ---------------------------------------------------------------------------
+# STR-106 근거 — 난도 라벨 타당성 분석 엔드포인트
+# ---------------------------------------------------------------------------
+
+async def _run_difficulty_validity():
+    """난도 × Betts 집계가 실제 응시를 반영하는지, 판정 로직이 맞는지."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    from app.api.endpoints import pilot
+    app.include_router(pilot.router, prefix="/api/admin/pilot")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.models.user import User as U, UserRole as UR
+
+    # 분석 엔드포인트는 관리자 전용 — 관리자 계정을 따로 만든다
+    async with AsyncSessionLocal() as db:
+        admin = U(username="valadmin", password_hash="x", name="관리자", role=UR.admin)
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
+        admin_id = admin.id
+
+    stu = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+    adm = {"Authorization": f"Bearer {create_access_token({'sub': str(admin_id), 'role': 'admin'})}"}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=stu) as ac:
+        # 응시 전 — 빈 상태로 안전하게 응답해야 한다
+        r = await ac.get("/api/admin/pilot/difficulty-validity", headers=adm)
+        assert r.status_code == 200, r.text
+        assert r.json()["total_rounds"] == 0
+        assert r.json()["sufficient_sample"] is False
+        assert r.json()["verdict"] is None
+        print("PASS 응시 전: 빈 상태 안전 응답")
+
+        # 1회차 전부 정답 → independent 가 나오게 한다
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid}/start")
+        rid = r.json()["id"]
+        await ac.post("/api/diagnosis/fluency/silent",
+                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+        for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
+            await ac.post("/api/diagnosis/comprehension",
+                          json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
+        await ac.post(f"/api/diagnosis/round/{rid}/complete")
+
+        r = await ac.get("/api/admin/pilot/difficulty-validity", headers=adm)
+        body = r.json()
+        assert body["total_rounds"] >= 1, body
+        # 1회차는 normal 난도 텍스트(t1)를 쓴다
+        assert "normal" in body["by_difficulty"], body["by_difficulty"].keys()
+        nb = body["by_difficulty"]["normal"]
+        assert nb["rounds"] >= 1
+        assert sum(nb["betts"].values()) == nb["rounds"], "Betts 합계가 회차 수와 다르다"
+        assert abs(sum(nb["betts_ratio"].values()) - 1.0) < 1e-6, nb["betts_ratio"]
+        assert nb["mean_accuracy"] is not None
+        # 학년군 분해가 들어 있어야 한다 — G4_G6 와 G7 은 기준이 달라 섞으면 안 된다
+        assert "G4_G6" in nb["by_grade_group"], nb["by_grade_group"]
+        print(f"PASS 집계: normal {nb['rounds']}회차, betts={nb['betts']}, "
+              f"정답률={nb['mean_accuracy']}")
+
+        # 표본이 30 미만이면 판정을 신뢰하지 말라고 표시해야 한다
+        assert body["sufficient_sample"] is False, body["total_rounds"]
+        print(f"PASS 표본 경고: {body['total_rounds']}회차 → sufficient_sample=False")
+
+    await engine.dispose()
+
+
+def test_difficulty_validity():
+    asyncio.run(_run_difficulty_validity())
