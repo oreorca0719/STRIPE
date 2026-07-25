@@ -598,3 +598,37 @@ class DataDisposalLog(Base):
     # consent_records 가 CASCADE 라 파기와 함께 사라진다. 파기 이전 처리가
     # 정당했음을 보이려면 동의 사실을 여기 옮겨 두어야 한다.
     consent_snapshot = Column(JSONB, nullable=True)
+
+
+# =========================================================================
+# 콘텐츠 검수 이력 (STR-81)
+# =========================================================================
+
+class ContentReview(Base):
+    """지문·문항·세트의 검수 기록.
+
+    review_status 컬럼은 '지금 어느 단계인가'만 말해줄 뿐, 누가 무엇을 근거로
+    그 판단을 했는지는 남지 않는다. 이 테이블이 그 근거를 보관한다.
+
+    target_id 는 texts·item_sets·questions 중 하나를 가리키는 다형 참조라
+    FK 를 걸지 않는다. 대상이 삭제돼도 '무엇을 검수했었나'는 기록 가치가 있다.
+    """
+    __tablename__ = "content_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    target_type = Column(String(20), nullable=False)   # text | item_set | question
+    target_id = Column(Integer, nullable=False)
+    target_code = Column(String(60), nullable=True)    # 조회 편의용 스냅샷
+
+    from_status = Column(String(20), nullable=False)
+    to_status = Column(String(20), nullable=False)
+    decision = Column(String(20), nullable=False)      # advance | approve | reject
+
+    reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    reviewer_code = Column(String(50), nullable=True)
+
+    # 이은주(2026) 7원칙 체크 결과. 원칙별 반려가 쌓이면 생성 프롬프트를 고칠 근거.
+    checklist = Column(JSONB, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

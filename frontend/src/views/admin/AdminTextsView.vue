@@ -101,6 +101,58 @@
           <div v-if="detailLoading" class="empty-state"><span>⏳</span><span>불러오는 중…</span></div>
 
           <template v-else-if="detail">
+            <!-- 검수 (STR-81) -->
+            <div class="m-section review-section">
+              <h3 class="m-h3">
+                검수
+                <span class="status-chip" :class="detail.review_status">
+                  {{ statusKo(detail.review_status) }}
+                </span>
+              </h3>
+              <p class="review-note">
+                이은주(2026) 텍스트 선정 7원칙. 승인은 <strong>검수 완료</strong> 단계에서
+                7원칙을 모두 통과해야 가능하다.
+                미승인 지문은 학생에게 배정되지 않는다.
+              </p>
+
+              <div v-if="detail.review_status !== 'approved'" class="checklist">
+                <label v-for="p in checklist" :key="p.key" class="check-item">
+                  <input type="checkbox" v-model="checks[p.key]" />
+                  <span>
+                    <strong>{{ p.label }}</strong>
+                    <span class="dim"> — {{ p.desc }}</span>
+                  </span>
+                </label>
+              </div>
+
+              <div class="review-actions">
+                <input v-model="reviewComment" class="review-input" type="text"
+                       placeholder="검수 의견 (반려 시 필수)" />
+                <button v-if="canAdvance" class="ghost-btn" :disabled="reviewing"
+                        @click="doReview('advance')">다음 단계로</button>
+                <button v-if="detail.review_status === 'jun_reviewed'" class="ok-btn"
+                        :disabled="reviewing || !allChecked" @click="doReview('approve')">
+                  승인
+                </button>
+                <button class="warn-btn" :disabled="reviewing" @click="doReview('reject')">
+                  반려
+                </button>
+              </div>
+              <p v-if="reviewError" class="review-error">{{ reviewError }}</p>
+
+              <div v-if="reviewHistory.length" class="review-hist">
+                <span class="hist-title">검수 이력</span>
+                <div v-for="h in reviewHistory" :key="h.id" class="hist-row">
+                  <span class="dim">{{ fmtDate(h.created_at) }}</span>
+                  <span class="hist-move">
+                    {{ statusKo(h.from_status) }} → <strong>{{ statusKo(h.to_status) }}</strong>
+                  </span>
+                  <span class="mono dim">{{ h.reviewer_code }}</span>
+                  <span v-if="h.comment" class="hist-comment">{{ h.comment }}</span>
+                </div>
+              </div>
+            </div>
+
             <div class="m-section">
               <h3 class="m-h3">지문 본문</h3>
               <p class="passage">{{ detail.content }}</p>
@@ -228,9 +280,70 @@ function areaKo(a: string) {
   return ({ A5: '사실적 이해', A6: '추론적 이해', A7: '비판적 이해' } as any)[a] || a
 }
 
+// ── 검수 (STR-81) ─────────────────────────────────────────────────────────
+const checklist = ref<any[]>([])
+const checks = ref<Record<string, boolean>>({})
+const reviewComment = ref('')
+const reviewHistory = ref<any[]>([])
+const reviewing = ref(false)
+const reviewError = ref('')
+
+const STATUS_KO: Record<string, string> = {
+  draft: '초안', ai_generated: 'AI 생성', auto_checked: '자동 점검',
+  jun_reviewed: '검수 완료', approved: '승인',
+}
+function statusKo(s: string) { return STATUS_KO[s] || s }
+
+// 승인 직전 단계까지는 advance 로 올린다. 최종 승인은 체크리스트를 요구하므로 별도 버튼.
+const canAdvance = computed(() =>
+  detail.value && !['jun_reviewed', 'approved'].includes(detail.value.review_status))
+const allChecked = computed(() =>
+  checklist.value.length > 0 && checklist.value.every(p => checks.value[p.key]))
+
+function fmtDate(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('ko-KR')
+}
+
+function resetChecks() {
+  checks.value = Object.fromEntries(checklist.value.map(p => [p.key, false]))
+  reviewComment.value = ''
+  reviewError.value = ''
+}
+
+async function loadHistory(id: number) {
+  try {
+    reviewHistory.value = (await api.get(
+      `/api/admin/reviews?target_type=text&target_id=${id}`)).data
+  } catch { reviewHistory.value = [] }
+}
+
+async function doReview(decision: 'advance' | 'approve' | 'reject') {
+  if (!detail.value) return
+  reviewing.value = true; reviewError.value = ''
+  try {
+    await api.post('/api/admin/reviews', {
+      target_type: 'text',
+      target_id: detail.value.id,
+      decision,
+      checklist: decision === 'approve' ? checks.value : null,
+      comment: reviewComment.value || null,
+    })
+    // 상태가 바뀌면 목록의 승인 표시도 함께 갱신돼야 한다
+    await Promise.all([openDetail(detail.value.id), load()])
+  } catch (e: any) {
+    reviewError.value = e?.response?.data?.detail || '검수 처리에 실패했습니다.'
+  } finally { reviewing.value = false }
+}
+
 async function openDetail(id: number) {
   detailOpen.value = true; detailLoading.value = true; detail.value = null
-  try { detail.value = (await api.get(`/api/admin/texts/${id}`)).data }
+  try {
+    detail.value = (await api.get(`/api/admin/texts/${id}`)).data
+    resetChecks()
+    await loadHistory(id)
+  }
   catch { detail.value = null } finally { detailLoading.value = false }
 }
 function closeDetail() { detailOpen.value = false; detail.value = null }
@@ -243,7 +356,13 @@ async function load() {
 }
 
 function handleLogout() { router.push('/login') }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  try {
+    checklist.value = (await api.get('/api/admin/reviews/checklist')).data.principles
+    resetChecks()
+  } catch { checklist.value = [] }
+})
 </script>
 
 <style scoped>
@@ -382,4 +501,62 @@ select:focus { border-color: #4ECDC4; }
 .c-mark { margin-left: auto; font-size: 0.7rem; font-weight: 900; color: #4ECDC4; }
 .q-meta { font-size: 0.78rem; color: #777; margin-top: 0.5rem; line-height: 1.6; }
 .q-meta b { color: #888; margin-right: 0.4rem; }
+</style>
+
+<style scoped>
+/* 검수 패널 (STR-81) */
+.review-section {
+  background: #12141c; border: 1px solid #2a2d3e;
+  border-radius: 10px; padding: 1rem;
+}
+.status-chip {
+  font-size: 0.72rem; font-weight: 800; padding: 0.15rem 0.6rem;
+  border-radius: 99px; margin-left: 0.5rem;
+}
+.status-chip.approved { background: rgba(78,205,196,0.15); color: #4ECDC4; }
+.status-chip.jun_reviewed { background: rgba(255,230,109,0.15); color: #FFE66D; }
+.status-chip.draft,
+.status-chip.ai_generated,
+.status-chip.auto_checked { background: rgba(255,107,107,0.15); color: #FF6B6B; }
+
+.review-note { font-size: 0.82rem; color: #8b90a5; line-height: 1.6; margin-bottom: 0.9rem; }
+.review-note strong { color: #e8eaf2; }
+
+.checklist { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.9rem; }
+.check-item {
+  display: flex; gap: 0.55rem; align-items: flex-start;
+  font-size: 0.84rem; color: #d7dae8; cursor: pointer; line-height: 1.5;
+}
+.check-item input { margin-top: 0.2rem; }
+
+.review-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.review-input {
+  flex: 1; min-width: 200px; background: #0f1117; border: 1px solid #2a2d3e;
+  border-radius: 8px; color: #e8eaf2; padding: 0.5rem 0.75rem; font-size: 0.85rem;
+  min-height: 38px;
+}
+.ok-btn, .warn-btn {
+  border: none; border-radius: 8px; padding: 0.5rem 1rem;
+  font-weight: 800; font-size: 0.85rem; cursor: pointer; min-height: 38px;
+}
+.ok-btn { background: #4ECDC4; color: #0f1117; }
+.ghost-btn {
+  background: transparent; border: 1px solid #2a2d3e; border-radius: 8px;
+  color: #e8eaf2; padding: 0.5rem 1rem; font-weight: 800; font-size: 0.85rem;
+  cursor: pointer; min-height: 38px;
+}
+.ghost-btn:hover:not(:disabled) { border-color: #4ECDC4; color: #4ECDC4; }
+.ghost-btn:disabled { opacity: 0.4; cursor: default; }
+.warn-btn { background: transparent; border: 1px solid #FF6B6B; color: #FF6B6B; }
+.ok-btn:disabled, .warn-btn:disabled { opacity: 0.4; cursor: default; }
+.review-error { color: #FF6B6B; font-size: 0.83rem; margin-top: 0.6rem; }
+
+.review-hist { margin-top: 1rem; border-top: 1px solid #2a2d3e; padding-top: 0.8rem; }
+.hist-title { font-size: 0.78rem; font-weight: 800; color: #8b90a5; }
+.hist-row {
+  display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: baseline;
+  font-size: 0.8rem; color: #d7dae8; padding: 0.35rem 0;
+}
+.hist-move strong { color: #e8eaf2; }
+.hist-comment { color: #8b90a5; font-style: italic; }
 </style>

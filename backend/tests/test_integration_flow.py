@@ -664,3 +664,137 @@ async def _run_disposal():
 
 def test_disposal():
     asyncio.run(_run_disposal())
+
+
+# ---------------------------------------------------------------------------
+# STR-81 — 콘텐츠 검수 워크플로 + 3단 게이트 실효성
+# ---------------------------------------------------------------------------
+
+async def _run_content_review():
+    """상태 전이 규칙과, 승인이 내려간 지문이 학생에게 배제되는지."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    from app.api.endpoints import review as review_ep
+    app.include_router(review_ep.router, prefix="/api/admin/reviews")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.models.user import User as U, UserRole as UR
+    from app.models.core import ReviewStatus as RS
+    from app.services.diagnosis import text_selection as T
+    from app.models.core import GradeGroup, Difficulty, TextGenre
+
+    async with AsyncSessionLocal() as db:
+        admin = U(username="reviewadmin", password_hash="x", name="검수자", role=UR.admin)
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
+        admin_id = admin.id
+
+    adm = {"Authorization": f"Bearer {create_access_token({'sub': str(admin_id), 'role': 'admin'})}"}
+    full_pass = {c["key"]: True for c in review_ep.CHECKLIST}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=adm) as ac:
+        # 체크리스트가 7원칙을 그대로 담고 있는지
+        r = await ac.get("/api/admin/reviews/checklist")
+        assert len(r.json()["principles"]) == 7, r.json()
+        print(f"PASS 체크리스트 7원칙 노출")
+
+        # --- 승인 상태에서 반려 → draft 로 내려간다 -------------------------
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1,
+            "decision": "reject", "comment": "문화 편향 의심 — 재작성 필요"})
+        assert r.status_code == 201, r.text
+        assert r.json()["to_status"] == "draft", r.json()
+        print("PASS 반려 → draft")
+
+        # 반려 사유 없이는 반려할 수 없다
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t2, "decision": "reject"})
+        assert r.status_code == 422, r.text
+        print("PASS 사유 없는 반려 거부(422)")
+
+    # --- 3단 게이트: 반려된 지문은 학생에게 배제돼야 한다 --------------------
+    async with AsyncSessionLocal() as db:
+        picked = await T.select_text(
+            db, grade_group=GradeGroup.G4_G6, difficulty=Difficulty.normal,
+            genre=TextGenre.narrative, used_text_ids=[], interest_topics=None,
+            allow_adjacent=False,
+        )
+    assert picked is None or picked.id != t1, "반려된 지문이 여전히 선택된다"
+    print("PASS 3단 게이트: 반려 지문 배제 확인")
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=adm) as ac:
+        # --- 단계를 건너뛴 승인은 막힌다 -------------------------------------
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1,
+            "decision": "approve", "checklist": full_pass})
+        assert r.status_code == 409, r.text
+        print("PASS 단계 건너뛴 승인 차단(409)")
+
+        # --- 정상 경로: draft → ai_generated → auto_checked → jun_reviewed ---
+        for expected in ("ai_generated", "auto_checked", "jun_reviewed"):
+            r = await ac.post("/api/admin/reviews", json={
+                "target_type": "text", "target_id": t1, "decision": "advance"})
+            assert r.status_code == 201, r.text
+            assert r.json()["to_status"] == expected, r.json()
+        print("PASS 단계 전이 3회 → jun_reviewed")
+
+        # advance 로는 승인까지 갈 수 없다
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1, "decision": "advance"})
+        assert r.status_code == 409, r.text
+        print("PASS advance 로 최종 승인 불가(409)")
+
+        # 체크리스트 누락 시 승인 거부
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1,
+            "decision": "approve", "checklist": {"neutrality": True}})
+        assert r.status_code == 422 and "미작성" in r.json()["detail"], r.text
+        print("PASS 체크리스트 누락 승인 거부(422)")
+
+        # 원칙 하나라도 통과 못 하면 승인 거부
+        partial = dict(full_pass); partial["cultural_bias"] = False
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1,
+            "decision": "approve", "checklist": partial})
+        assert r.status_code == 422 and "cultural_bias" in r.json()["detail"], r.text
+        print("PASS 원칙 미통과 승인 거부(422)")
+
+        # 전부 통과 → 승인
+        r = await ac.post("/api/admin/reviews", json={
+            "target_type": "text", "target_id": t1,
+            "decision": "approve", "checklist": full_pass,
+            "comment": "7원칙 확인 완료"})
+        assert r.status_code == 201 and r.json()["to_status"] == "approved", r.text
+        print("PASS 7원칙 전부 통과 → 승인")
+
+        # --- 이력이 남았는지 --------------------------------------------------
+        r = await ac.get(f"/api/admin/reviews?target_type=text&target_id={t1}")
+        hist = r.json()
+        assert len(hist) == 5, f"이력 {len(hist)}건"       # reject + advance×3 + approve
+        assert hist[0]["decision"] == "approve"
+        assert hist[0]["checklist"]["cultural_bias"] is True
+        assert hist[0]["reviewer_code"] == "reviewadmin"
+        assert any(h["decision"] == "reject" and "문화 편향" in (h["comment"] or "")
+                   for h in hist), hist
+        print(f"PASS 이력 {len(hist)}건 보존 (반려 사유·체크리스트·검수자 포함)")
+
+    # 승인 복귀 후 다시 선택되는지
+    async with AsyncSessionLocal() as db:
+        picked = await T.select_text(
+            db, grade_group=GradeGroup.G4_G6, difficulty=Difficulty.normal,
+            genre=TextGenre.narrative, used_text_ids=[], interest_topics=None,
+            allow_adjacent=False,
+        )
+    assert picked is not None and picked.id == t1, "승인했는데 선택되지 않는다"
+    print("PASS 승인 복귀 후 재선택 확인")
+
+    await engine.dispose()
+
+
+def test_content_review():
+    asyncio.run(_run_content_review())
