@@ -43,10 +43,13 @@ async def _seed():
     async with AsyncSessionLocal() as db:
         # 깨끗한 상태 보장 (재실행 대비)
         await db.execute(sql_text(
+            # 새 테이블을 빠뜨리면 앞 테스트의 잔여 데이터가 다음 테스트를 오염시킨다.
+            # 실제로 books 누락 때문에 '카탈로그 빔' 시나리오가 깨졌다.
             "TRUNCATE users, texts, item_sets, questions, student_profiles, "
             "diagnosis_sessions, diagnosis_rounds, comprehension_results, "
             "question_responses, fluency_results, judgment_results, "
-            "prescription_results, reports RESTART IDENTITY CASCADE"
+            "prescription_results, reports, books, content_reviews, "
+            "data_disposal_logs RESTART IDENTITY CASCADE"
         ))
         await db.commit()
 
