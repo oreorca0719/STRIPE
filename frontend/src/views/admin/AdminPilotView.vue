@@ -190,6 +190,60 @@
             </div>
           </div>
         </section>
+
+        <!-- 난도 라벨 타당성 (STR-106 판단 근거) -->
+        <section class="panel">
+          <div class="panel-head">
+            <h2>난도 라벨 타당성</h2>
+            <p class="panel-desc">
+              easy/normal/hard 라벨이 실제 읽기 부담과 대응하는지 확인한다.
+              라벨이 제 역할을 한다면 <strong>easy 는 독립 쪽, hard 는 좌절 쪽</strong>으로
+              분포가 기울어야 한다. 세 등급이 비슷하면 라벨을 재정의해야 한다.
+            </p>
+          </div>
+
+          <div v-if="!validity || !validity.total_rounds" class="empty-inline">
+            아직 채점된 회차가 없다. 파일럿 응시가 쌓이면 표시된다.
+          </div>
+
+          <template v-else>
+            <p v-if="!validity.sufficient_sample" class="warn-line">
+              ⚠ 표본 {{ validity.total_rounds }}회차 — 30회차 미만이라 판정을 신뢰할 수 없다.
+            </p>
+
+            <div v-if="validity.verdict" class="verdict"
+                 :class="validity.verdict.label_works ? 'verdict--ok' : 'verdict--off'">
+              <strong>{{ validity.verdict.label_works ? '✓' : '✗' }}</strong>
+              {{ validity.verdict.note }}
+            </div>
+
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>난도</th><th>회차</th>
+                  <th>난도점수</th><th>평균 정답률</th>
+                  <th>독립</th><th>교수</th><th>좌절</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="d in ['easy','normal','hard']" :key="d">
+                  <template v-if="validity.by_difficulty[d]">
+                    <td><span class="lv-chip" :class="d">{{ diffKo(d) }}</span></td>
+                    <td>{{ validity.by_difficulty[d].rounds }}</td>
+                    <td>{{ validity.by_difficulty[d].mean_readability ?? '–' }}</td>
+                    <td>{{ validity.by_difficulty[d].mean_accuracy != null
+                           ? pctText(validity.by_difficulty[d].mean_accuracy) : '–' }}</td>
+                    <td v-for="b in ['independent','instructional','frustration']" :key="b">
+                      {{ pctText(validity.by_difficulty[d].betts_ratio[b] || 0) }}
+                      <span class="dim">({{ validity.by_difficulty[d].betts[b] }})</span>
+                    </td>
+                  </template>
+                  <td v-else colspan="7" class="dim">{{ diffKo(d) }} — 응시 없음</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </section>
       </template>
     </div>
   </AdminLayout>
@@ -211,6 +265,11 @@ const anonymize = ref(true)
 const dist = ref<any>(null)
 const outliers = ref<any>(null)
 const dropoff = ref<any>(null)
+const validity = ref<any>(null)
+
+function diffKo(d: string) {
+  return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
+}
 
 // 표본이 적으면 백분위가 크게 흔들린다. 이 값으로 경계를 확정하지 않도록 경고한다.
 const THIN_SAMPLE = 30
@@ -239,12 +298,14 @@ function statusKo(k: string | number) {
 async function loadAll() {
   loading.value = true; error.value = ''
   try {
-    const [d, o, r] = await Promise.all([
+    const [d, o, r, v] = await Promise.all([
       api.get('/api/admin/pilot/distributions'),
       api.get('/api/admin/pilot/outliers'),
       api.get('/api/admin/pilot/dropoff'),
+      api.get('/api/admin/pilot/difficulty-validity'),
     ])
-    dist.value = d.data; outliers.value = o.data; dropoff.value = r.data
+    dist.value = d.data; outliers.value = o.data
+    dropoff.value = r.data; validity.value = v.data
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '분석 데이터를 불러오지 못했습니다.'
   } finally {
@@ -385,4 +446,26 @@ function handleLogout() { router.push('/login') }
 }
 .ghost-btn:hover:not(:disabled) { border-color: #4ECDC4; color: #4ECDC4; }
 .ghost-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+<style scoped>
+/* 난도 라벨 타당성 (STR-106 판단 근거) */
+.verdict {
+  padding: 0.7rem 1rem; border-radius: 8px; margin-bottom: 1rem;
+  font-size: 0.9rem; font-weight: 700;
+}
+.verdict--ok  { background: rgba(78,205,196,0.12); color: #4ECDC4; }
+.verdict--off { background: rgba(255,107,107,0.14); color: #FF6B6B; }
+
+.mini-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.mini-table th, .mini-table td {
+  padding: 0.55rem 0.6rem; text-align: left; border-bottom: 1px solid #2a2d3e;
+}
+.mini-table th { color: #8b90a5; font-weight: 700; font-size: 0.8rem; }
+.mini-table td { color: #d7dae8; }
+
+.lv-chip { padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
+.lv-chip.easy   { background: rgba(78,205,196,0.15); color: #4ECDC4; }
+.lv-chip.normal { background: rgba(255,230,109,0.15); color: #FFE66D; }
+.lv-chip.hard   { background: rgba(255,107,107,0.15); color: #FF6B6B; }
 </style>

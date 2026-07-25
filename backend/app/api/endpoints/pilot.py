@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin
 from app.core.database import get_db
 from app.models.core import (
-    ComprehensionResult, DiagnosisRound, DiagnosisSession, DiagSessionStatus,
+    BettsLevel, ComprehensionResult, DiagnosisRound, DiagnosisSession, DiagSessionStatus,
     FluencyResult, JudgmentResult, QuestionResponse,
     StudentProfile, TargetArea, TextContent,
 )
@@ -354,4 +354,92 @@ async def get_dropoff(db: AsyncSession = Depends(get_db)):
         "completion_rate": round(completed / total, 4) if total else None,
         "incomplete_by_rounds_reached": by_round,
         "incomplete_last_round_stage": stages,
+    }
+
+
+# ── 난도 라벨 타당성 ─────────────────────────────────────────────────────
+
+@router.get("/difficulty-validity")
+async def get_difficulty_validity(db: AsyncSession = Depends(get_db)):
+    """난도 라벨 × Betts 분포 — 라벨이 실제로 작동하는지 판정하는 근거 (STR-106).
+
+    이 서비스의 목적은 순위 판별이 아니라 '이 수준이면 이런 책을 읽으면 좋겠다'를
+    알려주는 것이다. 그렇다면 검증해야 할 것은 학생 판정 정밀도가 아니라
+    **난도 라벨이 실제 읽기 부담과 대응하는가** 이다.
+
+    Betts 는 그 대응을 재는 지표다(독립=혼자 읽을 수 있음 / 교수=도움 필요 /
+    좌절=지금은 무리). 라벨이 제 역할을 한다면 easy 는 독립 쪽, hard 는 좌절 쪽으로
+    분포가 기울어야 한다. 세 등급이 비슷하게 나오면 라벨이 읽기 부담을 가르지 못하는
+    것이므로 STR-106 에서 재정의하거나 어휘 통제를 넣어야 한다.
+
+    STR-105 에서 산출한 readability_score 와도 함께 본다. 지표는 갈리는데 Betts 가
+    안 갈리면 우리 지표가 실제 부담을 못 잡는 것이고, 둘 다 갈리면 라벨을 유지해도
+    된다는 근거가 된다.
+    """
+    rows = (await db.execute(
+        select(
+            TextContent.difficulty_level,
+            TextContent.grade_group,
+            ComprehensionResult.betts_level,
+            ComprehensionResult.round_accuracy,
+            TextContent.readability_score,
+        )
+        .join(DiagnosisRound, DiagnosisRound.text_id == TextContent.id)
+        .join(ComprehensionResult, ComprehensionResult.round_id == DiagnosisRound.id)
+        .where(ComprehensionResult.betts_level.isnot(None))
+    )).all()
+
+    # 난도 × Betts 교차표. 각 난도에서 세 수준이 어떤 비율로 나오는지가 핵심.
+    by_difficulty: dict = {}
+    for diff, grade_group, betts, acc, score in rows:
+        d = by_difficulty.setdefault(diff.value, {
+            "rounds": 0,
+            "betts": {b.value: 0 for b in BettsLevel},
+            "_acc": [],
+            "_score": [],
+            "by_grade_group": {},
+        })
+        d["rounds"] += 1
+        d["betts"][betts.value] += 1
+        if acc is not None:
+            d["_acc"].append(acc)
+        if score is not None:
+            d["_score"].append(score)
+        g = d["by_grade_group"].setdefault(
+            grade_group.value, {b.value: 0 for b in BettsLevel}
+        )
+        g[betts.value] += 1
+
+    for d in by_difficulty.values():
+        n = d["rounds"]
+        d["betts_ratio"] = {k: round(v / n, 4) for k, v in d["betts"].items()} if n else {}
+        d["mean_accuracy"] = round(sum(d["_acc"]) / len(d["_acc"]), 4) if d["_acc"] else None
+        d["mean_readability"] = round(sum(d["_score"]) / len(d["_score"]), 2) if d["_score"] else None
+        del d["_acc"], d["_score"]
+
+    # 라벨이 기울어 있는가 — easy 는 독립 비율이, hard 는 좌절 비율이 높아야 한다.
+    order = ["easy", "normal", "hard"]
+    present = [d for d in order if d in by_difficulty]
+    verdict = None
+    if len(present) >= 2:
+        indep = [by_difficulty[d]["betts_ratio"].get("independent", 0) for d in present]
+        frust = [by_difficulty[d]["betts_ratio"].get("frustration", 0) for d in present]
+        # 단조 감소(독립)·단조 증가(좌절)를 기대한다
+        indep_ok = all(indep[i] >= indep[i + 1] for i in range(len(indep) - 1))
+        frust_ok = all(frust[i] <= frust[i + 1] for i in range(len(frust) - 1))
+        verdict = {
+            "independent_decreasing": indep_ok,
+            "frustration_increasing": frust_ok,
+            "label_works": indep_ok and frust_ok,
+            "note": ("난도 라벨이 읽기 부담과 대응한다" if indep_ok and frust_ok
+                     else "라벨과 실제 부담이 어긋난다 — STR-106 검토 필요"),
+        }
+
+    total_rounds = sum(d["rounds"] for d in by_difficulty.values())
+    return {
+        "total_rounds": total_rounds,
+        # 표본이 적으면 판정을 신뢰할 수 없다. 화면에서 경고를 띄우기 위한 값.
+        "sufficient_sample": total_rounds >= 30,
+        "by_difficulty": by_difficulty,
+        "verdict": verdict,
     }
