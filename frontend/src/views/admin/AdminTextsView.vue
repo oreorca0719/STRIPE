@@ -45,6 +45,8 @@
               <th>장르</th>
               <th>난도</th>
               <th>음절 수</th>
+              <th title="표면 구조 합성 지표(0~100). 높을수록 어려움">난도점수</th>
+              <th title="문장당 평균 어절 수">문장복잡도</th>
               <th>문항</th>
               <th>주제</th>
               <th>승인</th>
@@ -52,8 +54,8 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="10"><div class="empty-state"><span>⏳</span><span>불러오는 중…</span></div></td></tr>
-            <tr v-else-if="!filtered.length"><td colspan="10">
+            <tr v-if="loading"><td colspan="12"><div class="empty-state"><span>⏳</span><span>불러오는 중…</span></div></td></tr>
+            <tr v-else-if="!filtered.length"><td colspan="12">
               <div class="empty-state"><span>🔍</span><span>조건에 맞는 텍스트가 없습니다</span></div>
             </td></tr>
             <tr v-else v-for="t in filtered" :key="t.id" class="row" @click="openDetail(t.id)">
@@ -63,6 +65,12 @@
               <td>{{ t.genre === 'narrative' ? '이야기글' : '설명글' }}</td>
               <td><span class="lv-chip" :class="t.difficulty">{{ diffKo(t.difficulty) }}</span></td>
               <td>{{ t.syllable_count }}</td>
+              <!-- 라벨과 지표가 어긋난 지문을 눈에 띄게 한다(STR-103).
+                   같은 난도끼리도 점수가 크게 벌어지면 라벨을 다시 봐야 한다. -->
+              <td><span v-if="t.readability_score != null" class="score-chip"
+                        :class="scoreClass(t)">{{ t.readability_score.toFixed(0) }}</span>
+                  <span v-else class="muted">–</span></td>
+              <td>{{ t.sentence_complexity != null ? t.sentence_complexity.toFixed(1) : '–' }}</td>
               <td>{{ t.question_count }}개</td>
               <td>{{ (t.topic_tags || []).join(', ') }}</td>
               <td><span class="ok-chip" v-if="t.review_status === 'approved'">승인</span>
@@ -171,6 +179,24 @@ const gradeOptions = [
 
 function diffKo(d: string) {
   return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
+}
+
+/**
+ * 난도 라벨과 실측 지표가 어긋나는 지문을 표시한다(STR-103).
+ *
+ * 라벨은 생성 프롬프트의 길이 가이드로 붙인 값이라, 같은 'normal' 안에서도
+ * 점수가 크게 벌어진다. 아래 기대 범위를 벗어나면 라벨을 다시 봐야 한다는 신호다.
+ * 경계값은 현재 48편 분포에서 잡은 잠정값 — 파일럿 Betts 분포로 조정한다.
+ */
+const EXPECTED_RANGE: Record<string, [number, number]> = {
+  easy: [0, 60],
+  normal: [55, 80],
+  hard: [70, 100],
+}
+function scoreClass(t: any) {
+  const r = EXPECTED_RANGE[t.difficulty]
+  if (!r || t.readability_score == null) return ''
+  return t.readability_score < r[0] || t.readability_score > r[1] ? 'off' : 'fit'
 }
 
 const filtered = computed(() => texts.value.filter(t =>
@@ -299,6 +325,12 @@ select:focus { border-color: #4ECDC4; }
 .data-table tbody tr:hover td { background: #1e2130; }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #555; }
 .title-cell { font-weight: 800; color: #fff; }
+/* 난도점수 — 라벨 기대 범위를 벗어나면 붉게 표시(STR-103) */
+.score-chip { padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.76rem; font-weight: 800; }
+.score-chip.fit { background: rgba(78,205,196,0.12); color: #4ECDC4; }
+.score-chip.off { background: rgba(255,107,107,0.15); color: #FF6B6B; }
+.muted { color: #555a6e; }
+
 .lv-chip { padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.74rem; font-weight: 800; }
 .lv-chip.easy { background: rgba(78,205,196,0.15); color: #4ECDC4; }
 .lv-chip.normal { background: rgba(255,230,109,0.15); color: #FFE66D; }

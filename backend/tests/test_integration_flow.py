@@ -277,3 +277,85 @@ async def _run_resume():
 
 def test_resume_flow():
     asyncio.run(_run_resume())
+
+
+# ---------------------------------------------------------------------------
+# STR-95 회귀 — 재응시 시 과거 지문 중복 노출 방지
+# ---------------------------------------------------------------------------
+
+async def _run_no_repeat():
+    """두 번째 진단이 첫 번째와 다른 지문을 받는지. 풀이 마르면 중복을 표시하는지."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.services.diagnosis import text_selection
+    headers = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=headers) as ac:
+        # --- 1차 진단: 1회차 지문 배정 -------------------------------------
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid1 = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid1}/start")
+        first_text = r.json()["text_id"]
+        assert first_text == t1, "1회차는 normal/narrative 텍스트여야"
+
+        # 노출 이력에 잡히는지 확인
+        async with AsyncSessionLocal() as db:
+            seen = await text_selection.seen_text_ids(db, uid)
+        assert first_text in seen, f"노출 이력에 없다: {seen}"
+        print(f"PASS 노출 이력 기록: {seen}")
+
+        # --- 2차 진단: 같은 조건인데 다른 지문을 받아야 한다 -----------------
+        # 시드에는 normal/narrative 가 t1 한 편뿐이라, 과거 노출분을 빼면 후보가
+        # 없어 인접 난도 폴백도 실패한다 → 중복을 감수하고 t1 을 다시 내되 표시한다.
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid2 = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid2}/start")
+        assert r.status_code == 201, r.text
+        round2 = r.json()
+
+        async with AsyncSessionLocal() as db:
+            from app.models.core import DiagnosisRound as DR
+            row = (await db.execute(
+                sql_text("SELECT text_id, changed_variables FROM diagnosis_rounds WHERE id=:i"),
+                {"i": round2["id"]},
+            )).first()
+        text_id2, cv = row[0], row[1]
+
+        if text_id2 == first_text:
+            # 풀 소진 → 중복 허용하되 반드시 표시돼야 한다
+            assert cv and cv.get("text_repeated") is True, \
+                f"중복 지문인데 text_repeated 표시가 없다: {cv}"
+            print(f"PASS 풀 소진 시 중복 허용 + 표시 (text_id={text_id2})")
+
+            # --- 판정에 신뢰도 저하와 사유가 반영되는지 ---------------------
+            await ac.post("/api/diagnosis/fluency/silent",
+                          json={"session_id": sid2, "silent_reading_time": 40,
+                                "round_id": round2["id"]})
+            for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
+                await ac.post("/api/diagnosis/comprehension",
+                              json={"round_id": round2["id"], "question_id": qids[c],
+                                    "student_answer": ans})
+            await ac.post(f"/api/diagnosis/round/{round2['id']}/complete")
+            r = await ac.post(f"/api/diagnosis/session/{sid2}/finalize")
+            assert r.status_code == 201, r.text
+            j = r.json()["judgment"]
+            assert "text_repeated" in (j["disclaimer_flags"] or []), j["disclaimer_flags"]
+            assert j["reliability_flag"] in ("low", "unstable"), j["reliability_flag"]
+            print(f"PASS 판정 반영: flags={j['disclaimer_flags']}, "
+                  f"reliability={j['reliability_flag']}")
+        else:
+            # 대체 지문이 있으면 중복 표시가 없어야 한다
+            assert not (cv or {}).get("text_repeated"), cv
+            print(f"PASS 대체 지문 배정 ({first_text} → {text_id2})")
+
+    await engine.dispose()
+
+
+def test_no_repeat_across_sessions():
+    asyncio.run(_run_no_repeat())

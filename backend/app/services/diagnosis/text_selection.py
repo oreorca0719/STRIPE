@@ -3,12 +3,13 @@
 approved 3단(texts/item_sets/questions) 조건 + 장르/난도/학년군 필터 +
 B7 관심주제 우선 정렬. 후보 부족 시 인접 난도 허용.
 """
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 from sqlalchemy import select, exists, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.core import (
     TextContent, ItemSet, Question, ReviewStatus,
     GradeGroup, Difficulty, TextGenre,
+    DiagnosisRound, DiagnosisSession,
 )
 from app.services.diagnosis.adaptive import DIFFICULTY_ORDER
 
@@ -159,3 +160,67 @@ async def select_text(
     if not candidates:
         return None  # 후보 0편 → 호출측에서 text_shortage 처리
     return rank_texts(candidates, interest_topics)[0]
+
+
+# =========================================================================
+# 학생 단위 중복 노출 방지 (STR-95)
+# =========================================================================
+# select_text 의 used_text_ids 는 호출측이 넘기는 값이라 지금까지 '같은 세션 안에서
+# 이미 쓴 지문'만 걸러 왔다. 학생이 재응시하면 지난번에 읽은 지문이 다시 나올 수
+# 있는데, 그러면 그 회차의 독해 점수는 읽기 능력이 아니라 기억을 재게 된다.
+# 파일럿에서 사전/사후 측정을 하려면 여기가 막혀 있어야 한다.
+
+async def seen_text_ids(db: AsyncSession, student_id: int) -> List[int]:
+    """이 학생이 지금까지 배정받은 모든 지문 id (전 세션 누적).
+
+    포기(abandoned)·중단 세션도 포함한다. 화면에 띄운 이상 읽었을 수 있기 때문에,
+    응시 완료 여부가 아니라 '노출 여부'가 기준이다.
+    """
+    q = await db.execute(
+        select(DiagnosisRound.text_id)
+        .join(DiagnosisSession, DiagnosisSession.id == DiagnosisRound.diagnosis_session_id)
+        .where(
+            DiagnosisSession.student_id == student_id,
+            DiagnosisRound.text_id.isnot(None),
+        )
+        .distinct()
+    )
+    return [t for (t,) in q.all()]
+
+
+async def select_text_for_student(
+    db: AsyncSession,
+    student_id: int,
+    grade_group: GradeGroup,
+    difficulty: Difficulty,
+    genre: TextGenre,
+    session_used_ids: Sequence[int] = (),
+    interest_topics: Optional[Sequence] = None,
+) -> Tuple[Optional[TextContent], bool]:
+    """학생이 이전에 본 지문을 제외하고 선택한다.
+
+    반환: (텍스트, repeated)
+      repeated=True 는 풀이 말라 과거에 봤던 지문을 다시 낸 경우다. 이때 그 회차의
+      독해 점수는 기억의 영향을 받으므로 호출측이 기록하고 판정 신뢰도에 반영한다.
+
+    풀 소진 시 진단을 막지 않는다. 중복을 감수하고 진행하되 그 사실을 남기는 쪽이,
+    학생을 빈손으로 돌려보내는 것보다 낫다고 판단했다. 다만 같은 세션 안에서의
+    중복만은 끝까지 막는다 — 한 번의 진단에서 같은 글을 두 번 읽히면 회차 구성
+    자체가 무너진다.
+    """
+    seen = await seen_text_ids(db, student_id)
+    exclude = set(seen) | set(session_used_ids)
+
+    text = await select_text(
+        db, grade_group=grade_group, difficulty=difficulty, genre=genre,
+        used_text_ids=list(exclude), interest_topics=interest_topics,
+    )
+    if text is not None:
+        return text, False
+
+    # 과거 노출분까지 빼면 후보가 없다 → 세션 내 중복만 막고 재시도
+    text = await select_text(
+        db, grade_group=grade_group, difficulty=difficulty, genre=genre,
+        used_text_ids=list(session_used_ids), interest_topics=interest_topics,
+    )
+    return text, text is not None

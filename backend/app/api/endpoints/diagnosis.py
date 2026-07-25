@@ -249,18 +249,25 @@ async def resume_session(
         grade_group = text_selection.grade_to_group(profile.grade) if profile and profile.grade else None
 
         if grade_group:
-            new_text = await text_selection.select_text(
+            # 과거 세션에서 본 지문도 함께 제외한다(STR-95). 현재 회차의 지문은
+            # 이 학생의 노출 이력에 이미 들어 있어 자동으로 빠진다.
+            new_text, repeated = await text_selection.select_text_for_student(
                 db,
+                student_id=session.student_id,
                 grade_group=grade_group,
                 difficulty=round_.difficulty_level,
                 genre=round_.genre,
-                used_text_ids=used_ids,
+                session_used_ids=used_ids,
                 interest_topics=profile.interest_topics,
             )
             # 대체 지문이 없으면 기존 지문을 유지한다(진행 불가보다는 낫다).
             if new_text is not None and new_text.id != round_.text_id:
                 round_.text_id = new_text.id
                 text_reissued = True
+                if repeated:
+                    cv = dict(round_.changed_variables or {})
+                    cv["text_repeated"] = True
+                    round_.changed_variables = cv
                 await db.commit()
                 await db.refresh(round_)
 
@@ -544,12 +551,14 @@ async def start_diagnosis(
         raise HTTPException(status_code=400, detail="학생 프로필 학년 정보가 없습니다.")
 
     grade_group = text_selection.grade_to_group(profile.grade)
-    text = await text_selection.select_text(
+    # 재응시 시 지난번에 읽은 지문이 다시 나오면 독해 점수가 기억을 재게 된다(STR-95).
+    text, repeated = await text_selection.select_text_for_student(
         db,
+        student_id=session.student_id,
         grade_group=grade_group,
         difficulty=adaptive.FIRST_ROUND_DIFFICULTY,
         genre=adaptive.FIRST_ROUND_GENRE,
-        used_text_ids=[],
+        session_used_ids=[],
         interest_topics=profile.interest_topics,
     )
     if text is None:
@@ -561,6 +570,7 @@ async def start_diagnosis(
         text_id=text.id,
         difficulty_level=adaptive.FIRST_ROUND_DIFFICULTY,
         genre=adaptive.FIRST_ROUND_GENRE,
+        changed_variables={"text_repeated": True} if repeated else None,
     )
     db.add(round_)
     session.text_id = text.id
@@ -643,13 +653,15 @@ async def complete_round(
             profile = p_q.scalar_one_or_none()
 
         next_text = None
+        next_repeated = False
         if profile is not None and profile.grade is not None:
-            next_text = await text_selection.select_text(
+            next_text, next_repeated = await text_selection.select_text_for_student(
                 db,
+                student_id=session.student_id,
                 grade_group=text_selection.grade_to_group(profile.grade),
                 difficulty=decision.next_difficulty,
                 genre=decision.next_genre,
-                used_text_ids=used_ids,
+                session_used_ids=used_ids,
                 interest_topics=profile.interest_topics,
             )
 
@@ -669,6 +681,7 @@ async def complete_round(
                 text_id=next_text.id,
                 difficulty_level=decision.next_difficulty,
                 genre=decision.next_genre,
+                changed_variables={"text_repeated": True} if next_repeated else None,
             )
             db.add(nr)
             session.total_rounds = (session.total_rounds or 0) + 1

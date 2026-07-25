@@ -209,10 +209,15 @@ class TextContent(Base):
     topic_tags = Column(JSONB, nullable=False)           # B7 태그 코드 배열
     syllable_count = Column(Integer, nullable=False)
     difficulty_level = Column(Enum(Difficulty), nullable=False)
+    # 외부 기관 지수. 우리가 산출할 수 없어 NULL 로 둔다 — 자체 계산값을 넣으면
+    # 외부 표준으로 오인된다. 자체 지표는 readability_* 를 쓴다.
     kread_index = Column(Float, nullable=True)
-    vocabulary_level = Column(String(20), nullable=True)
-    sentence_complexity = Column(Float, nullable=True)
+    vocabulary_level = Column(String(20), nullable=True)   # 길이 기반 대리 등급
+    sentence_complexity = Column(Float, nullable=True)     # 문장당 평균 어절 수
     text_structure = Column(Enum(TextStructure), nullable=True)
+    # 표면 구조 합성 지표(0~100)와 산출 근거. STR-103, 마이그레이션 009.
+    readability_score = Column(Float, nullable=True)
+    readability_metrics = Column(JSONB, nullable=True)
     text_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     created_by_role = Column(String(20), nullable=True)  # 'jun' | 'ai'

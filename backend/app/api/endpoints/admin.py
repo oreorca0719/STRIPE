@@ -90,6 +90,8 @@ async def get_texts(db: AsyncSession = Depends(get_db)):
             TextContent.grade_group, TextContent.genre, TextContent.difficulty_level,
             TextContent.syllable_count, TextContent.topic_tags,
             TextContent.text_review_status, TextContent.created_by_role,
+            TextContent.readability_score, TextContent.sentence_complexity,
+            TextContent.vocabulary_level,
             func.count(Question.id).label("question_count"),
         )
         .outerjoin(Question, Question.text_id == TextContent.id)
@@ -103,6 +105,10 @@ async def get_texts(db: AsyncSession = Depends(get_db)):
             "difficulty": r.difficulty_level.value, "syllable_count": r.syllable_count,
             "topic_tags": r.topic_tags, "review_status": r.text_review_status.value,
             "created_by_role": r.created_by_role, "question_count": r.question_count,
+            # 난도 지표 (STR-103). 라벨과 실제 지표가 어긋나는 지문을 찾기 위한 값.
+            "readability_score": r.readability_score,
+            "sentence_complexity": r.sentence_complexity,
+            "vocabulary_level": r.vocabulary_level,
         }
         for r in q.all()
     ]
@@ -125,6 +131,11 @@ async def get_text_detail(text_id: int, db: AsyncSession = Depends(get_db)):
         "difficulty": t.difficulty_level.value, "syllable_count": t.syllable_count,
         "topic_tags": t.topic_tags, "text_structure": t.text_structure.value if t.text_structure else None,
         "review_status": t.text_review_status.value, "created_by_role": t.created_by_role,
+        "readability_score": t.readability_score,
+        "readability_metrics": t.readability_metrics,
+        "sentence_complexity": t.sentence_complexity,
+        "vocabulary_level": t.vocabulary_level,
+        "kread_index": t.kread_index,       # 외부 지수 — 미산출(NULL)
         "questions": [
             {
                 "id": q_.id, "question_code": q_.question_code,

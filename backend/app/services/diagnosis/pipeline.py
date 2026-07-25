@@ -72,6 +72,20 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     reliability = _worst(session.reliability_flag, fj.reliability_flag, cj.reliability_flag)
     anchor = session.anchor_difficulty or Difficulty.normal
 
+    # 이전에 읽은 지문이 다시 나온 회차가 있으면 그 독해 점수는 기억의 영향을 받는다
+    # (STR-95). 풀이 말라 중복을 감수한 경우이므로 결과를 버리지는 않되, 신뢰도를
+    # 낮추고 사유를 남긴다.
+    disclaimers = list(fj.disclaimer_flags or [])
+    rep_q = await db.execute(
+        select(DiagnosisRound.id).where(
+            DiagnosisRound.diagnosis_session_id == session.id,
+            DiagnosisRound.changed_variables["text_repeated"].astext == "true",
+        )
+    )
+    if rep_q.first() is not None:
+        disclaimers.append("text_repeated")
+        reliability = _worst(reliability, ReliabilityFlag.low)
+
     judgment = JudgmentResult(
         diagnosis_session_id=session.id,
         fluency_level=fj.fluency_level,
@@ -93,7 +107,7 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         d2_gap=meta.d2_gap,
         actual_10=meta.actual_10,
         reliability_flag=reliability,
-        disclaimer_flags=fj.disclaimer_flags or None,
+        disclaimer_flags=disclaimers or None,
     )
     db.add(judgment)
     await db.flush()  # judgment.id
