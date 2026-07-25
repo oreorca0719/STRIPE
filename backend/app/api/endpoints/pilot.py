@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import Integer, cast, func, select, true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
@@ -22,7 +22,7 @@ from app.models.core import (
     FluencyResult, JudgmentResult, QuestionResponse,
     StudentProfile, TargetArea, TextContent,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.diagnosis.judgment import A4_PLAUSIBLE_MAX, A4_PLAUSIBLE_MIN
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -40,6 +40,21 @@ def _bin_index(value: float, lo: float, width: float, count: int) -> int:
     return max(0, min(count - 1, idx))
 
 
+def _student_sessions():
+    """분석 집계 대상 세션 — 학생 역할 계정의 응시만 (STR-107).
+
+    관리자·교사 계정의 QA 응시가 섞이면 분포가 오염된다. 표본이 클 때는 묻히지만
+    파일럿 초기 30~100건 규모에서는 몇 건만으로도 P33/P67 과 Betts 비율이 눈에
+    띄게 흔들린다. 운영 중에도 내부 QA 는 계속할 것이므로 상시 제외한다.
+
+    비활성 계정은 제외하지 않는다 — 응시를 마친 뒤 계정만 잠근 경우가 있고,
+    그 데이터는 유효한 표본이다.
+    """
+    return DiagnosisSession.student_id.in_(
+        select(User.id).where(User.role == UserRole.student)
+    )
+
+
 def _anon(user_id: int) -> str:
     """식별코드(elem5-017) 대신 쓰는 익명 라벨.
 
@@ -55,6 +70,7 @@ def _anon(user_id: int) -> str:
 async def export_csv(
     level: str = Query("session", pattern="^(session|round)$"),
     anonymize: bool = Query(True),
+    students_only: bool = Query(True),
     db: AsyncSession = Depends(get_db),
 ):
     """진단 결과 CSV.
@@ -64,6 +80,10 @@ async def export_csv(
 
     anonymize=true 면 아이디를 익명 라벨로 치환한다. 기본값을 true 로 둔 이유는
     내보낸 파일이 메일·메신저로 옮겨 다니기 때문이다 — 식별이 필요한 경우에만 끄도록.
+
+    students_only=true 는 관리자·교사 계정의 QA 응시를 제외한다(STR-107). 임계값
+    산출용이 기본 용도이므로 true 를 기본값으로 둔다. 장애 재현처럼 전수가 필요할
+    때만 끄도록.
     """
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -75,6 +95,7 @@ async def export_csv(
             .outerjoin(JudgmentResult,
                        JudgmentResult.diagnosis_session_id == DiagnosisSession.id)
             .outerjoin(StudentProfile, StudentProfile.id == DiagnosisSession.profile_id)
+            .where(_student_sessions() if students_only else sa_true())
             .order_by(DiagnosisSession.id)
         )).all()
 
@@ -125,6 +146,7 @@ async def export_csv(
             .outerjoin(ComprehensionResult, ComprehensionResult.round_id == DiagnosisRound.id)
             .outerjoin(FluencyResult, FluencyResult.round_id == DiagnosisRound.id)
             .outerjoin(TextContent, TextContent.id == DiagnosisRound.text_id)
+            .where(_student_sessions() if students_only else sa_true())
             .order_by(DiagnosisRound.diagnosis_session_id, DiagnosisRound.round_number)
         )).all()
 
@@ -175,7 +197,8 @@ async def get_distributions(db: AsyncSession = Depends(get_db)):
     a4_values = [
         v for (v,) in (await db.execute(
             select(FluencyResult.a4_syllable_per_sec)
-            .where(FluencyResult.a4_syllable_per_sec.isnot(None))
+            .join(DiagnosisSession, DiagnosisSession.id == FluencyResult.session_id)
+            .where(FluencyResult.a4_syllable_per_sec.isnot(None), _student_sessions())
         )).all()
     ]
     a4_in_range = [v for v in a4_values if A4_PLAUSIBLE_MIN <= v <= A4_PLAUSIBLE_MAX]
@@ -189,7 +212,9 @@ async def get_distributions(db: AsyncSession = Depends(get_db)):
     acc_values = [
         v for (v,) in (await db.execute(
             select(JudgmentResult.overall_accuracy)
-            .where(JudgmentResult.overall_accuracy.isnot(None))
+            .join(DiagnosisSession,
+                  DiagnosisSession.id == JudgmentResult.diagnosis_session_id)
+            .where(JudgmentResult.overall_accuracy.isnot(None), _student_sessions())
         )).all()
     ]
     acc_bins = [0] * ACC_BIN_COUNT
@@ -202,7 +227,12 @@ async def get_distributions(db: AsyncSession = Depends(get_db)):
             QuestionResponse.target_area,
             func.count(QuestionResponse.id),
             func.sum(cast(QuestionResponse.is_correct, Integer)),
-        ).group_by(QuestionResponse.target_area)
+        )
+        .join(DiagnosisRound, DiagnosisRound.id == QuestionResponse.round_id)
+        .join(DiagnosisSession,
+              DiagnosisSession.id == DiagnosisRound.diagnosis_session_id)
+        .where(_student_sessions())
+        .group_by(QuestionResponse.target_area)
     )).all()
     area_accuracy = {
         area.value: {
@@ -270,7 +300,7 @@ async def get_outliers(db: AsyncSession = Depends(get_db)):
         .join(User, User.id == DiagnosisSession.student_id)
         .outerjoin(DiagnosisRound, DiagnosisRound.id == FluencyResult.round_id)
         .outerjoin(TextContent, TextContent.id == DiagnosisRound.text_id)
-        .where(FluencyResult.a4_syllable_per_sec.isnot(None))
+        .where(FluencyResult.a4_syllable_per_sec.isnot(None), _student_sessions())
         .where(
             (FluencyResult.a4_syllable_per_sec < A4_PLAUSIBLE_MIN)
             | (FluencyResult.a4_syllable_per_sec > A4_PLAUSIBLE_MAX)
@@ -306,6 +336,7 @@ async def get_dropoff(db: AsyncSession = Depends(get_db)):
     """어느 단계에서 응시를 그만두는지. 문항 수·소요시간 조정의 근거."""
     status_rows = (await db.execute(
         select(DiagnosisSession.status, func.count(DiagnosisSession.id))
+        .where(_student_sessions())
         .group_by(DiagnosisSession.status)
     )).all()
     status_counts = {st.value: 0 for st in DiagSessionStatus}
@@ -317,7 +348,7 @@ async def get_dropoff(db: AsyncSession = Depends(get_db)):
         select(DiagnosisSession.id, func.count(DiagnosisRound.id))
         .outerjoin(DiagnosisRound,
                    DiagnosisRound.diagnosis_session_id == DiagnosisSession.id)
-        .where(DiagnosisSession.status != DiagSessionStatus.completed)
+        .where(DiagnosisSession.status != DiagSessionStatus.completed, _student_sessions())
         .group_by(DiagnosisSession.id)
     )).all()
 
@@ -332,7 +363,7 @@ async def get_dropoff(db: AsyncSession = Depends(get_db)):
         .join(DiagnosisSession, DiagnosisSession.id == DiagnosisRound.diagnosis_session_id)
         .outerjoin(QuestionResponse, QuestionResponse.round_id == DiagnosisRound.id)
         .outerjoin(FluencyResult, FluencyResult.round_id == DiagnosisRound.id)
-        .where(DiagnosisSession.status != DiagSessionStatus.completed)
+        .where(DiagnosisSession.status != DiagSessionStatus.completed, _student_sessions())
         .where(DiagnosisRound.completed_at.is_(None))
         .group_by(DiagnosisRound.id, DiagnosisSession.status)
     )).all()
@@ -386,7 +417,9 @@ async def get_difficulty_validity(db: AsyncSession = Depends(get_db)):
         )
         .join(DiagnosisRound, DiagnosisRound.text_id == TextContent.id)
         .join(ComprehensionResult, ComprehensionResult.round_id == DiagnosisRound.id)
-        .where(ComprehensionResult.betts_level.isnot(None))
+        .join(DiagnosisSession,
+              DiagnosisSession.id == DiagnosisRound.diagnosis_session_id)
+        .where(ComprehensionResult.betts_level.isnot(None), _student_sessions())
     )).all()
 
     # 난도 × Betts 교차표. 각 난도에서 세 수준이 어떤 비율로 나오는지가 핵심.
@@ -442,4 +475,80 @@ async def get_difficulty_validity(db: AsyncSession = Depends(get_db)):
         "sufficient_sample": total_rounds >= 30,
         "by_difficulty": by_difficulty,
         "verdict": verdict,
+    }
+
+
+# ── 소요시간 ─────────────────────────────────────────────────────────────
+
+@router.get("/duration")
+async def get_duration(db: AsyncSession = Depends(get_db)):
+    """1회 진단 소요시간 분포 (STR-112).
+
+    보호자 동의서에 '20~30분'이라고 적었는데 측정한 값이 아니라 구조에서 추정한
+    수치였다. 보호자에게 제시하는 문서에 근거 없는 숫자가 들어가 있어서는 안 된다.
+    도메인 문서 미해결 공백 #6(1회 진단 소요 시간 목표)도 이 값으로 채운다.
+
+    두 가지를 함께 낸다.
+    - 세션 총 소요: started_at ~ completed_at. 실제 학생이 앉아 있는 시간
+    - 읽기·응답 합: 실제 과업에 쓴 시간. 총 소요와의 차이가 곧 '멈칫한 시간'이다
+
+    완료된 세션만 센다. 중단 세션의 소요시간은 이탈 지점 분석(dropoff)의 몫이다.
+    """
+    DONE = (DiagSessionStatus.completed, DiagSessionStatus.early_stop)
+
+    rows = (await db.execute(
+        select(DiagnosisSession.id, DiagnosisSession.started_at,
+               DiagnosisSession.completed_at)
+        .where(DiagnosisSession.status.in_(DONE),
+               DiagnosisSession.completed_at.isnot(None),
+               _student_sessions())
+    )).all()
+
+    total_minutes = [
+        round((c - s).total_seconds() / 60.0, 2)
+        for _sid, s, c in rows if s and c
+    ]
+
+    # 과업 시간 — 묵독 읽기 + 문항 응답. 세션 단위로 합산한다.
+    task_rows = (await db.execute(
+        select(
+            DiagnosisSession.id,
+            func.coalesce(func.sum(FluencyResult.silent_reading_time), 0.0),
+        )
+        .join(DiagnosisRound, DiagnosisRound.diagnosis_session_id == DiagnosisSession.id)
+        .outerjoin(FluencyResult, FluencyResult.round_id == DiagnosisRound.id)
+        .where(DiagnosisSession.status.in_(DONE), _student_sessions())
+        .group_by(DiagnosisSession.id)
+    )).all()
+    reading_by_session = {sid: float(sec or 0) for sid, sec in task_rows}
+
+    resp_rows = (await db.execute(
+        select(
+            DiagnosisSession.id,
+            func.coalesce(func.sum(QuestionResponse.response_time_ms), 0),
+        )
+        .join(DiagnosisRound, DiagnosisRound.diagnosis_session_id == DiagnosisSession.id)
+        .join(QuestionResponse, QuestionResponse.round_id == DiagnosisRound.id)
+        .where(DiagnosisSession.status.in_(DONE), _student_sessions())
+        .group_by(DiagnosisSession.id)
+    )).all()
+    answer_by_session = {sid: (ms or 0) / 1000.0 for sid, ms in resp_rows}
+
+    task_minutes = [
+        round((reading_by_session.get(sid, 0.0) + answer_by_session.get(sid, 0.0)) / 60.0, 2)
+        for sid, _s, _c in rows
+    ]
+
+    return {
+        "n_sessions": len(total_minutes),
+        # 표본이 적으면 이 값으로 동의서 문구를 확정하지 말 것
+        "sufficient_sample": len(total_minutes) >= 20,
+        "total_minutes": {
+            "percentiles": _percentiles(total_minutes),
+            "note": "세션 시작~종료. 학생이 실제로 앉아 있던 시간",
+        },
+        "task_minutes": {
+            "percentiles": _percentiles(task_minutes),
+            "note": "묵독 읽기 + 문항 응답 합. 총 소요와의 차이가 멈칫한 시간",
+        },
     }

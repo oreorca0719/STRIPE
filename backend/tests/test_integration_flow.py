@@ -435,3 +435,102 @@ async def _run_difficulty_validity():
 
 def test_difficulty_validity():
     asyncio.run(_run_difficulty_validity())
+
+
+# ---------------------------------------------------------------------------
+# STR-107 회귀 — 관리자 응시가 파일럿 분석에 섞이지 않아야 한다
+# STR-112 — 소요시간 집계
+# ---------------------------------------------------------------------------
+
+async def _run_analysis_scope():
+    """관리자 계정 응시는 분포·이탈·타당성 집계에서 제외된다."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    from app.api.endpoints import pilot
+    app.include_router(pilot.router, prefix="/api/admin/pilot")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.models.user import User as U, UserRole as UR
+    from app.models.core import StudentProfile as SP, ReaderType1 as RT
+
+    async with AsyncSessionLocal() as db:
+        admin = U(username="scopeadmin", password_hash="x", name="관리자", role=UR.admin)
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
+        admin_id = admin.id
+        # 관리자도 응시하려면 프로필이 필요하다
+        ap = SP(user_id=admin_id, grade=4, reading_freq=4, reading_attitude=4,
+                type_1=RT.enthusiast, predicted_correct=5)
+        db.add(ap)
+        await db.commit()
+        await db.refresh(ap)
+        admin_pid = ap.id
+
+    adm = {"Authorization": f"Bearer {create_access_token({'sub': str(admin_id), 'role': 'admin'})}"}
+    stu = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+
+    async def run_diagnosis(headers, profile_id):
+        async with AsyncClient(transport=transport, base_url="http://t", headers=headers) as ac:
+            r = await ac.post("/api/diagnosis/session",
+                              json={"profile_id": profile_id, "silent_mode": True})
+            sid = r.json()["id"]
+            r = await ac.post(f"/api/diagnosis/session/{sid}/start")
+            rid = r.json()["id"]
+            await ac.post("/api/diagnosis/fluency/silent",
+                          json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+            for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
+                await ac.post("/api/diagnosis/comprehension",
+                              json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
+            await ac.post(f"/api/diagnosis/round/{rid}/complete")
+            await ac.post(f"/api/diagnosis/session/{sid}/finalize")
+            return sid
+
+    student_sid = await run_diagnosis(stu, pid)
+    admin_sid = await run_diagnosis(adm, admin_pid)
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=adm) as ac:
+        # A4 분포 — 학생 1건만 잡혀야 한다(관리자 응시 제외)
+        r = await ac.get("/api/admin/pilot/distributions")
+        d = r.json()
+        assert d["a4"]["percentiles"]["n"] == 1, f"관리자 A4 가 섞였다: {d['a4']['percentiles']}"
+        assert d["accuracy"]["percentiles"]["n"] == 1, d["accuracy"]["percentiles"]
+        print(f"PASS 분포 제외: A4 n={d['a4']['percentiles']['n']} (학생만)")
+
+        # 난도 타당성 — 회차 1건만
+        r = await ac.get("/api/admin/pilot/difficulty-validity")
+        v = r.json()
+        assert v["total_rounds"] == 1, f"관리자 회차가 섞였다: {v['total_rounds']}"
+        print(f"PASS 타당성 제외: {v['total_rounds']}회차")
+
+        # 이탈 집계 — 학생 세션만
+        r = await ac.get("/api/admin/pilot/dropoff")
+        assert r.json()["total_sessions"] == 1, r.json()["status_counts"]
+        print("PASS 이탈 집계 제외")
+
+        # 소요시간(STR-112) — 학생 1건, 값이 실제로 산출되는지
+        r = await ac.get("/api/admin/pilot/duration")
+        du = r.json()
+        assert du["n_sessions"] == 1, du
+        assert du["sufficient_sample"] is False       # 20건 미만 경고
+        assert du["total_minutes"]["percentiles"] is not None
+        assert du["task_minutes"]["percentiles"]["p50"] > 0, du["task_minutes"]
+        print(f"PASS 소요시간: 총 {du['total_minutes']['percentiles']['p50']}분 / "
+              f"과업 {du['task_minutes']['percentiles']['p50']}분")
+
+        # CSV — 기본은 학생만, students_only=false 면 관리자 포함
+        r = await ac.get("/api/admin/pilot/export.csv?level=session")
+        assert len(r.text.strip().splitlines()) == 2, "헤더+학생1행 이어야"
+        r = await ac.get("/api/admin/pilot/export.csv?level=session&students_only=false")
+        assert len(r.text.strip().splitlines()) == 3, "헤더+2행 이어야"
+        print("PASS CSV: 기본 학생만 / students_only=false 전수")
+
+    await engine.dispose()
+
+
+def test_analysis_scope_excludes_admin():
+    asyncio.run(_run_analysis_scope())

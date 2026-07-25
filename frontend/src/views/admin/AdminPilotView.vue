@@ -191,6 +191,37 @@
           </div>
         </section>
 
+        <!-- 소요시간 (STR-112) -->
+        <section class="panel">
+          <div class="panel-head">
+            <h2>1회 진단 소요시간</h2>
+            <p class="panel-desc">
+              보호자 동의서에 적는 예상 시간의 근거다. 완료된 세션만 센다.
+              <strong>총 소요</strong>는 학생이 앉아 있던 시간,
+              <strong>과업</strong>은 읽기·응답에 실제로 쓴 시간이다. 차이가 곧 멈칫한 시간.
+            </p>
+          </div>
+
+          <div v-if="!duration || !duration.n_sessions" class="empty-inline">
+            완료된 세션이 없다. 응시가 쌓이면 표시된다.
+          </div>
+
+          <template v-else>
+            <p v-if="!duration.sufficient_sample" class="warn-line">
+              ⚠ 완료 세션 {{ duration.n_sessions }}건 — 20건 미만이라 이 값으로 동의서 문구를 확정하지 말 것.
+            </p>
+            <div v-for="k in ['total_minutes','task_minutes']" :key="k" class="dur-block">
+              <span class="dur-name">{{ k === 'total_minutes' ? '총 소요' : '과업' }}</span>
+              <div v-if="duration[k].percentiles" class="pct-row">
+                <div class="pct"><span class="pct-k">최소</span><span class="pct-v">{{ duration[k].percentiles.min }}분</span></div>
+                <div class="pct hl"><span class="pct-k">중앙값</span><span class="pct-v">{{ duration[k].percentiles.p50 }}분</span></div>
+                <div class="pct"><span class="pct-k">P67</span><span class="pct-v">{{ duration[k].percentiles.p67 }}분</span></div>
+                <div class="pct"><span class="pct-k">최대</span><span class="pct-v">{{ duration[k].percentiles.max }}분</span></div>
+              </div>
+            </div>
+          </template>
+        </section>
+
         <!-- 난도 라벨 타당성 (STR-106 판단 근거) -->
         <section class="panel">
           <div class="panel-head">
@@ -266,6 +297,7 @@ const dist = ref<any>(null)
 const outliers = ref<any>(null)
 const dropoff = ref<any>(null)
 const validity = ref<any>(null)
+const duration = ref<any>(null)
 
 function diffKo(d: string) {
   return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
@@ -298,14 +330,15 @@ function statusKo(k: string | number) {
 async function loadAll() {
   loading.value = true; error.value = ''
   try {
-    const [d, o, r, v] = await Promise.all([
+    const [d, o, r, v, du] = await Promise.all([
       api.get('/api/admin/pilot/distributions'),
       api.get('/api/admin/pilot/outliers'),
       api.get('/api/admin/pilot/dropoff'),
       api.get('/api/admin/pilot/difficulty-validity'),
+      api.get('/api/admin/pilot/duration'),
     ])
     dist.value = d.data; outliers.value = o.data
-    dropoff.value = r.data; validity.value = v.data
+    dropoff.value = r.data; validity.value = v.data; duration.value = du.data
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '분석 데이터를 불러오지 못했습니다.'
   } finally {
@@ -456,6 +489,9 @@ function handleLogout() { router.push('/login') }
 }
 .verdict--ok  { background: rgba(78,205,196,0.12); color: #4ECDC4; }
 .verdict--off { background: rgba(255,107,107,0.14); color: #FF6B6B; }
+
+.dur-block { margin-bottom: 0.9rem; }
+.dur-name { display: block; font-size: 0.82rem; font-weight: 800; color: #8b90a5; margin-bottom: 0.4rem; }
 
 .mini-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 .mini-table th, .mini-table td {

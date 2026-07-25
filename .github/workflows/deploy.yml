@@ -51,10 +51,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install & build
+      # vite 는 타입을 검사하지 않고 트랜스파일만 한다. 타입 오류가 있어도 빌드가
+      # 통과해 그대로 배포되므로, 별도 스텝으로 막는다(STR-100).
+      - name: Install & type-check & build
         working-directory: frontend
         run: |
           npm install
+          npm run type-check
           npm run build
 
   deploy:
