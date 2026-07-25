@@ -100,7 +100,17 @@
           <p v-else class="sub">추천 텍스트를 준비하고 있어요.</p>
         </div>
 
-        <button class="btn-back" @click="router.push('/student')">← 홈으로</button>
+        <!-- 결과를 본 자리에서 바로 넘어갈 수 있게 한다. '내 결과' 카드는 최근 1건만
+             보여주므로, 여기 링크가 없으면 지난 회차가 남아 있다는 걸 알기 어렵다. -->
+        <div class="foot-actions">
+          <button class="btn-back" @click="router.push('/student')">← 홈으로</button>
+          <button class="btn-link" @click="router.push('/student/history')">
+            다른 회차 결과 보기 →
+          </button>
+          <button class="btn-link" @click="router.push('/student/books')">
+            나에게 맞는 책 보기 📖
+          </button>
+        </div>
       </div>
     </main>
   </div>
@@ -265,4 +275,11 @@ onMounted(load)
 .btn-primary:hover { background: var(--mint-dark); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
 .btn-back { align-self: flex-start; background: var(--gray-light); color: var(--gray); border: none; padding: 0.8rem 1.8rem; border-radius: 99px; font-size: 0.95rem; font-weight: 800; }
 .btn-back:hover { background: #e0e5ec; }
+.foot-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+.btn-link {
+  background: none; border: none; color: var(--mint-dark);
+  font-weight: 800; font-size: 0.92rem; cursor: pointer;
+  padding: 0.8rem 0.6rem; min-height: 44px;
+}
+.btn-link:hover { text-decoration: underline; }
 </style>

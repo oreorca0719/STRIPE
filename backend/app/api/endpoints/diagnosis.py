@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.database import get_db
 from app.models.core import (
     DiagnosisSession, DiagnosisRound, FluencyResult, QuestionResponse, Question,
     ComprehensionResult, StudentProfile, TextContent,
     JudgmentResult, PrescriptionResult, Report,
-    DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus, ConsentRecord,
+    DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus,
+    Book, Difficulty, Label5, ConsentRecord,
 )
 from app.core.config import settings
 from app.schemas.diagnosis import (
@@ -22,6 +23,7 @@ from app.schemas.diagnosis import (
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
+from app.services.diagnosis import prescription as prescription_svc, book_recommend
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
 
@@ -154,6 +156,86 @@ async def my_sessions(
     """내 진단 이력 목록 (최신순). 진행 중·중단 세션도 포함해 상태를 그대로 보여준다."""
     rows = await _my_sessions(db, user, limit=min(limit, 200))
     return [_to_my_item(s, j) for s, j in rows]
+
+
+@router.get("/my/books")
+async def my_books(
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """내게 맞는 책 (STR-109).
+
+    가장 최근 판정을 근거로 도서를 고른다. 진단 결과의 영점·처방군에서 나온 난도
+    범위를 그대로 쓰므로, 지문 추천과 같은 축으로 움직인다.
+
+    [상태] books 테이블이 비어 있다. 데이터 확보 방안(STR-108)이 미결이라 지금은
+    빈 목록이 나오고, 화면이 그 상태를 '준비 중'으로 안내한다. 데이터를 넣으면
+    코드 변경 없이 바로 동작한다.
+    """
+    rows = await _my_sessions(db, user)
+    judged = [(s, j) for s, j in rows if j is not None and s.status in _JUDGED_STATUSES]
+    if not judged:
+        return {"ready": False, "reason": "no_diagnosis", "books": [],
+                "based_on": None, "catalog_empty": False}
+
+    session, judgment = judged[0]
+
+    pq = await db.execute(
+        select(PrescriptionResult).where(PrescriptionResult.judgment_id == judgment.id)
+    )
+    prescription = pq.scalars().first()
+
+    prof_q = await db.execute(
+        select(StudentProfile).where(StudentProfile.id == session.profile_id)
+    )
+    profile = prof_q.scalar_one_or_none()
+    if not profile or profile.grade is None:
+        return {"ready": False, "reason": "no_profile", "books": [],
+                "based_on": None, "catalog_empty": False}
+
+    grade_group = text_selection.grade_to_group(profile.grade)
+    anchor = judgment.anchor_difficulty or Difficulty.normal
+    difficulties = prescription_svc.difficulty_range(judgment.prescription_group, anchor)
+
+    # 완독 경험이 필요한 독자에게는 짧은 책을 먼저 낸다(§용어사전 완독 경험 설계).
+    # 비독자이거나 판정이 낮은 경우가 해당한다.
+    prefer_short = (
+        profile.type_1 == ReaderType1.non_reader
+        or judgment.label_5 in (Label5.risk, Label5.urgent)
+    )
+
+    books = await book_recommend.recommend_books(
+        db,
+        grade_group=grade_group,
+        difficulties=difficulties,
+        interest_topics=profile.interest_topics,
+        prefer_short=prefer_short,
+        limit=limit,
+    )
+
+    # 카탈로그 자체가 비었는지 vs 조건에 맞는 책이 없는지를 구분해 알린다.
+    # 화면 문구가 달라야 하고, 후자면 콘텐츠 보강이 필요하다는 신호다.
+    total_q = await db.execute(
+        select(func.count()).select_from(Book)
+        .where(Book.review_status == ReviewStatus.approved, Book.is_active.is_(True))
+    )
+    catalog_empty = (total_q.scalar_one() or 0) == 0
+
+    return {
+        "ready": bool(books),
+        "reason": None if books else ("catalog_empty" if catalog_empty else "no_match"),
+        "catalog_empty": catalog_empty,
+        "based_on": {
+            "session_id": session.id,
+            "label_5": judgment.label_5.value,
+            "prescription_group": judgment.prescription_group.value,
+            "difficulties": [d.value for d in difficulties],
+            "interest_topics": profile.interest_topics or [],
+            "prefer_short": prefer_short,
+        },
+        "books": [book_recommend.to_dict(b, profile.interest_topics) for b in books],
+    }
 
 
 @router.get("/my/summary", response_model=MySummaryResponse)

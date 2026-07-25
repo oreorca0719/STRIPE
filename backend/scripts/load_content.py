@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 load_dotenv(BACKEND_DIR / ".env")
 
 from sqlalchemy import text as sa_text
+from app.services.content import item_quality
 from app.core.database import AsyncSessionLocal
 from app.models.core import (
     TextContent, ItemSet, Question,
@@ -55,8 +56,22 @@ async def reset_pool(session):
     await session.commit()
 
 
-async def load(path: Path, reset: bool):
+async def load(path: Path, reset: bool, force: bool = False):
     data = json.loads(path.read_text(encoding="utf-8"))
+
+    # 적재 게이트 — 읽지 않고 찍어서 맞힐 수 있는 문항은 진단을 무효로 만든다(STR-116).
+    # 생성 콘텐츠에서 정답 위치·선지 길이 편향이 실제로 나왔기 때문에 여기서 막는다.
+    report = item_quality.analyze(data)
+    print(item_quality.format_report(report))
+    if not report.ok:
+        if not force:
+            print()
+            print("적재를 중단했습니다. 위치 편향은 scripts/rebalance_answers.py 로 재배치하고,")
+            print("선지 길이 편향은 문항 재생성이 필요합니다. 무시하려면 --force.")
+            return
+        print()
+        print("[--force] 품질 문제를 무시하고 적재합니다. 진단 결과 해석에 주의하세요.")
+
     async with AsyncSessionLocal() as session:
         if reset:
             await reset_pool(session)
@@ -149,13 +164,14 @@ async def verify():
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reset", action="store_true", help="기존 풀 삭제 후 적재")
+    ap.add_argument("--force", action="store_true", help="품질 게이트를 무시하고 적재")
     ap.add_argument("--file", default=str(BACKEND_DIR / "scripts" / "generated" / "seed_all.json"))
     args = ap.parse_args()
     path = Path(args.file)
     if not path.exists():
         print(f"ERROR: 파일 없음 {path}")
         sys.exit(1)
-    await load(path, args.reset)
+    await load(path, args.reset, args.force)
     await verify()
 
 

@@ -28,11 +28,11 @@
           </div>
         </div>
 
-        <div class="card card-books">
+        <div class="card card-books" @click="router.push('/student/books')">
           <div class="card-icon">📖</div>
           <h2>추천 도서</h2>
           <p>나에게 딱 맞는 책을 찾아봐요</p>
-          <div class="card-badge card-badge--yellow">준비 중 🔧</div>
+          <div class="card-badge card-badge--yellow">책 보러 가기 →</div>
         </div>
       </div>
 

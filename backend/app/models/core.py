@@ -632,3 +632,51 @@ class ContentReview(Base):
     checklist = Column(JSONB, nullable=True)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# =========================================================================
+# 적합도서 카탈로그 (STR-109)
+# =========================================================================
+
+class Book(Base):
+    """추천할 실제 도서. 진단 지문(texts)과 다른 자산이다.
+
+    지문은 '재는 도구'이고 도서는 '처방의 결과물'이다. 지문 추천(다음 회차용)과
+    도서 추천(가정 독서용)은 목적이 달라 테이블을 분리한다.
+
+    매칭 속성(grade_group·genre·difficulty_level·topic_tags)은 지문과 같은 축을
+    쓴다. 같은 축이어야 진단 결과를 그대로 도서 선정에 넘길 수 있다.
+    """
+    __tablename__ = "books"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # 서지정보
+    isbn13 = Column(String(13), unique=True, nullable=True, index=True)
+    title = Column(String(300), nullable=False)
+    author = Column(String(200), nullable=True)
+    publisher = Column(String(200), nullable=True)
+    published_year = Column(Integer, nullable=True)
+    # 완독 경험 설계(§용어사전) — 분량 없이는 비독자에게 맞는 책을 고를 수 없다
+    page_count = Column(Integer, nullable=True)
+    cover_url = Column(String(500), nullable=True)
+    description = Column(Text, nullable=True)
+
+    # 매칭 속성
+    grade_group = Column(Enum(GradeGroup), nullable=False)
+    genre = Column(Enum(TextGenre), nullable=False)
+    difficulty_level = Column(Enum(Difficulty), nullable=False)
+    topic_tags = Column(JSONB, nullable=False, default=list)
+
+    # 난도를 무엇을 근거로 매겼는가. 추천이 어긋났을 때 어느 출처가 부정확했는지
+    # 추적하는 경로 — STR-108 의 핵심 쟁점이다.
+    difficulty_source = Column(String(30), nullable=True)
+    source = Column(String(30), nullable=True)          # api | manual | curriculum_list ...
+
+    # 운영 — 부적절한 책이 아동에게 추천되면 안 되므로 지문과 같은 검수를 거친다
+    review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
+    is_active = Column(Boolean, nullable=False, default=True)
+    note = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
