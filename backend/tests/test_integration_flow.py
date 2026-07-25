@@ -534,3 +534,133 @@ async def _run_analysis_scope():
 
 def test_analysis_scope_excludes_admin():
     asyncio.run(_run_analysis_scope())
+
+
+# ---------------------------------------------------------------------------
+# STR-93 — 개인정보 파기 + 기록
+# ---------------------------------------------------------------------------
+
+async def _run_disposal():
+    """파기가 하위 데이터를 전부 지우고, 기록은 살아남는지."""
+    uid, pid, t1, t2, qids = await _seed()
+    app = FastAPI()
+    app.include_router(diagnosis.router, prefix="/api/diagnosis")
+    from app.api.endpoints import disposal
+    app.include_router(disposal.router, prefix="/api/admin/disposals")
+    transport = ASGITransport(app=app)
+
+    from app.core.config import settings
+    settings.ANTHROPIC_API_KEY = ""
+    from app.core.security import create_access_token
+    from app.models.user import User as U, UserRole as UR
+    from app.models.core import ConsentRecord, ConsentConfirmMethod, DataDisposalLog
+    from datetime import datetime, timezone as tz
+
+    async with AsyncSessionLocal() as db:
+        admin = U(username="disposeadmin", password_hash="x", name="관리자", role=UR.admin)
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
+        admin_id = admin.id
+        # 동의 기록 — 파기 시 스냅샷으로 옮겨져야 한다
+        db.add(ConsentRecord(
+            user_id=uid, confirm_method=ConsentConfirmMethod.written,
+            consent_required=True, consent_optional=False,
+            consented_at=datetime.now(tz.utc), document_location="캐비닛 A-3",
+            recorded_by=admin_id,
+        ))
+        await db.commit()
+        student_code = (await db.execute(
+            sql_text("SELECT username FROM users WHERE id=:i"), {"i": uid}
+        )).scalar_one()
+
+    adm = {"Authorization": f"Bearer {create_access_token({'sub': str(admin_id), 'role': 'admin'})}"}
+    stu = {"Authorization": f"Bearer {create_access_token({'sub': str(uid), 'role': 'student'})}"}
+
+    # 진단 1건을 만들어 지울 데이터를 확보한다
+    async with AsyncClient(transport=transport, base_url="http://t", headers=stu) as ac:
+        r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
+        sid = r.json()["id"]
+        r = await ac.post(f"/api/diagnosis/session/{sid}/start")
+        rid = r.json()["id"]
+        await ac.post("/api/diagnosis/fluency/silent",
+                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+        for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
+            await ac.post("/api/diagnosis/comprehension",
+                          json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
+        await ac.post(f"/api/diagnosis/round/{rid}/complete")
+        await ac.post(f"/api/diagnosis/session/{sid}/finalize")
+        await ac.post(f"/api/diagnosis/session/{sid}/report")
+
+    async with AsyncClient(transport=transport, base_url="http://t", headers=adm) as ac:
+        # --- 미리보기 — 무엇이 지워지는지 먼저 보여야 한다 -------------------
+        r = await ac.get(f"/api/admin/disposals/preview/{uid}")
+        assert r.status_code == 200, r.text
+        pv = r.json()
+        assert pv["counts"]["diagnosis_sessions"] >= 1, pv["counts"]
+        assert pv["counts"]["question_responses"] == 3, pv["counts"]
+        assert pv["counts"]["reports"] >= 1, pv["counts"]
+        assert pv["counts"]["consent_records"] == 1
+        assert pv["consent"]["document_location"] == "캐비닛 A-3"
+        print(f"PASS 미리보기: {pv['counts']}")
+
+        # --- 관리자 계정은 이 경로로 못 지운다 ------------------------------
+        r = await ac.get(f"/api/admin/disposals/preview/{admin_id}")
+        assert r.status_code == 400, r.text
+        print("PASS 관리자 계정 파기 차단(400)")
+
+        # --- 확인 문자열이 틀리면 실행되지 않는다 ---------------------------
+        r = await ac.post("/api/admin/disposals", json={
+            "user_id": uid, "reason": "subject_request", "confirm_code": "wrong-code"})
+        assert r.status_code == 400, r.text
+        # 아직 살아 있어야 한다
+        async with AsyncSessionLocal() as db:
+            alive = (await db.execute(
+                sql_text("SELECT count(*) FROM users WHERE id=:i"), {"i": uid})).scalar_one()
+        assert alive == 1, "확인 실패인데 지워졌다"
+        print("PASS 확인 문자열 불일치 시 미실행")
+
+        # --- 알 수 없는 사유도 막는다 ---------------------------------------
+        r = await ac.post("/api/admin/disposals", json={
+            "user_id": uid, "reason": "made_up", "confirm_code": student_code})
+        assert r.status_code == 422, r.text
+        print("PASS 미등록 사유 거부(422)")
+
+        # --- 실행 ------------------------------------------------------------
+        r = await ac.post("/api/admin/disposals", json={
+            "user_id": uid, "reason": "subject_request",
+            "confirm_code": student_code, "note": "보호자 철회 요청"})
+        assert r.status_code == 201, r.text
+        out = r.json()
+        assert out["consent_preserved"] is True
+        print(f"PASS 파기 실행: {out['subject_code']} / {out['reason_label']}")
+
+    # --- 하위 데이터가 전부 사라졌는지 + 기록은 남았는지 ---------------------
+    async with AsyncSessionLocal() as db:
+        for table, col in [("users", "id"), ("student_profiles", "user_id"),
+                           ("diagnosis_sessions", "student_id"), ("consent_records", "user_id")]:
+            n = (await db.execute(
+                sql_text(f"SELECT count(*) FROM {table} WHERE {col}=:i"), {"i": uid}
+            )).scalar_one()
+            assert n == 0, f"{table} 에 {n}건 남았다"
+
+        from sqlalchemy import select as sa_select
+        logs = (await db.execute(sa_select(DataDisposalLog))).scalars().all()
+        assert len(logs) == 1, f"기록 {len(logs)}건"
+        lg = logs[0]
+        assert lg.subject_user_id == uid
+        assert lg.subject_code == student_code
+        assert lg.disposed_by_code == "disposeadmin"
+        assert lg.reason == "subject_request"
+        assert lg.deleted_counts["question_responses"] == 3
+        # 동의 사실이 보존돼야 한다 — consent_records 는 CASCADE 로 사라졌지만
+        # 파기 이전 처리가 정당했음을 이 스냅샷으로 보인다
+        assert lg.consent_snapshot["document_location"] == "캐비닛 A-3"
+        print(f"PASS 파기 후: 하위 데이터 0건, 기록 보존 "
+              f"(동의 스냅샷 {lg.consent_snapshot['confirm_method']})")
+
+    await engine.dispose()
+
+
+def test_disposal():
+    asyncio.run(_run_disposal())

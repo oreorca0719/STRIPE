@@ -89,6 +89,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'admin' }
     },
     {
+      path: '/admin/disposals',
+      name: 'admin-disposals',
+      component: () => import('@/views/admin/AdminDisposalView.vue'),
+      meta: { requiresAuth: true, role: 'admin' }
+    },
+    {
       path: '/admin/system',
       name: 'admin-system',
       component: () => import('@/views/admin/AdminSystemView.vue'),

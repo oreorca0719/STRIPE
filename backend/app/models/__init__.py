@@ -4,6 +4,7 @@ from app.models.core import (
     UserRelation, TextContent, ItemSet, Question, StudentProfile,
     DiagnosisSession, DiagnosisRound, ComprehensionResult, QuestionResponse,
     FluencyResult, JudgmentResult, PrescriptionResult, Report, ReportTemplate,
+    ConsentRecord, DataDisposalLog,
     # enums
     GradeGroup, TextGenre, Difficulty, ReviewStatus, TextStructure,
     TargetArea, QuestionFormat, Gender, ReaderType1, ReaderType2,

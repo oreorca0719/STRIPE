@@ -39,6 +39,10 @@
           <span class="nav-icon">📝</span>
           <span>텍스트 풀</span>
         </RouterLink>
+        <RouterLink to="/admin/disposals" class="nav-item">
+          <span class="nav-icon">🗑</span>
+          <span>개인정보 파기</span>
+        </RouterLink>
         <RouterLink to="/admin/system" class="nav-item">
           <span class="nav-icon">⚙️</span>
           <span>시스템 모니터링</span>

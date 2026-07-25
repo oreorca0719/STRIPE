@@ -566,3 +566,35 @@ class ConsentRecord(Base):
     def is_valid(self) -> bool:
         """응시를 허용할 수 있는 상태인가. 필수 동의가 있고 철회되지 않았을 것."""
         return bool(self.consent_required) and not self.revoked
+
+
+# =========================================================================
+# 개인정보 파기 기록 (STR-93)
+# =========================================================================
+
+class DataDisposalLog(Base):
+    """파기 실행 기록. 방침 §6 이 약속한 '언제·무엇을·누가'의 근거.
+
+    users 를 FK 로 참조하지 않는다 — 파기 대상의 행은 이미 사라진 뒤에 남는
+    기록이라 FK 를 걸면 파기와 동시에 지워진다. 식별 정보는 스냅샷으로만 갖는다.
+    """
+    __tablename__ = "data_disposal_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # 파기 대상 (FK 없음 — 행이 사라짐)
+    subject_user_id = Column(Integer, nullable=False, index=True)
+    subject_code = Column(String(50), nullable=False)      # 식별코드 elem5-017
+    subject_grade = Column(String(20), nullable=True)
+
+    disposed_at = Column(DateTime(timezone=True), server_default=func.now(),
+                         nullable=False, index=True)
+    disposed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    disposed_by_code = Column(String(50), nullable=True)   # 관리자 계정이 지워져도 남도록
+    reason = Column(String(40), nullable=False)
+    note = Column(Text, nullable=True)
+
+    deleted_counts = Column(JSONB, nullable=False)
+    # consent_records 가 CASCADE 라 파기와 함께 사라진다. 파기 이전 처리가
+    # 정당했음을 보이려면 동의 사실을 여기 옮겨 두어야 한다.
+    consent_snapshot = Column(JSONB, nullable=True)
