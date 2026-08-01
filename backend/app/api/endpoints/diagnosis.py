@@ -18,7 +18,8 @@ from app.schemas.diagnosis import (
     RoundAggregateOut, AdaptiveDecisionOut, RoundCompleteResponse,
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
-    ProfileCreate, ProfileResponse, RoundContentResponse, QuestionPublic,
+    ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
+    RoundContentResponse, QuestionPublic,
     MySessionItem, MySummaryResponse, ResumeResponse,
 )
 from typing import List, Optional
@@ -371,6 +372,25 @@ async def resume_session(
     )
 
 
+@router.post("/reader-type", response_model=ReaderTypeProbeResponse)
+async def probe_reader_type(
+    data: ReaderTypeProbe,
+    user: User = Depends(get_current_user),
+):
+    """A-2·A-3 응답으로 1차 유형을 미리 판정 (조건부 문항 노출용).
+
+    A-5·A-6 은 비독자로 판정된 학생에게만 노출된다(§6). 그 판단을 화면에서
+    다시 구현하면 분류 규칙이 두 곳에 생기고, 서버 규칙이 정교화될 때
+    (§8-4 경계값은 아직 잠정이다) 화면만 옛 규칙으로 남는다. 그래서 분류는
+    서버 한 곳에 두고 화면은 결과만 받는다. 저장은 하지 않는다.
+    """
+    type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
+    return ReaderTypeProbeResponse(
+        type_1=type_1,
+        show_non_reader_questions=(type_1 == ReaderType1.non_reader),
+    )
+
+
 @router.post("/profile", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
 async def create_profile(
     data: ProfileCreate,
@@ -394,6 +414,11 @@ async def create_profile(
         interest_topics=data.interest_topics,
         predicted_correct=data.predicted_correct,
         type_1=type_1,
+        # 비독자가 아닌 학생은 이 문항을 보지 않았으므로 값이 없다.
+        # 비독자가 아닌데 값이 실려 오면 화면 분기가 어긋난 것이니 버린다 —
+        # 노출되지 않은 문항의 응답이 저장되면 분석에서 표본이 오염된다.
+        book_image=data.book_image if type_1 == ReaderType1.non_reader else None,
+        non_reading_reason=data.non_reading_reason if type_1 == ReaderType1.non_reader else None,
     )
     db.add(profile)
     await db.commit()

@@ -15,6 +15,24 @@ class ProfileCreate(BaseModel):
     reading_attitude: Optional[int] = None       # A-3 독서태도 (1~6)
     interest_topics: Optional[List[str]] = None  # C-1 관심주제 태그 코드
     predicted_correct: Optional[int] = None      # D-2 예상 정답 수 (0~10, 메타인지)
+    # 조건부 문항 — 비독자로 판정된 학생에게만 노출된다(§6, 문준석 확정).
+    # 그 외 학생은 화면에 뜨지 않으므로 None 으로 들어온다. 이 None 은
+    # '해당 없음'이지 '무응답'이 아니다.
+    book_image: Optional[List[str]] = None       # A-5 책의 이미지
+    non_reading_reason: Optional[List[str]] = None  # A-6 안 읽는 이유
+
+
+class ReaderTypeProbe(BaseModel):
+    """A-2·A-3 만으로 1차 유형을 미리 물어보는 요청."""
+    reading_freq: Optional[int] = None
+    reading_attitude: Optional[int] = None
+
+
+class ReaderTypeProbeResponse(BaseModel):
+    type_1: ReaderType1
+    # 조건부 문항(A-5·A-6)을 띄워야 하는지. 화면이 분류 규칙을 스스로
+    # 해석하지 않도록 판단 결과만 내려준다.
+    show_non_reader_questions: bool
 
 
 class ProfileResponse(BaseModel):

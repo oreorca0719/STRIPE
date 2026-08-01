@@ -92,6 +92,33 @@
             </div>
           </div>
 
+          <!-- 조건부 문항 (A-5·A-6) — 비독자로 판정된 학생에게만 (§6).
+               노출 여부는 서버가 판단해서 내려준다. 화면이 분류 규칙을
+               따로 갖고 있으면 서버 규칙이 바뀔 때 여기만 옛 규칙으로 남는다. -->
+          <template v-if="showNonReaderQuestions">
+            <div class="q-block">
+              <label class="q-label">책 하면 어떤 느낌이 들어? <span class="muted">(여러 개 골라도 돼)</span></label>
+              <div class="chips wrap">
+                <button v-for="o in bookImageOpts" :key="o.v" class="chip"
+                        :class="{ sel: survey.book_image.includes(o.v) }"
+                        @click="toggleIn(survey.book_image, o.v)">
+                  {{ o.t }}
+                </button>
+              </div>
+            </div>
+
+            <div class="q-block">
+              <label class="q-label">책을 잘 안 읽게 되는 이유가 뭐야? <span class="muted">(여러 개 골라도 돼)</span></label>
+              <div class="chips wrap">
+                <button v-for="o in nonReadingReasonOpts" :key="o.v" class="chip"
+                        :class="{ sel: survey.non_reading_reason.includes(o.v) }"
+                        @click="toggleIn(survey.non_reading_reason, o.v)">
+                  {{ o.t }}
+                </button>
+              </div>
+            </div>
+          </template>
+
           <div class="q-block">
             <label class="q-label">어떤 이야기를 좋아해? <span class="muted">(여러 개 골라도 돼)</span></label>
             <div class="chips wrap">
@@ -208,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -234,10 +261,26 @@ const error = ref('')
 
 const freqOpts = [ { t: '거의 안 읽어', v: 1 }, { t: '가끔 읽어', v: 3 }, { t: '거의 매일', v: 5 } ]
 const attOpts = [ { t: '별로…', v: 1 }, { t: '그저 그래', v: 3 }, { t: '정말 좋아!', v: 5 } ]
+// C-1 관심주제. 각 선지가 자기 저장 코드(v)를 직접 들고 있다 — 순서로 코드를
+// 매기면 선지를 한 번만 재배열해도 아이가 고른 주제와 저장 코드가 통째로 어긋난다.
+// 표시명(t)은 설문 제작본 갱신본이 오면 그 문구로 교체한다. 코드(v)는 그대로다.
 const topicOpts = [
   { t: '🐾 동물', v: 'ANIMAL' }, { t: '🤝 우정', v: 'FRIENDSHIP' }, { t: '🗺 모험', v: 'ADVENTURE' },
   { t: '👨‍👩‍👧 가족', v: 'FAMILY' }, { t: '🦄 판타지', v: 'FANTASY' }, { t: '🔬 과학', v: 'SCIENCE' },
   { t: '🌱 자연', v: 'NATURE' }, { t: '🚀 우주', v: 'SPACE' }, { t: '🏛 역사', v: 'HISTORY' }, { t: '🏠 일상', v: 'DAILY' },
+]
+
+// A-5·A-6 (비독자 조건부). 선지 문구·코드는 설문 제작본 갱신본으로 확정될
+// 예정이라 잠정이다. 교체는 이 두 배열만 갈면 된다 — 화면 분기는 그대로다.
+const bookImageOpts = [
+  { t: '😴 지루해', v: 'BORING' }, { t: '😵 어려워', v: 'DIFFICULT' },
+  { t: '📚 숙제 같아', v: 'HOMEWORK' }, { t: '😌 편안해', v: 'COMFORTABLE' },
+  { t: '🤔 잘 모르겠어', v: 'UNSURE' },
+]
+const nonReadingReasonOpts = [
+  { t: '⏰ 시간이 없어', v: 'NO_TIME' }, { t: '📱 다른 게 더 재밌어', v: 'OTHER_FUN' },
+  { t: '🔍 뭘 읽을지 몰라', v: 'WHAT_TO_READ' }, { t: '😵 글이 어려워', v: 'TOO_HARD' },
+  { t: '🏠 집에 책이 없어', v: 'NO_BOOKS' },
 ]
 
 // 서비스 대상 초4~중1. 엔진은 grade 7 을 중1(G7)로 매핑한다(text_selection.grade_to_group).
@@ -252,7 +295,32 @@ const ACCOUNT_GRADE_TO_NUM: Record<string, number> = {
 const survey = reactive<{
   grade: number | null; reading_freq: number | null; reading_attitude: number | null;
   interest_topics: string[]; predicted_correct: number
-}>({ grade: null, reading_freq: null, reading_attitude: null, interest_topics: [], predicted_correct: 5 })
+  book_image: string[]; non_reading_reason: string[]
+}>({ grade: null, reading_freq: null, reading_attitude: null, interest_topics: [], predicted_correct: 5,
+     book_image: [], non_reading_reason: [] })
+
+// 조건부 문항(A-5·A-6) 노출 여부. 판단은 서버가 한다(§8-4 분류 규칙은 잠정이라
+// 바뀔 수 있고, 규칙이 두 곳에 있으면 화면만 옛 규칙으로 남는다).
+const showNonReaderQuestions = ref(false)
+
+// A-2·A-3 이 둘 다 채워지면 유형을 물어본다. 답을 바꾸면 다시 물어본다.
+watch(() => [survey.reading_freq, survey.reading_attitude], async ([f, a]) => {
+  if (f === null || a === null) { showNonReaderQuestions.value = false; return }
+  try {
+    const r = await api.post('/api/diagnosis/reader-type',
+                             { reading_freq: f, reading_attitude: a })
+    showNonReaderQuestions.value = !!r.data.show_non_reader_questions
+  } catch {
+    // 분류 조회 실패는 진단을 막을 이유가 아니다. 조건부 문항만 빠진다.
+    showNonReaderQuestions.value = false
+  }
+  if (!showNonReaderQuestions.value) {
+    // 비독자가 아니게 되면 이미 고른 답을 지운다. 남겨두면 화면에 보이지 않는
+    // 응답이 그대로 전송되고, 서버가 버려도 학생 입장에선 유령 응답이 된다.
+    survey.book_image.length = 0
+    survey.non_reading_reason.length = 0
+  }
+})
 
 // 계정 학년을 기본값으로 채운다. 학년이 계정과 설문 두 곳에 따로 저장되는데
 // 텍스트 선정은 설문 값만 쓰기 때문에, 비워두면 학생이 다른 학년을 골라도
@@ -269,11 +337,12 @@ const gradeMismatch = computed(() =>
 const surveyValid = computed(() =>
   survey.grade !== null && survey.reading_freq !== null && survey.reading_attitude !== null)
 
-function toggleTopic(v: string) {
-  const i = survey.interest_topics.indexOf(v)
-  if (i >= 0) survey.interest_topics.splice(i, 1)
-  else survey.interest_topics.push(v)
+function toggleIn(list: string[], v: string) {
+  const i = list.indexOf(v)
+  if (i >= 0) list.splice(i, 1)
+  else list.push(v)
 }
+function toggleTopic(v: string) { toggleIn(survey.interest_topics, v) }
 
 // 진단 상태
 const sessionId = ref<number | null>(null)
@@ -324,6 +393,8 @@ async function submitSurvey() {
     const prof = await api.post('/api/diagnosis/profile', {
       grade: survey.grade, reading_freq: survey.reading_freq, reading_attitude: survey.reading_attitude,
       interest_topics: survey.interest_topics, predicted_correct: survey.predicted_correct,
+      // 비독자가 아니면 빈 배열이고, 서버도 유형을 다시 확인해 걸러낸다.
+      book_image: survey.book_image, non_reading_reason: survey.non_reading_reason,
     })
     const sess = await api.post('/api/diagnosis/session', {
       profile_id: prof.data.id, silent_mode: true,

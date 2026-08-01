@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import (
     DiagnosisSession, DiagnosisRound, FluencyResult, QuestionResponse,
-    StudentProfile, JudgmentResult, PrescriptionResult,
+    StudentProfile, JudgmentResult, PrescriptionResult, ParentResponse,
     FluencyType, Difficulty, ReliabilityFlag, ToneCode,
 )
 from app.services.diagnosis import environment as E
@@ -30,6 +30,22 @@ _RELIABILITY_RANK = {
 
 def _worst(*flags: ReliabilityFlag) -> ReliabilityFlag:
     return max(flags, key=lambda f: _RELIABILITY_RANK[f])
+
+
+async def _home_environment_score(db: AsyncSession, student_user_id: int) -> Optional[int]:
+    """§5-4 입력. 보호자 설문이 없거나 B-3~B-6 이 덜 채워졌으면 None.
+
+    보호자가 여러 번 응답했다면 최신 것을 쓴다 — 가정환경은 바뀔 수 있고,
+    나중 응답이 현재 상태에 가깝다.
+    """
+    q = await db.execute(
+        select(ParentResponse)
+        .where(ParentResponse.student_user_id == student_user_id)
+        .order_by(ParentResponse.id.desc())
+        .limit(1)
+    )
+    row = q.scalar_one_or_none()
+    return row.home_environment_score if row else None
 
 
 def _weakness_area_name(plan: P.WeaknessPlan) -> Optional[str]:
@@ -162,11 +178,10 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     ]
 
     # --- 환경 조정 (§5-4) -------------------------------------------------
-    # 입력은 보호자 설문 B-3~B-6 합산값이다. 그 수집 경로(parent_responses)가
-    # 아직 없으므로 지금은 항상 None → 기능이 건너뛰어진다(정상 동작).
-    # STR-91 로 보호자 설문이 붙으면 여기서 점수를 읽어 넘기면 된다.
+    # 입력은 보호자 설문 B-3~B-6 합산값. 보호자 미응답이면 None 이고
+    # 그때는 환경 축만 빠진다 — 학생 진단은 그대로 완료된다.
     env = E.judge_environment(
-        home_environment_score=None,
+        home_environment_score=await _home_environment_score(db, profile.user_id),
         grade_group=grade_group,
         type_2=type_2,
         weakness_area=_weakness_area_name(plan),

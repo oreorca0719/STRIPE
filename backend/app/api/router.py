@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.endpoints import diagnosis, auth, admin, audio, pilot, consent, disposal, review
+from app.api.endpoints import diagnosis, auth, admin, audio, pilot, consent, disposal, review, parent
 
 api_router = APIRouter()
 
@@ -10,6 +10,7 @@ api_router.include_router(pilot.router, prefix="/admin/pilot", tags=["pilot"])
 api_router.include_router(consent.router, prefix="/admin/consents", tags=["consent"])
 api_router.include_router(disposal.router, prefix="/admin/disposals", tags=["disposal"])
 api_router.include_router(review.router, prefix="/admin/reviews", tags=["review"])
+api_router.include_router(parent.router, prefix="/parent", tags=["parent"])
 api_router.include_router(audio.router, prefix="/audio", tags=["audio"])
 
 # TODO: 추후 추가
