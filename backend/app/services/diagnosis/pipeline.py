@@ -12,9 +12,14 @@ from app.models.core import (
     StudentProfile, JudgmentResult, PrescriptionResult,
     FluencyType, Difficulty, ReliabilityFlag, ToneCode,
 )
+from app.services.diagnosis import environment as E
 from app.services.diagnosis import judgment as J
 from app.services.diagnosis import prescription as P
 from app.services.diagnosis import text_selection as T
+
+# 보호자 안내 문구에 쓰는 영역명. report._AREA_NAME 과 같은 표를 쓰되,
+# 리포트 모듈을 파이프라인이 끌어오지 않도록 여기에 둔다.
+_AREA_NAME = {"A5": "사실 찾기", "A6": "추론하기", "A7": "비판적으로 읽기"}
 
 _RELIABILITY_RANK = {
     ReliabilityFlag.normal: 0,
@@ -25,6 +30,18 @@ _RELIABILITY_RANK = {
 
 def _worst(*flags: ReliabilityFlag) -> ReliabilityFlag:
     return max(flags, key=lambda f: _RELIABILITY_RANK[f])
+
+
+def _weakness_area_name(plan: P.WeaknessPlan) -> Optional[str]:
+    """환경 상위 학생의 보호자 안내 문구에 넣을 약점 영역명.
+
+    plan.cells 는 훈련 우선순위 순이므로 첫 셀이 주 대상이다.
+    약점이 없으면 None — 문구가 영역을 언급하지 않는 쪽으로 갈린다.
+    """
+    if not plan.needed or not plan.cells:
+        return None
+    code = plan.cells[0].area.value
+    return _AREA_NAME.get(code, code)
 
 
 def _serialize_plan(plan: P.WeaknessPlan) -> dict:
@@ -144,6 +161,17 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         for t in recs
     ]
 
+    # --- 환경 조정 (§5-4) -------------------------------------------------
+    # 입력은 보호자 설문 B-3~B-6 합산값이다. 그 수집 경로(parent_responses)가
+    # 아직 없으므로 지금은 항상 None → 기능이 건너뛰어진다(정상 동작).
+    # STR-91 로 보호자 설문이 붙으면 여기서 점수를 읽어 넘기면 된다.
+    env = E.judge_environment(
+        home_environment_score=None,
+        grade_group=grade_group,
+        type_2=type_2,
+        weakness_area=_weakness_area_name(plan),
+    )
+
     prescription = PrescriptionResult(
         judgment_id=judgment.id,
         prescription_type=ptype,
@@ -151,6 +179,8 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         weakness_training_plan=_serialize_plan(plan),
         type_tone=tone,
         next_session_difficulty=anchor,   # §5-FN-05 정교화는 후속
+        environment_level=env.environment_level,
+        environment_adjustment=env.environment_adjustment,
     )
     db.add(prescription)
     await db.flush()
