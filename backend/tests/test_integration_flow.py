@@ -49,7 +49,7 @@ async def _seed():
             "diagnosis_sessions, diagnosis_rounds, comprehension_results, "
             "question_responses, fluency_results, judgment_results, "
             "prescription_results, reports, books, content_reviews, "
-            "data_disposal_logs, parent_responses RESTART IDENTITY CASCADE"
+            "data_disposal_logs, parent_responses, report_templates RESTART IDENTITY CASCADE"
         ))
         await db.commit()
 

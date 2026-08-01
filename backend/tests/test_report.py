@@ -59,9 +59,17 @@ def test_recommended_preview_limited_to_3():
 
 
 def test_encouragement_by_tone():
+    """폴백 문구는 톤별로 갈리되 난도 방향은 암시하지 않는다 (STR-96).
+
+    이 테스트는 원래 '더 어려운 책에도 도전해보자!' 를 고정하고 있었다.
+    그 문구가 바로 결함이었다 — G4(난도 [-1,0]) 학생이 애독자라는 이유로
+    난도 상향을 권유받았다. 문구는 이제 처방군 축을 함께 보고 정해진다.
+    """
     p = FakePrescription(type_tone=ToneCode.challenge)
     content, _ = R.build_student_report(FakeJudgment(label_5=Label5.excellent), p)
-    assert content["layer1"]["encouragement"] == "더 어려운 책에도 도전해보자!"
+    assert content["layer1"]["encouragement"] == R.FALLBACK_ENCOURAGEMENT[ToneCode.challenge]
+    for word in R._DIFFICULTY_WORDS:
+        assert word not in content["layer1"]["encouragement"]
 
 
 def test_disclaimers_base_and_conditional():
