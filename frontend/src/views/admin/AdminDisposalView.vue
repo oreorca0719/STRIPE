@@ -9,6 +9,54 @@
         함께 사라진다. 백업본에는 최대 30일간 남는다.
       </p>
 
+      <!-- 정보주체가 낸 삭제 요청 (STR-115).
+           파기 실행보다 위에 둔다 — 요청을 받고도 모르고 지나가면
+           방침에 약속한 권리가 실질적으로 없는 것과 같다. -->
+      <section class="panel" v-if="requests.length">
+        <div class="panel-head">
+          <h2>삭제 요청 <span v-if="pendingCount" class="badge-count">{{ pendingCount }}</span></h2>
+          <p class="sub">학생·보호자가 직접 낸 요청이다. 처리하려면 아래 파기 실행에서 대상을 고른다.</p>
+        </div>
+
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>대상</th><th>요청자</th><th>사유</th><th>접수</th><th>상태</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in requests" :key="r.id" :class="{ 'row-pending': r.status === 'pending' }">
+              <td class="mono">{{ r.subject_code }}</td>
+              <td>{{ r.requester_code }} <span class="muted">({{ ROLE_KO[r.requester_role] || r.requester_role }})</span></td>
+              <td>
+                {{ r.reason }}
+                <div v-if="r.note" class="muted small">{{ r.note }}</div>
+              </td>
+              <td class="muted small">{{ fmtDate(r.requested_at) }}</td>
+              <td>
+                <span class="status" :class="'status--' + r.status">{{ REQ_STATUS_KO[r.status] || r.status }}</span>
+                <div v-if="r.resolution_note" class="muted small">{{ r.resolution_note }}</div>
+              </td>
+              <td>
+                <template v-if="r.status === 'pending'">
+                  <button class="mini" @click="pickForDisposal(r)">파기 대상으로</button>
+                  <button class="mini mini--ghost" @click="startReject(r)">반려</button>
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-if="rejecting" class="reject-box">
+          <label>{{ rejecting.subject_code }} 반려 사유 <span class="muted">(요청자에게 그대로 보인다)</span></label>
+          <input v-model="rejectNote" placeholder="예: 보호자 확인이 되지 않았습니다." />
+          <div class="reject-actions">
+            <button class="mini mini--ghost" @click="rejecting = null">취소</button>
+            <button class="mini" :disabled="!rejectNote.trim()" @click="confirmReject()">반려 확정</button>
+          </div>
+        </div>
+      </section>
+
       <!-- 파기 실행 -->
       <section class="panel">
         <div class="panel-head">
@@ -190,7 +238,7 @@ async function execute() {
       note: note.value || null,
     })
     preview.value = null; picked.value = null; confirmCode.value = ''; note.value = ''
-    await Promise.all([loadUsers(), loadLogs()])
+    await Promise.all([loadUsers(), loadLogs(), loadRequests()])
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '파기에 실패했습니다.'
   } finally { disposing.value = false }
@@ -210,11 +258,51 @@ async function loadLogs() {
   logs.value = r.data
 }
 
+// ── 삭제 요청 (STR-115) ───────────────────────────────────────────────────
+const ROLE_KO: Record<string, string> = { student: '본인', parent: '보호자', admin: '관리자 대행' }
+const REQ_STATUS_KO: Record<string, string> = {
+  pending: '처리 대기', completed: '처리 완료', rejected: '반려', cancelled: '요청자 취소',
+}
+
+const requests = ref<any[]>([])
+const pendingCount = ref(0)
+const rejecting = ref<any | null>(null)
+const rejectNote = ref('')
+
+async function loadRequests() {
+  const r = await api.get('/api/admin/disposals/requests')
+  requests.value = r.data.items
+  pendingCount.value = r.data.pending_count
+}
+
+// 요청 행에서 바로 파기 대상으로 넘긴다. 아이디를 눈으로 옮겨 적다가
+// 다른 학생을 고르는 사고를 줄인다(확인 문자열은 그대로 입력해야 한다).
+function pickForDisposal(r: any) {
+  picked.value = r.subject_user_id
+  reason.value = 'subject_request'
+  loadPreview()
+}
+
+function startReject(r: any) { rejecting.value = r; rejectNote.value = '' }
+
+async function confirmReject() {
+  if (!rejecting.value) return
+  error.value = ''
+  try {
+    await api.post(`/api/admin/disposals/requests/${rejecting.value.id}/reject`,
+                   { resolution_note: rejectNote.value.trim() })
+    rejecting.value = null
+    await loadRequests()
+  } catch (e: any) {
+    error.value = e?.response?.data?.detail || '반려에 실패했습니다.'
+  }
+}
+
 function handleLogout() { router.push('/login') }
 
 onMounted(async () => {
-  const [, , rs] = await Promise.all([
-    loadUsers(), loadLogs(), api.get('/api/admin/disposals/reasons'),
+  const [, , , rs] = await Promise.all([
+    loadUsers(), loadLogs(), loadRequests(), api.get('/api/admin/disposals/reasons'),
   ])
   reasons.value = rs.data
 })
@@ -300,4 +388,34 @@ select { min-width: 260px; }
 }
 .warn-line { color: #FF6B6B; font-size: 0.86rem; margin-top: 0.7rem; }
 .empty-inline { color: #6b7085; font-size: 0.85rem; padding: 0.6rem 0; }
+
+/* 삭제 요청 (STR-115) */
+.badge-count {
+  display: inline-block; margin-left: 0.4rem; padding: 0.1rem 0.5rem;
+  border-radius: 99px; background: #FF6B6B; color: #fff;
+  font-size: 0.75rem; font-weight: 800;
+}
+.row-pending { background: rgba(255, 107, 107, 0.06); }
+.status { font-size: 0.8rem; font-weight: 700; }
+.status--pending { color: #FF6B6B; }
+.status--completed { color: #4ECDC4; }
+.status--rejected, .status--cancelled { color: #8b90a5; }
+.small { font-size: 0.78rem; }
+.mini {
+  border: none; background: #4ECDC4; color: #0f1117;
+  padding: 0.3rem 0.6rem; border-radius: 6px;
+  font-size: 0.78rem; font-weight: 800; cursor: pointer; margin-right: 0.3rem;
+}
+.mini--ghost { background: none; border: 1px solid #2a2d3e; color: #8b90a5; }
+.mini:disabled { opacity: 0.4; cursor: not-allowed; }
+.reject-box {
+  margin-top: 1rem; padding: 1rem; border: 1px solid #2a2d3e; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 0.6rem;
+}
+.reject-box label { font-size: 0.85rem; color: #ccc; font-weight: 700; }
+.reject-box input {
+  background: #0f1117; border: 1px solid #2a2d3e; border-radius: 8px;
+  padding: 0.6rem 0.8rem; color: #fff; font-size: 0.9rem;
+}
+.reject-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 </style>

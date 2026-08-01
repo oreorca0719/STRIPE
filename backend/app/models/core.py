@@ -733,3 +733,52 @@ class ParentResponse(Base):
         if any(v is None for v in items):
             return None
         return sum(items)
+
+
+# =========================================================================
+# deletion_requests (STR-115) — 정보주체의 삭제 요청
+# =========================================================================
+class DeletionRequestStatus(str, enum.Enum):
+    pending = "pending"        # 접수, 관리자 처리 대기
+    completed = "completed"    # 파기 완료 (disposal log 와 연결)
+    rejected = "rejected"      # 반려 (본인 확인 실패 등)
+    cancelled = "cancelled"    # 요청자가 철회
+
+
+class DeletionRequest(Base):
+    """계정·데이터 삭제 요청.
+
+    [왜 즉시 삭제가 아니라 요청인가]
+    대상이 아동 계정이다. 아이가 화면에서 바로 지울 수 있게 하면 오조작으로
+    되돌릴 수 없는 삭제가 일어나고, 법정대리인이 아닌 사람이 권리를 행사하는
+    셈이 된다. 실행은 관리자가 기존 파기 경로(STR-93)로 하고, 그 경로가
+    미리보기·확인문자열·기록을 이미 강제한다. 여기서는 '요청이 접수되었고
+    처리되었다'는 사실을 남긴다.
+
+    [행은 남는다]
+    subject 계정이 파기되면 이 행도 CASCADE 로 사라지므로 FK 를 걸지 않는다.
+    삭제 요청을 받아 처리했다는 사실이 삭제와 함께 없어지면 증적이 되지 못한다.
+    """
+    __tablename__ = "deletion_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # FK 없음 — 파기되면 대상 행이 사라진다
+    subject_user_id = Column(Integer, nullable=False, index=True)
+    subject_code = Column(String(50), nullable=False)
+    # 요청자. 본인이면 subject 와 같고, 보호자 대리 요청이면 다르다.
+    requester_user_id = Column(Integer, nullable=False)
+    requester_code = Column(String(50), nullable=False)
+    requester_role = Column(String(20), nullable=False)
+
+    reason = Column(String(40), nullable=False)
+    note = Column(Text, nullable=True)
+
+    status = Column(Enum(DeletionRequestStatus), nullable=False,
+                    default=DeletionRequestStatus.pending, index=True)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by_code = Column(String(50), nullable=True)
+    resolution_note = Column(Text, nullable=True)
+    # 파기가 실행됐다면 그 기록. 요청 ↔ 실행을 잇는 유일한 연결이다.
+    disposal_log_id = Column(Integer, nullable=True)

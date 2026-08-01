@@ -36,7 +36,7 @@ TABLES = (
     "diagnosis_sessions, diagnosis_rounds, comprehension_results, "
     "question_responses, fluency_results, judgment_results, "
     "prescription_results, reports, books, content_reviews, data_disposal_logs, "
-    "parent_responses"
+    "parent_responses, deletion_requests"
 )
 
 # A4 게이트(0.3~15.0) 안 2건 + 밖 2건. 경계 판정이 맞는지 보려는 값이다.

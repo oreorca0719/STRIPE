@@ -90,12 +90,55 @@
           진단 기준은 아직 다듬는 중이에요. 결과는 참고용으로 봐주세요.
         </p>
       </div>
+
+      <!-- 내 정보 지우기 (STR-115).
+           방침 §9 에 적은 '삭제 요구' 권리의 실행 경로다. 즉시 지우지 않고
+           요청으로 받는다 — 아이의 오조작으로 되돌릴 수 없는 삭제가 일어나면
+           안 되고, 아동의 권리는 법정대리인이 행사하는 것이 원칙이다. -->
+      <section class="privacy-section">
+        <h2>내 정보 지우기</h2>
+
+        <p v-if="del.pending" class="privacy-status privacy-status--pending">
+          삭제 요청이 접수되었어요. 확인 후 처리해 드릴게요.
+          <button class="link-btn" :disabled="del.busy" @click="cancelDeletion">요청 취소</button>
+        </p>
+        <p v-else-if="del.lastResolved" class="privacy-status">
+          지난 요청은 <strong>{{ DEL_STATUS_KO[del.lastResolved.status] }}</strong> 상태예요.
+          <span v-if="del.lastResolved.resolution_note">— {{ del.lastResolved.resolution_note }}</span>
+        </p>
+
+        <template v-if="!del.pending">
+          <p class="privacy-desc">
+            그만두고 싶으면 내 진단 기록과 계정을 지워달라고 요청할 수 있어요.
+            바로 지워지지는 않고, 확인한 뒤에 처리해요.
+          </p>
+          <div v-if="del.open" class="privacy-form">
+            <label class="privacy-label">왜 지우고 싶어?</label>
+            <div class="chips wrap">
+              <button v-for="o in del.reasons" :key="o.code" class="chip"
+                      :class="{ sel: del.reason === o.code }" @click="del.reason = o.code">
+                {{ o.label }}
+              </button>
+            </div>
+            <p class="privacy-notice">{{ del.backupNotice }}</p>
+            <div class="privacy-actions">
+              <button class="btn-ghost" @click="del.open = false">그만두기</button>
+              <button class="btn-danger" :disabled="!del.reason || del.busy" @click="requestDeletion">
+                {{ del.busy ? '보내는 중…' : '삭제 요청 보내기' }}
+              </button>
+            </div>
+          </div>
+          <button v-else class="btn-ghost" @click="openDeletion">내 정보 지우기 요청</button>
+        </template>
+
+        <p v-if="del.error" class="status-hint status-hint--error">{{ del.error }}</p>
+      </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { api } from '@/api'
@@ -106,6 +149,73 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const studentName = computed(() => auth.user?.name || '학생')
+
+// ── 삭제 요청 (STR-115) ───────────────────────────────────────────────────
+const DEL_STATUS_KO: Record<string, string> = {
+  pending: '처리 대기', completed: '처리 완료',
+  rejected: '반려', cancelled: '취소함',
+}
+
+const del = reactive<{
+  open: boolean; busy: boolean; error: string
+  reason: string; reasons: { code: string; label: string }[]
+  backupNotice: string
+  pending: any | null; lastResolved: any | null
+}>({
+  open: false, busy: false, error: '',
+  reason: '', reasons: [], backupNotice: '',
+  pending: null, lastResolved: null,
+})
+
+async function loadDeletion() {
+  try {
+    const r = await api.get('/api/account/deletion-request')
+    const items = r.data.items || []
+    del.pending = items.find((i: any) => i.status === 'pending') ?? null
+    del.lastResolved = items.find((i: any) => i.status !== 'pending') ?? null
+    del.backupNotice = r.data.backup_notice || ''
+  } catch {
+    // 삭제 요청 상태를 못 불러와도 홈 화면 나머지는 그대로 쓸 수 있어야 한다.
+    del.pending = null
+  }
+}
+
+async function openDeletion() {
+  del.error = ''
+  if (!del.reasons.length) {
+    try {
+      const r = await api.get('/api/account/deletion-request/reasons')
+      del.reasons = r.data.reasons
+      del.backupNotice = r.data.backup_notice
+    } catch {
+      del.error = '잠시 후 다시 시도해줘.'
+      return
+    }
+  }
+  del.open = true
+}
+
+async function requestDeletion() {
+  del.busy = true; del.error = ''
+  try {
+    await api.post('/api/account/deletion-request', { reason: del.reason })
+    del.open = false; del.reason = ''
+    await loadDeletion()
+  } catch (e: any) {
+    del.error = e?.response?.data?.detail || '요청을 보내지 못했어요.'
+  } finally { del.busy = false }
+}
+
+async function cancelDeletion() {
+  if (!del.pending) return
+  del.busy = true; del.error = ''
+  try {
+    await api.post(`/api/account/deletion-request/${del.pending.id}/cancel`)
+    await loadDeletion()
+  } catch (e: any) {
+    del.error = e?.response?.data?.detail || '취소하지 못했어요.'
+  } finally { del.busy = false }
+}
 
 const loading = ref(true)
 const error = ref(false)
@@ -147,7 +257,7 @@ function handleLogout() {
   router.push('/login')
 }
 
-onMounted(load)
+onMounted(() => { load(); loadDeletion() })
 </script>
 
 <style scoped>
@@ -260,4 +370,54 @@ onMounted(load)
 .status-value { font-size: 1.5rem; font-weight: 900; color: var(--navy); }
 .status-label { font-size: 0.8rem; color: var(--gray); font-weight: 600; }
 .status-hint { color: var(--gray); font-size: 0.9rem; text-align: center; padding: 0.5rem; }
+
+/* 내 정보 지우기 (STR-115) — 눈에 띄되 유도하지는 않는다.
+   되돌릴 수 없는 작업이라 다른 카드처럼 화려하게 두면 잘못 누른다. */
+.privacy-section {
+  margin-top: 2.5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--gray-light);
+  border-radius: 16px;
+  background: #fff;
+}
+.privacy-section h2 {
+  font-size: 1rem; font-weight: 800; color: var(--gray); margin-bottom: 0.8rem;
+}
+.privacy-desc { font-size: 0.9rem; color: var(--gray); margin-bottom: 1rem; line-height: 1.6; }
+.privacy-label { display: block; font-size: 0.9rem; font-weight: 700; color: var(--navy); margin-bottom: 0.6rem; }
+.privacy-form { margin-top: 0.5rem; }
+.privacy-notice {
+  margin: 1rem 0; padding: 0.8rem 1rem; border-radius: 10px;
+  background: var(--gray-light); color: var(--gray);
+  font-size: 0.85rem; line-height: 1.6;
+}
+.privacy-status {
+  font-size: 0.9rem; color: var(--gray); margin-bottom: 1rem;
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+}
+.privacy-status--pending { color: var(--navy); font-weight: 700; }
+.privacy-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
+
+.chips { display: flex; gap: 0.5rem; }
+.chips.wrap { flex-wrap: wrap; }
+.chip {
+  border: 2px solid var(--gray-light); background: #fff; color: var(--gray);
+  padding: 0.5rem 0.9rem; border-radius: 99px; font-size: 0.85rem;
+  font-weight: 700; cursor: pointer; transition: all 0.15s;
+}
+.chip:hover { border-color: var(--mint); }
+.chip.sel { border-color: var(--mint); background: var(--mint); color: #fff; }
+
+.btn-ghost {
+  border: 2px solid var(--gray-light); background: #fff; color: var(--gray);
+  padding: 0.6rem 1.1rem; border-radius: 10px; font-size: 0.9rem;
+  font-weight: 700; cursor: pointer; transition: all 0.15s;
+}
+.btn-ghost:hover { border-color: var(--gray); color: var(--navy); }
+.btn-danger {
+  border: none; background: var(--coral); color: #fff;
+  padding: 0.6rem 1.1rem; border-radius: 10px; font-size: 0.9rem;
+  font-weight: 800; cursor: pointer;
+}
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

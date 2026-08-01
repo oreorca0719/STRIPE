@@ -27,7 +27,8 @@ from app.models.core import ConsentRecord                      # noqa: E402
 from app.models.user import GradeLevel, User, UserRole         # noqa: E402
 
 TABLES = ("users, student_profiles, diagnosis_sessions, diagnosis_rounds, "
-          "consent_records, texts, item_sets, questions, parent_responses")
+          "consent_records, texts, item_sets, questions, parent_responses, "
+          "deletion_requests")
 
 ADMIN_ID, S1, S2 = 1, 2, 3
 

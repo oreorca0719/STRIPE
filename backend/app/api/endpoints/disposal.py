@@ -25,9 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin
 from app.core.database import get_db
 from app.models.core import (
-    ComprehensionResult, ConsentRecord, DataDisposalLog, DiagnosisRound,
-    DiagnosisSession, FluencyResult, JudgmentResult, QuestionResponse,
-    Report, StudentProfile,
+    ComprehensionResult, ConsentRecord, DataDisposalLog, DeletionRequest,
+    DeletionRequestStatus, DiagnosisRound, DiagnosisSession, FluencyResult,
+    JudgmentResult, QuestionResponse, Report, StudentProfile,
 )
 from app.models.user import User, UserRole
 
@@ -186,6 +186,20 @@ async def dispose(
     # 상태가 남을 수 있다.
     await db.flush()
 
+    # 정보주체가 낸 삭제 요청이 있으면 이 파기와 이어 붙인다 (STR-115).
+    # 요청과 실행이 연결되지 않으면 '요청을 받아 처리했다'를 증명할 수 없다.
+    pending = (await db.execute(
+        select(DeletionRequest).where(
+            DeletionRequest.subject_user_id == user.id,
+            DeletionRequest.status == DeletionRequestStatus.pending,
+        )
+    )).scalars().all()
+    for req in pending:
+        req.status = DeletionRequestStatus.completed
+        req.resolved_at = log.disposed_at
+        req.resolved_by_code = admin.username
+        req.disposal_log_id = log.id
+
     await db.delete(user)          # CASCADE 로 하위 전부
     await db.commit()
     await db.refresh(log)
@@ -198,6 +212,7 @@ async def dispose(
         "reason_label": REASONS[log.reason],
         "deleted_counts": log.deleted_counts,
         "consent_preserved": snapshot is not None,
+        "linked_requests": len(pending),
     }
 
 
@@ -223,3 +238,82 @@ async def list_logs(limit: int = Query(100, le=500), db: AsyncSession = Depends(
         }
         for r in rows
     ]
+
+
+# =========================================================================
+# 삭제 요청 처리 (STR-115) — 정보주체가 낸 요청을 관리자가 확인·처리
+# =========================================================================
+class RejectRequest(BaseModel):
+    resolution_note: str = Field(..., min_length=1,
+                                 description="반려 사유. 요청자에게 그대로 보인다.")
+
+
+def _req_out(r: DeletionRequest) -> dict:
+    return {
+        "id": r.id,
+        "subject_user_id": r.subject_user_id,
+        "subject_code": r.subject_code,
+        "requester_code": r.requester_code,
+        "requester_role": r.requester_role,
+        "reason": r.reason,
+        "note": r.note,
+        "status": r.status.value,
+        "requested_at": r.requested_at.isoformat() if r.requested_at else None,
+        "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+        "resolved_by_code": r.resolved_by_code,
+        "resolution_note": r.resolution_note,
+        "disposal_log_id": r.disposal_log_id,
+    }
+
+
+@router.get("/requests")
+async def list_deletion_requests(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    limit: int = Query(100, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """삭제 요청 목록. 기본은 전체, status=pending 으로 처리 대기만 볼 수 있다."""
+    stmt = select(DeletionRequest).order_by(DeletionRequest.id.desc()).limit(limit)
+    if status_filter:
+        try:
+            stmt = stmt.where(DeletionRequest.status == DeletionRequestStatus(status_filter))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"알 수 없는 상태: {status_filter}")
+    rows = (await db.execute(stmt)).scalars().all()
+
+    pending = int((await db.execute(
+        select(func.count()).select_from(DeletionRequest)
+        .where(DeletionRequest.status == DeletionRequestStatus.pending)
+    )).scalar_one() or 0)
+
+    return {"items": [_req_out(r) for r in rows], "pending_count": pending}
+
+
+@router.post("/requests/{request_id}/reject")
+async def reject_deletion_request(
+    request_id: int,
+    body: RejectRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """요청 반려. 본인 확인이 되지 않는 경우 등.
+
+    사유를 필수로 받는다 — 반려는 정보주체의 권리 행사를 막는 것이라
+    이유가 남지 않으면 나중에 그 처분이 정당했는지 확인할 수 없다.
+    """
+    row = (await db.execute(
+        select(DeletionRequest).where(DeletionRequest.id == request_id)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="요청을 찾을 수 없습니다.")
+    if row.status != DeletionRequestStatus.pending:
+        raise HTTPException(status_code=409,
+                            detail=f"이미 처리된 요청입니다({row.status.value}).")
+
+    row.status = DeletionRequestStatus.rejected
+    row.resolved_at = datetime.now(timezone.utc)
+    row.resolved_by_code = admin.username
+    row.resolution_note = body.resolution_note
+    await db.commit()
+    await db.refresh(row)
+    return _req_out(row)
