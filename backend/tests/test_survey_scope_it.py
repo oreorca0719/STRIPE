@@ -312,3 +312,36 @@ def test_문항_정의를_내려준다():
                                   "B-3", "B-4", "B-5", "B-6"}
             assert "B-7" not in codes          # 예약·비활성
     _with_dispose(go)
+
+
+def test_최신_응답_조회는_없어도_오류가_아니다():
+    """화면이 '이미 제출했는지'를 알아야 다시 쓰라고 하지 않는다.
+    응답이 없는 것은 정상 상태이므로 404 가 아니라 null 이다."""
+    async def go():
+        s = await _seed()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["par"], "parent")) as ac:
+            r = await ac.get("/api/parent/survey/latest")
+            assert r.status_code == 200, r.text
+            assert r.json() is None
+
+            await ac.post("/api/parent/survey", json=_env(4, 3, 4, 3))
+            r = await ac.get("/api/parent/survey/latest")
+            assert r.status_code == 200, r.text
+            assert r.json()["home_environment_score"] == 14
+    _with_dispose(go)
+
+
+def test_자녀_진단_기록이_없으면_최신_조회가_비어_있다():
+    """진단 전에 보호자가 먼저 들어온 경우. 오류가 아니라 안내 대상이다."""
+    async def go():
+        s = await _seed()
+        async with AsyncSessionLocal() as db:
+            await db.execute(sql_text("DELETE FROM student_profiles"))
+            await db.commit()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["par"], "parent")) as ac:
+            r = await ac.get("/api/parent/survey/latest")
+            assert r.status_code == 200, r.text
+            assert r.json() is None
+    _with_dispose(go)

@@ -82,8 +82,9 @@ async function handleLogin() {
       router.replace(safeFrom)
     } else if (user.role === 'admin') {
       router.push('/admin')
-    } else if (user.role === 'student') {
-      router.push('/student')
+    } else if (user.role === 'parent') {
+      // 보호자는 학생 화면이 아니라 보호자 설문으로 간다
+      router.push('/parent')
     } else {
       router.push('/student')
     }

@@ -53,6 +53,12 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'student' }
     },
     {
+      path: '/parent',
+      name: 'parent-survey',
+      component: () => import('@/views/ParentSurveyView.vue'),
+      meta: { requiresAuth: true, role: 'parent' }
+    },
+    {
       path: '/admin',
       name: 'admin-dashboard',
       component: () => import('@/views/admin/AdminDashboardView.vue'),
@@ -119,6 +125,13 @@ const router = createRouter({
   ],
 })
 
+// 역할별 첫 화면. 보호자는 학생 화면이 아니라 보호자 설문으로 간다.
+function homeFor(role?: string) {
+  if (role === 'admin') return '/admin'
+  if (role === 'parent') return '/parent'
+  return '/student'
+}
+
 // 라우트 가드
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
@@ -135,20 +148,19 @@ router.beforeEach((to, _from, next) => {
   }
   // 변경 완료 후 해당 페이지 재접근 시 역할별 홈으로
   if (token && user && !user.must_change_password && to.name === 'change-credentials') {
-    return next(user.role === 'admin' ? '/admin' : '/student')
+    return next(homeFor(user.role))
   }
 
   // 로그인 상태에서 guest 페이지 접근 → 역할별 홈으로
   if (to.meta.guest && token && user) {
-    if (user.role === 'admin') return next('/admin')
-    return next('/student')
+    return next(homeFor(user.role))
   }
 
   // 역할 접근 제어
   // - 관리자: 학생 화면도 열람 가능(운영·검수 목적). 모든 페이지 접근 허용.
   // - 그 외: 자기 역할 페이지만 접근 가능 (학생의 /admin 접근 차단)
   if (to.meta.role && user && to.meta.role !== user.role && user.role !== 'admin') {
-    return next('/student')
+    return next(homeFor(user.role))
   }
 
   next()

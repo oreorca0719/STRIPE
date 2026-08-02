@@ -13,6 +13,8 @@
 [미응답을 그대로 둔다]
 전 문항 선택 사항이다. 보호자가 중간에 그만두어도 학생 진단은 정상 완료된다.
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,6 +96,29 @@ def _validate(data: ParentSurveyIn) -> None:
 async def survey_definition():
     """보호자 설문 문항 정의. 화면은 이것을 받아 렌더링만 한다."""
     return {"questions": D.questions("parent")}
+
+
+@router.get("/survey/latest", response_model=Optional[ParentSurveyOut])
+async def latest_parent_survey(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """내 자녀의 최신 보호자 설문. 아직 없으면 null.
+
+    화면이 '이미 제출했는지'를 알아야 다시 쓰라고 하지 않는다. 없는 것은
+    오류가 아니므로 404 가 아니라 null 을 준다.
+    """
+    try:
+        profile = await _resolve_profile(db, None, user)
+    except HTTPException as e:
+        # 자녀가 여러 명이거나 진단 기록이 없는 경우. 화면이 안내를 달리 해야 한다.
+        if e.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND):
+            return None
+        raise
+    return (await db.execute(
+        select(ParentResponse)
+        .where(ParentResponse.profile_id == profile.id)
+        .order_by(ParentResponse.id.desc()).limit(1))).scalar_one_or_none()
 
 
 @router.post("/survey", response_model=ParentSurveyOut,
