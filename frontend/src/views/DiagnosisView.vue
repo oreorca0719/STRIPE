@@ -53,94 +53,43 @@
           <p class="resume-note">처음부터 다시 하면 지난 기록은 결과에 쓰이지 않아요.</p>
         </div>
 
-        <!-- 설문 -->
+        <!-- 설문 — 문항은 서버 정의(survey_questions.json)에서 온다.
+             화면은 렌더링만 하므로 문구가 바뀌어도 여기를 고치지 않는다. -->
         <div v-else-if="phase === 'survey'" class="step-content survey">
           <div class="illust">🙋</div>
           <h2>먼저 몇 가지만 알려줘!</h2>
 
-          <div class="q-block">
-            <label class="q-label">몇 학년이야?</label>
-            <div class="chips">
-              <button v-for="g in gradeOpts" :key="g.v" class="chip"
-                      :class="{ sel: survey.grade === g.v }" @click="survey.grade = g.v">
-                {{ g.t }}
-              </button>
-            </div>
+          <p v-if="defError" class="survey-error">
+            설문을 불러오지 못했어요.
+            <button class="retry-link" @click="loadDefinition">다시 시도</button>
+          </p>
+
+          <template v-else>
+            <SurveyQuestion
+              v-for="q in visibleQuestions" :key="q.code"
+              :q="q"
+              :model-value="surveyAnswers[q.storage_field]"
+              :error="fieldErrors[q.storage_field]"
+              :current-grade="surveyAnswers.grade"
+              @update:model-value="setAnswer(q, $event)"
+            />
+
             <p v-if="gradeMismatch" class="grade-hint">
               가입할 때는 <strong>{{ accountGradeLabel }}</strong>이라고 했어요.
               다르면 그대로 골라도 괜찮아요.
             </p>
-          </div>
 
-          <div class="q-block">
-            <label class="q-label">책을 얼마나 자주 읽어?</label>
-            <div class="chips">
-              <button v-for="o in freqOpts" :key="o.v" class="chip"
-                      :class="{ sel: survey.reading_freq === o.v }" @click="survey.reading_freq = o.v">
-                {{ o.t }}
-              </button>
-            </div>
-          </div>
+            <p v-if="submitError" class="survey-error">{{ submitError }}</p>
 
-          <div class="q-block">
-            <label class="q-label">책 읽는 걸 얼마나 좋아해?</label>
-            <div class="chips">
-              <button v-for="o in attOpts" :key="o.v" class="chip"
-                      :class="{ sel: survey.reading_attitude === o.v }" @click="survey.reading_attitude = o.v">
-                {{ o.t }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 조건부 문항 (A-5·A-6) — 비독자로 판정된 학생에게만 (§6).
-               노출 여부는 서버가 판단해서 내려준다. 화면이 분류 규칙을
-               따로 갖고 있으면 서버 규칙이 바뀔 때 여기만 옛 규칙으로 남는다. -->
-          <template v-if="showNonReaderQuestions">
-            <div class="q-block">
-              <label class="q-label">책 하면 어떤 느낌이 들어? <span class="muted">(여러 개 골라도 돼)</span></label>
-              <div class="chips wrap">
-                <button v-for="o in bookImageOpts" :key="o.v" class="chip"
-                        :class="{ sel: survey.book_image.includes(o.v) }"
-                        @click="toggleIn(survey.book_image, o.v)">
-                  {{ o.t }}
-                </button>
-              </div>
-            </div>
-
-            <div class="q-block">
-              <label class="q-label">책을 잘 안 읽게 되는 이유가 뭐야? <span class="muted">(여러 개 골라도 돼)</span></label>
-              <div class="chips wrap">
-                <button v-for="o in nonReadingReasonOpts" :key="o.v" class="chip"
-                        :class="{ sel: survey.non_reading_reason.includes(o.v) }"
-                        @click="toggleIn(survey.non_reading_reason, o.v)">
-                  {{ o.t }}
-                </button>
-              </div>
-            </div>
+            <button class="btn-primary" :disabled="!surveyValid || busy" @click="submitSurvey">
+              {{ busy ? '준비 중…' : '시작하기 🚀' }}
+            </button>
+            <p v-if="!surveyValid && !busy" class="survey-hint">
+              아직 답하지 않은 질문이 있어요.
+            </p>
           </template>
-
-          <div class="q-block">
-            <label class="q-label">어떤 이야기를 좋아해? <span class="muted">(여러 개 골라도 돼)</span></label>
-            <div class="chips wrap">
-              <button v-for="t in topicOpts" :key="t.v" class="chip"
-                      :class="{ sel: survey.interest_topics.includes(t.v) }" @click="toggleTopic(t.v)">
-                {{ t.t }}
-              </button>
-            </div>
-          </div>
-
-          <div class="q-block">
-            <label class="q-label">문제를 몇 개나 맞힐 것 같아? <span class="muted">(0~10개)</span></label>
-            <div class="slider-row">
-              <input type="range" min="0" max="10" v-model.number="survey.predicted_correct" />
-              <span class="slider-val">{{ survey.predicted_correct }}개</span>
-            </div>
-          </div>
-
-          <button class="btn-primary" :disabled="!surveyValid || busy" @click="submitSurvey">
-            {{ busy ? '준비 중…' : '시작하기 🚀' }}
-          </button>
         </div>
+
 
         <!-- 묵독 읽기 -->
         <div v-else-if="phase === 'reading'" class="step-content reading">
@@ -239,6 +188,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { useAuthStore } from '@/stores/auth'
+import SurveyQuestion from '@/components/SurveyQuestion.vue'
 import { api } from '@/api'
 
 const router = useRouter()
@@ -259,90 +209,114 @@ const reissuedNotice = ref('')
 const busy = ref(false)
 const error = ref('')
 
-const freqOpts = [ { t: '거의 안 읽어', v: 1 }, { t: '가끔 읽어', v: 3 }, { t: '거의 매일', v: 5 } ]
-const attOpts = [ { t: '별로…', v: 1 }, { t: '그저 그래', v: 3 }, { t: '정말 좋아!', v: 5 } ]
-// C-1 관심주제. 각 선지가 자기 저장 코드(v)를 직접 들고 있다 — 순서로 코드를
-// 매기면 선지를 한 번만 재배열해도 아이가 고른 주제와 저장 코드가 통째로 어긋난다.
-// 표시명(t)은 설문 제작본 갱신본이 오면 그 문구로 교체한다. 코드(v)는 그대로다.
-const topicOpts = [
-  { t: '🐾 동물', v: 'ANIMAL' }, { t: '🤝 우정', v: 'FRIENDSHIP' }, { t: '🗺 모험', v: 'ADVENTURE' },
-  { t: '👨‍👩‍👧 가족', v: 'FAMILY' }, { t: '🦄 판타지', v: 'FANTASY' }, { t: '🔬 과학', v: 'SCIENCE' },
-  { t: '🌱 자연', v: 'NATURE' }, { t: '🚀 우주', v: 'SPACE' }, { t: '🏛 역사', v: 'HISTORY' }, { t: '🏠 일상', v: 'DAILY' },
-]
-
-// A-5·A-6 (비독자 조건부). 선지 문구·코드는 설문 제작본 갱신본으로 확정될
-// 예정이라 잠정이다. 교체는 이 두 배열만 갈면 된다 — 화면 분기는 그대로다.
-const bookImageOpts = [
-  { t: '😴 지루해', v: 'BORING' }, { t: '😵 어려워', v: 'DIFFICULT' },
-  { t: '📚 숙제 같아', v: 'HOMEWORK' }, { t: '😌 편안해', v: 'COMFORTABLE' },
-  { t: '🤔 잘 모르겠어', v: 'UNSURE' },
-]
-const nonReadingReasonOpts = [
-  { t: '⏰ 시간이 없어', v: 'NO_TIME' }, { t: '📱 다른 게 더 재밌어', v: 'OTHER_FUN' },
-  { t: '🔍 뭘 읽을지 몰라', v: 'WHAT_TO_READ' }, { t: '😵 글이 어려워', v: 'TOO_HARD' },
-  { t: '🏠 집에 책이 없어', v: 'NO_BOOKS' },
-]
-
-// 서비스 대상 초4~중1. 엔진은 grade 7 을 중1(G7)로 매핑한다(text_selection.grade_to_group).
-// 여기에 7이 없으면 G7 지문이 학생에게 도달하지 못한다.
-const gradeOpts = [
-  { v: 4, t: '4학년' }, { v: 5, t: '5학년' }, { v: 6, t: '6학년' }, { v: 7, t: '중1' },
-]
+// ── 설문 (STR-119·122) ────────────────────────────────────────────────────
+// 문항은 서버 정의에서 온다. 선지·개수 제약·저장 필드가 전부 그쪽에 있어
+// 문구가 바뀌어도 이 파일을 고치지 않는다.
 const ACCOUNT_GRADE_TO_NUM: Record<string, number> = {
   elem4: 4, elem5: 5, elem6: 6, mid1: 7,
 }
 
-const survey = reactive<{
-  grade: number | null; reading_freq: number | null; reading_attitude: number | null;
-  interest_topics: string[]; predicted_correct: number
-  book_image: string[]; non_reading_reason: string[]
-}>({ grade: null, reading_freq: null, reading_attitude: null, interest_topics: [], predicted_correct: 5,
-     book_image: [], non_reading_reason: [] })
+const questions = ref<any[]>([])
+const defError = ref(false)
+const surveyAnswers = reactive<Record<string, any>>({})
+const fieldErrors = reactive<Record<string, string>>({})
+const submitError = ref('')
 
-// 조건부 문항(A-5·A-6) 노출 여부. 판단은 서버가 한다(§8-4 분류 규칙은 잠정이라
-// 바뀔 수 있고, 규칙이 두 곳에 있으면 화면만 옛 규칙으로 남는다).
-const showNonReaderQuestions = ref(false)
+// 조건부 문항(A-5·A-6) 노출 여부. 판단은 서버가 한다 — §8-4 분류 규칙은
+// 잠정이라 바뀔 수 있고, 규칙이 두 곳에 있으면 화면만 옛 규칙으로 남는다.
+const showNonReader = ref(false)
+
+async function loadDefinition() {
+  defError.value = false
+  try {
+    const r = await api.get('/api/diagnosis/survey/definition')
+    questions.value = r.data.questions
+    for (const q of questions.value) {
+      if (!(q.storage_field in surveyAnswers)) {
+        surveyAnswers[q.storage_field] =
+          q.response_type === 'multi_select' ? []
+          : q.response_type === 'grade_history' ? new Array(q.grades.length).fill(null)
+          : null
+      }
+    }
+    // 계정 학년을 기본값으로 채운다. 학년이 계정과 설문 두 곳에 따로 저장되는데
+    // 텍스트 선정은 설문 값만 쓰기 때문에, 비워두면 학생이 다른 학년을 골라도
+    // 아무도 모른 채 맞지 않는 난도의 지문이 나간다.
+    if (surveyAnswers.grade == null) surveyAnswers.grade = accountGradeNum.value
+  } catch {
+    defError.value = true
+  }
+}
+
+const visibleQuestions = computed(() =>
+  questions.value.filter(q => q.status !== 'conditional' || showNonReader.value))
+
+const accountGradeNum = computed(() => ACCOUNT_GRADE_TO_NUM[auth.user?.grade] ?? null)
+const accountGradeLabel = computed(() => {
+  const b1 = questions.value.find(q => q.code === 'B-1')
+  return b1?.options.find((o: any) => o.value === accountGradeNum.value)?.label ?? ''
+})
+const gradeMismatch = computed(() =>
+  accountGradeNum.value !== null && surveyAnswers.grade != null
+  && surveyAnswers.grade !== accountGradeNum.value)
+
+function setAnswer(q: any, v: any) {
+  surveyAnswers[q.storage_field] = v
+  delete fieldErrors[q.storage_field]
+  submitError.value = ''
+  // 학년을 바꾸면 A-4 에서 아직 오지 않은 학년의 응답을 지운다.
+  // 남겨두면 화면에 보이지 않는 값이 그대로 전송된다.
+  if (q.code === 'B-1') pruneGradeHistory()
+}
+
+function pruneGradeHistory() {
+  const a4 = questions.value.find(q => q.response_type === 'grade_history')
+  if (!a4) return
+  const cur = surveyAnswers[a4.storage_field]
+  if (!Array.isArray(cur)) return
+  a4.grades.forEach((g: any, i: number) => {
+    if (surveyAnswers.grade == null || g.grade > surveyAnswers.grade) cur[i] = null
+  })
+}
 
 // A-2·A-3 이 둘 다 채워지면 유형을 물어본다. 답을 바꾸면 다시 물어본다.
-watch(() => [survey.reading_freq, survey.reading_attitude], async ([f, a]) => {
-  if (f === null || a === null) { showNonReaderQuestions.value = false; return }
+watch(() => [surveyAnswers.reading_freq, surveyAnswers.reading_attitude], async ([f, a]) => {
+  if (f == null || a == null) { showNonReader.value = false; return }
   try {
     const r = await api.post('/api/diagnosis/reader-type',
                              { reading_freq: f, reading_attitude: a })
-    showNonReaderQuestions.value = !!r.data.show_non_reader_questions
+    showNonReader.value = !!r.data.show_non_reader_questions
   } catch {
     // 분류 조회 실패는 진단을 막을 이유가 아니다. 조건부 문항만 빠진다.
-    showNonReaderQuestions.value = false
+    showNonReader.value = false
   }
-  if (!showNonReaderQuestions.value) {
+  if (!showNonReader.value) {
     // 비독자가 아니게 되면 이미 고른 답을 지운다. 남겨두면 화면에 보이지 않는
     // 응답이 그대로 전송되고, 서버가 버려도 학생 입장에선 유령 응답이 된다.
-    survey.book_image.length = 0
-    survey.non_reading_reason.length = 0
+    for (const q of questions.value) {
+      if (q.status === 'conditional') surveyAnswers[q.storage_field] = []
+    }
   }
 })
 
-// 계정 학년을 기본값으로 채운다. 학년이 계정과 설문 두 곳에 따로 저장되는데
-// 텍스트 선정은 설문 값만 쓰기 때문에, 비워두면 학생이 다른 학년을 골라도
-// 아무도 모른 채 맞지 않는 난도의 지문이 나간다.
-const accountGradeNum = computed(() => ACCOUNT_GRADE_TO_NUM[auth.user?.grade] ?? null)
-const accountGradeLabel = computed(() =>
-  gradeOpts.find(g => g.v === accountGradeNum.value)?.t ?? '',
-)
-const gradeMismatch = computed(() =>
-  accountGradeNum.value !== null && survey.grade !== null
-  && survey.grade !== accountGradeNum.value,
-)
+function isAnswered(q: any): boolean {
+  const v = surveyAnswers[q.storage_field]
+  if (q.response_type === 'multi_select') {
+    return Array.isArray(v) && v.length >= (q.min_select ?? 1)
+  }
+  if (q.response_type === 'grade_history') {
+    // 아직 오지 않은 학년은 묻지 않으므로, 물어본 칸이 다 차면 답한 것이다.
+    return q.grades.every((g: any, i: number) =>
+      surveyAnswers.grade == null || g.grade > surveyAnswers.grade || v?.[i] !== undefined)
+      && q.grades.some((g: any, i: number) =>
+        surveyAnswers.grade != null && g.grade <= surveyAnswers.grade && v?.[i] !== null)
+  }
+  return v !== null && v !== undefined && v !== ''
+}
 
 const surveyValid = computed(() =>
-  survey.grade !== null && survey.reading_freq !== null && survey.reading_attitude !== null)
-
-function toggleIn(list: string[], v: string) {
-  const i = list.indexOf(v)
-  if (i >= 0) list.splice(i, 1)
-  else list.push(v)
-}
-function toggleTopic(v: string) { toggleIn(survey.interest_topics, v) }
+  questions.value.length > 0
+  && visibleQuestions.value.filter(q => q.required).every(isAnswered))
 
 // 진단 상태
 const sessionId = ref<number | null>(null)
@@ -390,12 +364,13 @@ async function submitSurvey() {
   busy.value = true; error.value = ''
   try {
     // 학생 식별은 서버가 토큰에서 판별한다 (student_id 파라미터 없음)
-    const prof = await api.post('/api/diagnosis/profile', {
-      grade: survey.grade, reading_freq: survey.reading_freq, reading_attitude: survey.reading_attitude,
-      interest_topics: survey.interest_topics, predicted_correct: survey.predicted_correct,
-      // 비독자가 아니면 빈 배열이고, 서버도 유형을 다시 확인해 걸러낸다.
-      book_image: survey.book_image, non_reading_reason: survey.non_reading_reason,
-    })
+    // 화면에 뜨지 않은 문항은 보내지 않는다 — 노출되지 않은 문항의 응답이
+    // 저장되면 분석에서 표본이 오염된다(서버도 유형을 다시 확인해 걸러낸다).
+    const payload: Record<string, any> = {}
+    for (const q of visibleQuestions.value) {
+      payload[q.storage_field] = surveyAnswers[q.storage_field]
+    }
+    const prof = await api.post('/api/diagnosis/profile', payload)
     const sess = await api.post('/api/diagnosis/session', {
       profile_id: prof.data.id, silent_mode: true,
     })
@@ -405,16 +380,17 @@ async function submitSurvey() {
   } catch (e: any) {
     // 재시도를 걸지 않는다 — 이 흐름은 프로필·세션을 생성하므로 그대로 다시 부르면
     // 중복 행이 쌓인다. 설문 단계라 잃을 응답도 없어 처음부터 다시가 안전하다.
-    error.value = errMsg(e)
+    // 검증 실패(422)는 어느 문항이 문제인지 그대로 보여준다.
+    submitError.value = errMsg(e)
+    error.value = ''
   } finally { busy.value = false }
 }
 
 // --- 중단 세션 감지 · 이어하기 ---------------------------------------------
 
 async function checkResume() {
-  if (survey.grade === null && accountGradeNum.value !== null) {
-    survey.grade = accountGradeNum.value
-  }
+  // 학년 기본값 채우기는 loadDefinition 이 맡는다 — 문항 정의가 와야
+  // B-1 의 선지 값과 맞출 수 있다.
   try {
     const res = await api.get('/api/diagnosis/my/summary')
     if (res.data.in_progress_session_id) {
@@ -662,7 +638,7 @@ function resetAll() {
 }
 function handleLogout() { router.push('/login') }
 
-onMounted(checkResume)
+onMounted(() => { checkResume(); loadDefinition() })
 </script>
 
 <style scoped>

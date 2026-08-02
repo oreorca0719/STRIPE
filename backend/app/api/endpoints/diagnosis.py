@@ -7,7 +7,7 @@ from app.models.core import (
     ComprehensionResult, StudentProfile, TextContent,
     JudgmentResult, PrescriptionResult, Report,
     DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus,
-    Book, Difficulty, Label5, ConsentRecord,
+    Book, Difficulty, Label5, ConsentRecord, Gender,
 )
 from app.core.config import settings
 from app.schemas.diagnosis import (
@@ -25,6 +25,8 @@ from app.schemas.diagnosis import (
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
+from app.services.survey import definition as D
+from app.services.survey import reader_type as RT
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
 
@@ -93,6 +95,33 @@ async def _owned_round(db: AsyncSession, round_id: int, user: User) -> Diagnosis
         raise HTTPException(status_code=404, detail="회차를 찾을 수 없습니다.")
     await _owned_session(db, round_.diagnosis_session_id, user)
     return round_
+
+
+# 학생 설문 문항 코드 → ProfileCreate 필드. 검증 규칙은 문항 정의 한 곳에만 둔다.
+_SURVEY_FIELDS = D.storage_map("student")
+
+
+def _validate_survey(data: ProfileCreate) -> None:
+    """선지·범위·개수 검증. 정의(survey_questions.json)에 위임한다."""
+    for code, field in _SURVEY_FIELDS.items():
+        value = getattr(data, field, None)
+        # 필수 문항이라도 여기서 미응답을 막지 않는다 — 화면이 막고,
+        # 서버는 '들어온 값이 정의와 맞는가'만 본다.
+        try:
+            D.validate("student", code, value)
+        except D.AnswerError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail=str(e))
+
+
+@router.get("/survey/definition")
+async def survey_definition():
+    """학생 설문 문항 정의. 화면은 이것을 받아 렌더링만 한다.
+
+    문구가 잠정본이라 계속 바뀐다. 화면에 박아두면 문구 한 줄에 프론트를 다시
+    빌드해야 하고, 서버 검증 규칙과 화면 선지가 따로 놀 여지가 생긴다.
+    """
+    return {"questions": D.questions("student")}
 
 
 def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
@@ -405,20 +434,37 @@ async def create_profile(
     # 설문 응답도 개인정보 수집이다. 세션 생성 전에 여기서 먼저 막아야
     # 미동의 학생의 설문 데이터가 저장되는 것을 방지할 수 있다 (STR-97).
     await _require_consent(db, user)
+    _validate_survey(data)
+
     type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
+    is_non_reader = type_1 == ReaderType1.non_reader
+
+    # 비독자 하위 유형은 A-4(생애 독서 그래프)로만 나온다. 비독자가 아니면
+    # 산출하지 않는다 — 그 구분 자체가 비독자 안에서만 의미를 갖는다.
+    type_2 = RT.classify_type_2(data.life_reading_graph) if is_non_reader else None
+
     profile = StudentProfile(
         user_id=user.id,
         grade=data.grade,
+        gender=Gender(data.gender) if data.gender else None,
         reading_freq=data.reading_freq,
         reading_attitude=data.reading_attitude,
+        # A-1 은 권수(0~99)인데 컬럼이 String(50)이다. 숫자 의미를 잃지 않도록
+        # 문자열로 넣되, 분석에서 캐스팅이 필요하다 — 타입 정정은 문준석 확인 대기.
+        voluntary_reading=str(data.voluntary_reading) if data.voluntary_reading is not None else None,
+        life_reading_graph=data.life_reading_graph,
         interest_topics=data.interest_topics,
+        free_text_interest=data.free_text_interest,
+        preferred_genres=data.preferred_genres,
+        self_reading_level=data.self_reading_level,
         predicted_correct=data.predicted_correct,
         type_1=type_1,
+        type_2=type_2,
         # 비독자가 아닌 학생은 이 문항을 보지 않았으므로 값이 없다.
         # 비독자가 아닌데 값이 실려 오면 화면 분기가 어긋난 것이니 버린다 —
         # 노출되지 않은 문항의 응답이 저장되면 분석에서 표본이 오염된다.
-        book_image=data.book_image if type_1 == ReaderType1.non_reader else None,
-        non_reading_reason=data.non_reading_reason if type_1 == ReaderType1.non_reader else None,
+        book_image=data.book_image if is_non_reader else None,
+        non_reading_reason=data.non_reading_reason if is_non_reader else None,
     )
     db.add(profile)
     await db.commit()
