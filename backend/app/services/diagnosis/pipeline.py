@@ -32,15 +32,16 @@ def _worst(*flags: ReliabilityFlag) -> ReliabilityFlag:
     return max(flags, key=lambda f: _RELIABILITY_RANK[f])
 
 
-async def _home_environment_score(db: AsyncSession, student_user_id: int) -> Optional[int]:
+async def _home_environment_score(db: AsyncSession, profile_id: int) -> Optional[int]:
     """§5-4 입력. 보호자 설문이 없거나 B-3~B-6 이 덜 채워졌으면 None.
 
-    보호자가 여러 번 응답했다면 최신 것을 쓴다 — 가정환경은 바뀔 수 있고,
-    나중 응답이 현재 상태에 가깝다.
+    이 진단 회차(profile_id)에 붙은 응답만 본다. 가정환경은 응답 시점의
+    상태이므로 지난 회차의 값을 이번 판정에 끌어오지 않는다.
+    같은 회차에 여러 번 제출됐다면 최신 것을 쓴다.
     """
     q = await db.execute(
         select(ParentResponse)
-        .where(ParentResponse.student_user_id == student_user_id)
+        .where(ParentResponse.profile_id == profile_id)
         .order_by(ParentResponse.id.desc())
         .limit(1)
     )
@@ -181,7 +182,7 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     # 입력은 보호자 설문 B-3~B-6 합산값. 보호자 미응답이면 None 이고
     # 그때는 환경 축만 빠진다 — 학생 진단은 그대로 완료된다.
     env = E.judge_environment(
-        home_environment_score=await _home_environment_score(db, profile.user_id),
+        home_environment_score=await _home_environment_score(db, profile.id),
         grade_group=grade_group,
         type_2=type_2,
         weakness_area=_weakness_area_name(plan),

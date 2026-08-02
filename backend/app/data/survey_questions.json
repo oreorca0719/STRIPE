@@ -1,0 +1,551 @@
+{
+  "version": "2026-08-01-provisional",
+  "source": "STR-122 (문준석 팀 전달, 잠정본)",
+  "note": [
+    "설문 문항의 정본이다. 화면·검증·저장이 모두 이 파일을 참조한다.",
+    "문구는 승인 절차 진행 중이라 바뀔 수 있다(STR-122). 바뀌면 text/label 만 교체하면 되고,",
+    "response_type·storage_field·value 는 확정이라 코드 변경이 필요 없다.",
+    "",
+    "[value 를 명시한 이유]",
+    "선지의 '순서'로 저장값을 정하면 선지를 한 번만 재배열해도 저장 데이터가 통째로 어긋난다.",
+    "특히 척도 문항은 화면 표시 순서(많이 읽음 → 적게 읽음)와 저장값의 크기 방향(클수록 많이 읽음)이",
+    "반대라, 순서로 매기면 독자유형 분류가 뒤집힌다. 그래서 모든 선지가 자기 값을 직접 들고 있다.",
+    "",
+    "[status]",
+    "active      MVP1 에서 전원에게 노출·수집",
+    "conditional 조건부 노출 (show_if 참조)",
+    "reserved    문항 정의·컬럼은 있으나 MVP1 에서 수집하지 않음 — 화면에 뜨지 않는다"
+  ],
+  "scale_direction": "모든 척도 문항은 value 가 클수록 '많이/높음/긍정' 쪽이다. 표시 순서와 무관하다.",
+
+  "student": [
+    {
+      "code": "B-1", "block": 1, "status": "active",
+      "text": "학년을 선택해 주세요.",
+      "response_type": "single_select",
+      "storage_field": "grade",
+      "required": true,
+      "options": [
+        { "label": "초등학교 4학년", "value": 4 },
+        { "label": "초등학교 5학년", "value": 5 },
+        { "label": "초등학교 6학년", "value": 6 },
+        { "label": "중학교 1학년", "value": 7 }
+      ]
+    },
+    {
+      "code": "B-2", "block": 1, "status": "active",
+      "text": "성별을 선택해 주세요.",
+      "response_type": "single_select",
+      "storage_field": "gender",
+      "required": true,
+      "options": [
+        { "label": "남", "value": "M" },
+        { "label": "여", "value": "F" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+
+    {
+      "code": "A-2", "block": 2, "status": "active",
+      "text": "얼마나 자주 책을 읽나요?",
+      "response_type": "scale_6",
+      "storage_field": "reading_freq",
+      "required": true,
+      "options": [
+        { "label": "거의 매일", "value": 6 },
+        { "label": "일주일에 3~4번", "value": 5 },
+        { "label": "일주일에 1~2번", "value": 4 },
+        { "label": "한 달에 1~2번", "value": 3 },
+        { "label": "1년에 몇 번", "value": 2 },
+        { "label": "거의 안 읽음", "value": 1 }
+      ]
+    },
+    {
+      "code": "A-3", "block": 2, "status": "active",
+      "text": "책 읽는 것을 얼마나 좋아하나요?",
+      "response_type": "scale_6",
+      "storage_field": "reading_attitude",
+      "required": true,
+      "options": [
+        { "label": "매우 좋아함", "value": 6 },
+        { "label": "대체로 좋아함", "value": 5 },
+        { "label": "약간 좋아함", "value": 4 },
+        { "label": "약간 싫어함", "value": 3 },
+        { "label": "대체로 싫어함", "value": 2 },
+        { "label": "매우 싫어함", "value": 1 }
+      ]
+    },
+    {
+      "code": "A-1", "block": 2, "status": "active",
+      "text": "최근 한 달 동안 스스로 골라서 읽은 책은 몇 권인가요?",
+      "response_type": "numeric_input",
+      "storage_field": "voluntary_reading",
+      "required": true,
+      "min": 0, "max": 99, "step": 1,
+      "unit": "권"
+    },
+    {
+      "code": "A-4", "block": 2, "status": "active",
+      "text": "각 학년 때 책을 얼마나 읽었나요?",
+      "response_type": "grade_history",
+      "storage_field": "life_reading_graph",
+      "required": true,
+      "guide_text": "각 학년마다 하나씩 골라 주세요. 아직 안 된 학년은 자동으로 표시됩니다.",
+      "auto_disable_after": "B-1",
+      "grades": [
+        { "label": "1학년", "grade": 1 },
+        { "label": "2학년", "grade": 2 },
+        { "label": "3학년", "grade": 3 },
+        { "label": "4학년", "grade": 4 },
+        { "label": "5학년", "grade": 5 },
+        { "label": "6학년", "grade": 6 },
+        { "label": "중1", "grade": 7 }
+      ],
+      "scale": [
+        { "label": "해당 없음", "value": null },
+        { "label": "거의 안 읽음", "value": 1 },
+        { "label": "조금", "value": 2 },
+        { "label": "보통", "value": 3 },
+        { "label": "꽤 많이", "value": 4 },
+        { "label": "아주 많이", "value": 5 }
+      ],
+      "storage_note": [
+        "항상 길이 7 배열로 저장한다. 인덱스 0 이 1학년, 인덱스 6 이 중1.",
+        "배열을 잘라 저장하면 life_graph[-1] 이 가리키는 학년이 학생마다 달라진다 —",
+        "4학년 학생의 마지막 응답(인덱스 3)과 중1의 마지막 응답(인덱스 6)이 구분되지 않는다.",
+        "'해당 없음'(학생이 직접 고름)과 미도달 학년(묻지 않음) 둘 다 null 로 들어가며,",
+        "STR-124 판별식이 둘 다 계산에서 제외하므로 구분할 필요가 없다."
+      ]
+    },
+    {
+      "code": "A-8", "block": 2, "status": "reserved",
+      "text": "최근 읽은 책 중에서, 스스로 골라 읽은 것은 어느 정도인가요?",
+      "response_type": "single_select",
+      "storage_field": "voluntary_ratio",
+      "options": [
+        { "label": "전부 시켜서", "value": 1 },
+        { "label": "대부분 시켜서", "value": 2 },
+        { "label": "비슷한 정도", "value": 3 },
+        { "label": "대부분 스스로", "value": 4 },
+        { "label": "전부 스스로", "value": 5 },
+        { "label": "최근에 책을 안 읽었음", "value": 0 }
+      ]
+    },
+    {
+      "code": "A-7", "block": 2, "status": "reserved",
+      "text": "글 읽는 활동이 좋은가요?",
+      "response_type": "scale_5",
+      "storage_field": "reading_fondness",
+      "options": [
+        { "label": "매우 그렇다", "value": 5 },
+        { "label": "그렇다", "value": 4 },
+        { "label": "보통이다", "value": 3 },
+        { "label": "그렇지 않다", "value": 2 },
+        { "label": "전혀 그렇지 않다", "value": 1 }
+      ]
+    },
+    {
+      "code": "C-7", "block": 2, "status": "reserved",
+      "text": "하루에 스마트폰을 보통 얼마나 사용하나요?",
+      "response_type": "single_select",
+      "storage_field": "smartphone_hours",
+      "options": [
+        { "label": "거의 안 씀", "value": 0 },
+        { "label": "1시간보다 적게", "value": 1 },
+        { "label": "1~2시간", "value": 2 },
+        { "label": "2~3시간", "value": 3 },
+        { "label": "3~4시간", "value": 4 },
+        { "label": "4시간보다 많이", "value": 5 }
+      ]
+    },
+
+    {
+      "code": "A-5", "block": 3, "status": "conditional",
+      "text": "'책' 하면 어떤 느낌이 드나요?",
+      "response_type": "multi_select",
+      "storage_field": "book_image",
+      "show_if": { "type_1": "non_reader" },
+      "options": [
+        { "label": "지루하다", "value": "boring" },
+        { "label": "어렵다", "value": "difficult" },
+        { "label": "해야 하는 것", "value": "obligation" },
+        { "label": "공부", "value": "study" },
+        { "label": "관심 없다", "value": "no_interest" },
+        { "label": "재미있다", "value": "fun" },
+        { "label": "궁금하다", "value": "curious" },
+        { "label": "도움이 된다", "value": "helpful" },
+        { "label": "즐겁다", "value": "enjoyable" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "A-6", "block": 3, "status": "conditional",
+      "text": "책을 읽지 않게 된 이유가 있나요?",
+      "response_type": "multi_select",
+      "storage_field": "non_reading_reason",
+      "show_if": { "type_1": "non_reader" },
+      "options": [
+        { "label": "재미없어서", "value": "not_fun" },
+        { "label": "관심 없어서", "value": "no_interest" },
+        { "label": "억지로 읽어야 해서", "value": "forced" },
+        { "label": "읽어도 무슨 말인지 모르겠어서", "value": "not_understood" },
+        { "label": "다른 거 할 게 많아서", "value": "other_activities" },
+        { "label": "시간 없어서", "value": "no_time" },
+        { "label": "읽는 습관이 안 들어서", "value": "no_habit" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "C-2", "block": 3, "status": "reserved",
+      "text": "유튜브나 웹툰에서 주로 어떤 것을 보나요?",
+      "response_type": "multi_select",
+      "storage_field": "media_genre",
+      "max_select": 3,
+      "options": [
+        { "label": "게임", "value": "game" },
+        { "label": "먹방", "value": "mukbang" },
+        { "label": "브이로그", "value": "vlog" },
+        { "label": "과학", "value": "science" },
+        { "label": "역사", "value": "history" },
+        { "label": "음악", "value": "music" },
+        { "label": "스포츠", "value": "sports" },
+        { "label": "만화", "value": "comics" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "C-4", "block": 3, "status": "reserved",
+      "text": "재미있게 읽은 책이 있나요?",
+      "response_type": "hybrid",
+      "storage_field": "enjoyed_book"
+    },
+    {
+      "code": "C-5", "block": 3, "status": "reserved",
+      "text": "읽다가 그만둔 책이 있나요?",
+      "response_type": "hybrid",
+      "storage_field": "abandoned_book_reason",
+      "options": [
+        { "label": "너무 어려워서", "value": "too_hard" },
+        { "label": "재미없어서", "value": "not_fun" },
+        { "label": "너무 길어서", "value": "too_long" },
+        { "label": "다른 거 하고 싶어서", "value": "other_activities" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+
+    {
+      "code": "C-1", "block": 4, "status": "active",
+      "text": "요즘 가장 관심 있는 주제를 골라 주세요.",
+      "response_type": "multi_select",
+      "storage_field": "interest_topics",
+      "free_text_field": "free_text_interest",
+      "required": true,
+      "min_select": 1,
+      "max_select": 3,
+      "options": [
+        { "label": "동물·자연", "value": "animal" },
+        { "label": "과학·실험", "value": "science" },
+        { "label": "역사·위인", "value": "history" },
+        { "label": "운동·스포츠", "value": "sports" },
+        { "label": "추리·미스터리", "value": "mystery" },
+        { "label": "판타지·모험", "value": "fantasy" },
+        { "label": "유머·재미", "value": "humor" },
+        { "label": "우정·학교생활", "value": "friendship" },
+        { "label": "가족·성장", "value": "family" },
+        { "label": "예술·음악", "value": "art_music" },
+        { "label": "요리·음식", "value": "cooking" },
+        { "label": "게임", "value": "game" },
+        { "label": "다른 나라·문화", "value": "world" },
+        { "label": "공포·괴담", "value": "horror" },
+        { "label": "사회·경제", "value": "society" },
+        { "label": "기타", "value": "other", "free_text": true }
+      ],
+      "options_note": [
+        "저장 코드는 15종이고 '기타'는 태그가 아니다 — 원문만 free_text_interest 에 넣고",
+        "파이프라인의 주제 매칭에는 쓰지 않는다 (STR-121)."
+      ]
+    },
+    {
+      "code": "C-3", "block": 4, "status": "active",
+      "text": "책을 읽는다면 어떤 종류가 좋은가요?",
+      "response_type": "multi_select",
+      "storage_field": "preferred_genres",
+      "required": true,
+      "max_select": 3,
+      "options": [
+        { "label": "이야기(소설·동화)", "value": "story" },
+        { "label": "만화·웹툰", "value": "comics" },
+        { "label": "과학·자연", "value": "science_nature" },
+        { "label": "역사·사회", "value": "history_society" },
+        { "label": "스포츠", "value": "sports" },
+        { "label": "요리·생활", "value": "cooking_life" },
+        { "label": "판타지", "value": "fantasy" },
+        { "label": "추리·공포", "value": "mystery_horror" },
+        { "label": "시·수필", "value": "poem_essay" },
+        { "label": "기타", "value": "other" }
+      ],
+      "options_note": [
+        "시스템 장르(narrative/expository)로의 변환표는 미전달 (STR-128).",
+        "표가 오기 전까지 장르 필터 3단계는 구현하지 않는다. 값은 저장만 한다.",
+        "만화·웹툰과 시·수필은 시스템 장르에 대응하지 않아 진단이 아닌 보호자 리포트 서술에 쓴다."
+      ]
+    },
+    {
+      "code": "C-8", "block": 4, "status": "reserved",
+      "text": "궁금한 게 있으면 주로 어디에서 찾아보나요?",
+      "response_type": "single_select",
+      "storage_field": "info_media",
+      "options": [
+        { "label": "유튜브", "value": "youtube" },
+        { "label": "포털 검색(네이버·구글 등)", "value": "portal" },
+        { "label": "SNS(인스타그램·틱톡 등)", "value": "sns" },
+        { "label": "책", "value": "book" },
+        { "label": "주변 사람(부모님·친구·선생님)", "value": "people" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "D-5", "block": 4, "status": "reserved",
+      "text": "글을 읽다가 모르는 단어가 나오면 어떻게 하나요?",
+      "response_type": "single_select",
+      "storage_field": "unknown_word_strategy",
+      "options": [
+        { "label": "그냥 넘어간다", "value": "skip" },
+        { "label": "앞뒤를 보고 짐작한다", "value": "infer" },
+        { "label": "사전이나 검색으로 찾아본다", "value": "lookup" },
+        { "label": "주변 사람에게 물어본다", "value": "ask" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "D-3", "block": 4, "status": "reserved",
+      "text": "독서가 숙제처럼 느껴진다.",
+      "response_type": "scale_5",
+      "storage_field": "reading_as_homework",
+      "options": [
+        { "label": "매우 그렇다", "value": 5 },
+        { "label": "그렇다", "value": 4 },
+        { "label": "보통이다", "value": 3 },
+        { "label": "그렇지 않다", "value": 2 },
+        { "label": "전혀 그렇지 않다", "value": 1 }
+      ]
+    },
+    {
+      "code": "C-6", "block": 4, "status": "reserved",
+      "text": "학교 끝나고 주로 무엇을 하나요?",
+      "response_type": "rank",
+      "storage_field": "leisure_ranking",
+      "options": [
+        { "label": "게임", "value": "game" },
+        { "label": "유튜브", "value": "youtube" },
+        { "label": "운동", "value": "sports" },
+        { "label": "독서", "value": "reading" },
+        { "label": "학원", "value": "academy" },
+        { "label": "친구 만나기", "value": "friends" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+
+    {
+      "code": "D-4", "block": 5, "status": "reserved",
+      "text": "글을 읽을 때 집중하기 어렵다.",
+      "response_type": "scale_5",
+      "storage_field": "concentration_difficulty",
+      "options": [
+        { "label": "매우 그렇다", "value": 5 },
+        { "label": "그렇다", "value": 4 },
+        { "label": "보통이다", "value": 3 },
+        { "label": "그렇지 않다", "value": 2 },
+        { "label": "전혀 그렇지 않다", "value": 1 }
+      ]
+    },
+    {
+      "code": "D-1", "block": 5, "status": "active",
+      "text": "나는 글을 잘 읽는 편이다.",
+      "response_type": "scale_5",
+      "storage_field": "self_reading_level",
+      "required": true,
+      "options": [
+        { "label": "매우 그렇다", "value": 5 },
+        { "label": "그렇다", "value": 4 },
+        { "label": "보통이다", "value": 3 },
+        { "label": "그렇지 않다", "value": 2 },
+        { "label": "전혀 그렇지 않다", "value": 1 }
+      ],
+      "usage_note": [
+        "수집·저장은 확정이나 삼각수렴 판정에 쓰는 것은 보류다 (STR-127).",
+        "D-1 5단계와 실제 정답률(연속값)의 대응표가 없어 격차를 계산할 수 없다."
+      ]
+    },
+    {
+      "code": "D-2", "block": 5, "status": "reserved",
+      "text": "이따가 10개 문제를 풀 건데, 몇 개쯤 맞출 수 있을 것 같나요?",
+      "response_type": "slider",
+      "storage_field": "predicted_correct",
+      "min": 0, "max": 10, "step": 1,
+      "usage_note": [
+        "예약·비활성 확정 (STR-127). 측정 타당도가 낮다는 판단 —",
+        "어떤 문제가 나올지 모르는 상태에서 정답 개수를 예측하게 하기 때문이다.",
+        "메타인지 판정은 D-1 기반으로 교체 예정이며 기준 확정 전까지 손대지 않는다."
+      ]
+    }
+  ],
+
+  "parent": [
+    {
+      "code": "E-1", "status": "active",
+      "text": "아이가 자발적으로 책을 읽는 빈도는 어느 정도인가요?",
+      "response_type": "scale_6",
+      "storage_field": "parent_freq_estimate",
+      "options": [
+        { "label": "거의 매일", "value": 6 },
+        { "label": "일주일에 3~4번", "value": 5 },
+        { "label": "일주일에 1~2번", "value": 4 },
+        { "label": "한 달에 1~2번", "value": 3 },
+        { "label": "1년에 몇 번", "value": 2 },
+        { "label": "거의 안 읽음", "value": 1 }
+      ]
+    },
+    {
+      "code": "E-2", "status": "active",
+      "text": "아이의 독서 이해력이 또래에 비해 어느 수준이라고 생각하시나요?",
+      "response_type": "scale_5",
+      "storage_field": "parent_reading_level",
+      "options": [
+        { "label": "매우 우수", "value": 5 },
+        { "label": "우수", "value": 4 },
+        { "label": "보통", "value": 3 },
+        { "label": "다소 부족", "value": 2 },
+        { "label": "많이 부족", "value": 1 }
+      ]
+    },
+    {
+      "code": "E-3", "status": "active",
+      "text": "이후 아이가 10개 문제를 풀 예정인데, 몇 개 정도 맞출 것 같으시나요?",
+      "response_type": "slider",
+      "storage_field": "parent_predicted_correct",
+      "min": 0, "max": 10, "step": 1
+    },
+    {
+      "code": "E-4", "status": "active",
+      "text": "아이에게 책 읽기를 얼마나 자주 권하시나요?",
+      "response_type": "single_select",
+      "storage_field": "parent_recommend_freq",
+      "options": [
+        { "label": "거의 매일", "value": 4 },
+        { "label": "주 1~2회", "value": 3 },
+        { "label": "월 1~2회", "value": 2 },
+        { "label": "거의 안 함", "value": 1 }
+      ]
+    },
+    {
+      "code": "E-5", "status": "active",
+      "text": "아이의 독서 지도 시 주로 참고하는 정보는 무엇인가요?",
+      "response_type": "single_select",
+      "storage_field": "parent_info_source",
+      "options": [
+        { "label": "온라인 커뮤니티(맘카페·블로그 등)", "value": "community" },
+        { "label": "유튜브", "value": "youtube" },
+        { "label": "SNS(인스타그램 등)", "value": "sns" },
+        { "label": "교사 추천", "value": "teacher" },
+        { "label": "서점·도서관 추천", "value": "library" },
+        { "label": "주변 부모", "value": "other_parents" },
+        { "label": "특별히 없음", "value": "none" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+    {
+      "code": "E-6", "status": "active",
+      "text": "아이에게 책을 골라줄 때 주로 어떤 기준으로 선택하시나요?",
+      "response_type": "single_select",
+      "storage_field": "parent_book_criteria",
+      "options": [
+        { "label": "아이 관심사", "value": "child_interest" },
+        { "label": "교육과정", "value": "curriculum" },
+        { "label": "주변추천", "value": "recommendation" },
+        { "label": "베스트셀러", "value": "bestseller" },
+        { "label": "특별한 기준 없음", "value": "none" },
+        { "label": "기타", "value": "other" }
+      ]
+    },
+
+    {
+      "code": "B-3", "status": "active", "env_score": true,
+      "text": "아이에게 책 읽기를 자주 권하시는 편인가요?",
+      "response_type": "scale_4",
+      "storage_field": "parent_reading_support",
+      "options": [
+        { "label": "매우 그렇다", "value": 4 },
+        { "label": "다소 그렇다", "value": 3 },
+        { "label": "별로 그렇지 않다", "value": 2 },
+        { "label": "전혀 그렇지 않다", "value": 1 }
+      ]
+    },
+    {
+      "code": "B-4", "status": "active", "env_score": true,
+      "text": "집에 아이가 읽을 수 있는 책이 얼마나 있나요?",
+      "response_type": "scale_4",
+      "storage_field": "books_at_home",
+      "options": [
+        { "label": "매우 많음", "value": 4 },
+        { "label": "많음", "value": 3 },
+        { "label": "적음", "value": 2 },
+        { "label": "거의 없음", "value": 1 }
+      ]
+    },
+    {
+      "code": "B-5", "status": "active", "env_score": true,
+      "text": "보호자(부모)가 집에서 책을 읽는 모습을 아이가 얼마나 자주 보나요?",
+      "response_type": "single_select",
+      "storage_field": "parent_reading_model",
+      "options": [
+        { "label": "거의 매일", "value": 4 },
+        { "label": "주 1~2회", "value": 3 },
+        { "label": "월 1~2회", "value": 2 },
+        { "label": "거의 안 봄", "value": 1 }
+      ]
+    },
+    {
+      "code": "B-6", "status": "active", "env_score": true,
+      "text": "아이와 함께 서점이나 도서관에 얼마나 자주 가시나요?",
+      "response_type": "single_select",
+      "storage_field": "bookstore_library_visits",
+      "options": [
+        { "label": "거의 매일", "value": 4 },
+        { "label": "주 1~2회", "value": 3 },
+        { "label": "월 1~2회", "value": 2 },
+        { "label": "거의 안 감", "value": 1 }
+      ]
+    },
+    {
+      "code": "B-7", "status": "reserved",
+      "text": "보호자(부모)의 최종 학력을 선택해 주세요. (선택 사항)",
+      "response_type": "single_select",
+      "storage_field": null,
+      "options": [
+        { "label": "고졸 이하", "value": "highschool_or_below" },
+        { "label": "전문대", "value": "college" },
+        { "label": "대졸", "value": "university" },
+        { "label": "대학원 이상", "value": "graduate" },
+        { "label": "응답 거부", "value": "refused" }
+      ]
+    }
+  ],
+
+  "parent_note": [
+    "보호자 설문은 전 문항 선택이다. 미응답·부분응답이 정상 케이스이며,",
+    "보호자가 답하지 않아도 학생 진단은 정상 완료된다 (STR-118).",
+    "",
+    "env_score: true 인 4문항(B-3~B-6)의 합이 home_environment_score(4~16)다.",
+    "네 문항이 모두 채워졌을 때만 산출한다 — 3문항 합(3~12)은 4문항 합과 같은 척도가",
+    "아니어서 P33/P67 경계에 그대로 대면 환경이 실제보다 낮게 판정된다.",
+    "",
+    "E-4 와 B-3 이 사실상 같은 내용(권유 빈도/권유 정도)을 묻는다. 저장 필드가 달라",
+    "둘 다 유지하되 화면에서 인접 배치하지 않는다 (STR-122)."
+  ],
+
+  "teacher_note": [
+    "교사 3문항(F-1~F-3)은 DDL 만 있고 화면이 없다. 전부 placeholder 이며 E2E 제외라",
+    "이 정의 파일에 넣지 않았다 (STR-119)."
+  ]
+}

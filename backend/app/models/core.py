@@ -683,56 +683,67 @@ class Book(Base):
 
 
 # =========================================================================
-# parent_responses (STR-91) — 보호자 설문
+# parent_responses (STR-91 → STR-118 규격 확정) — 보호자 설문
 # =========================================================================
 class ParentResponse(Base):
-    """보호자 설문 응답.
+    """보호자 설문 응답 (E-1~E-6 + B-3~B-6).
 
     [전 필드 nullable]
-    보호자가 설문을 중간에 그만두어도 학생 진단은 정상 완료되어야 한다.
-    미응답 칸에 임의 기본값(0 등)을 넣지 않는다 — 그렇게 들어간 값은
-    나중에 실제 미응답과 구분할 수 없다. (문준석 확정, 2026-07-31)
+    보호자가 중간에 그만두어도 학생 진단은 정상 완료되어야 한다. 미응답 칸에
+    임의 기본값(0 등)을 넣지 않는다 — 그렇게 들어간 값은 나중에 실제 미응답과
+    구분할 수 없다. NOT NULL 은 id / profile_id / created_at 셋뿐이다.
 
-    [지금은 B-3~B-6 만 있다]
-    확정된 보호자 문항은 E-1~E-6 + B-3~B-6 의 10개인데, E 문항은 문구·척도가
-    설문 제작본 갱신본으로 올 예정이라 아직 컬럼을 만들지 않았다. 추측한 타입으로
-    미리 만들면 갱신본과 어긋나 다시 갈아엎어야 한다. 컬럼 추가는 마이그레이션
-    한 건이면 되므로 기다리는 쪽이 싸다.
-    B-3~B-6 만 먼저 넣은 것은 계약이 확정돼 있고(4문항 × 1~4점 → 합 4~16)
-    §5-4 환경 조정(STR-92)의 유일한 입력이기 때문이다.
+    [진단 프로필에 붙는다]
+    학생 계정이 아니라 profile_id 다. 가정환경은 응답 시점의 상태이고, 재응시
+    때 다시 받으면 그 회차의 값이 그 회차 판정에 쓰여야 한다.
+
+    [B-7 학력은 없다]
+    예약·비활성 문항이라 컬럼을 만들지 않았다. 수집하지 않는 항목의 칸을 미리
+    파두면 개인정보 최소수집 관점에서 설명할 것이 늘어난다.
     """
     __tablename__ = "parent_responses"
     id = Column(Integer, primary_key=True, index=True)
-
-    # 학생 기준으로 붙인다. 프로필은 진단마다 새로 생기지만 가정환경은
-    # 진단별 속성이 아니라 학생별 속성이다.
-    student_user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'),
-                             nullable=False, index=True)
-    # 보호자 계정 없이 종이·링크로 받는 경로도 있어 nullable.
+    profile_id = Column(Integer, ForeignKey('student_profiles.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    # 누가 제출했는지. 관리자 대리 입력(종이 회수분)이면 비어 있다.
     parent_user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
-    # 가정환경 (B-3~B-6) — 각 1~4점
-    b3_home_books = Column(Integer, nullable=True)        # 가정 내 도서 보유
-    b4_parent_reading = Column(Integer, nullable=True)    # 부모의 독서 모습
-    b5_reading_talk = Column(Integer, nullable=True)      # 읽은 책에 대한 대화
-    b6_library_visit = Column(Integer, nullable=True)     # 서점·도서관 방문
+    # 보호자 인식 (E-1~E-6)
+    parent_freq_estimate = Column(Integer, nullable=True)      # E-1 자발적 독서 빈도 (1~6)
+    parent_reading_level = Column(Integer, nullable=True)      # E-2 또래 대비 이해력 (1~5)
+    parent_predicted_correct = Column(Integer, nullable=True)  # E-3 예상 정답 수 (0~10)
+    parent_recommend_freq = Column(Integer, nullable=True)     # E-4 권유 빈도 (1~4)
+    parent_info_source = Column(String(30), nullable=True)     # E-5 참고 정보원
+    parent_book_criteria = Column(String(30), nullable=True)   # E-6 도서 선택 기준
+
+    # 가정환경 (B-3~B-6) — 각 1~4점. 이 넷의 합이 home_environment_score.
+    parent_reading_support = Column(Integer, nullable=True)     # B-3 권유 정도
+    books_at_home = Column(Integer, nullable=True)              # B-4 가정 내 도서
+    parent_reading_model = Column(Integer, nullable=True)       # B-5 부모 독서 모습
+    bookstore_library_visits = Column(Integer, nullable=True)   # B-6 서점·도서관 방문
+
+    # 산출값 (4~16). B-3~B-6 중 하나라도 미응답이면 null 이고,
+    # null 이면 §5-4 독서환경 반영을 통째로 건너뛴다.
+    home_environment_score = Column(Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    @property
-    def home_environment_score(self):
-        """B-3~B-6 합산 (4~16). 하나라도 미응답이면 None.
 
-        부분 응답으로 합을 내면 안 된다. 3문항만 답한 합(3~12)은 4문항 합과
-        같은 척도가 아니어서 P33/P67 경계값에 그대로 대면 환경이 실제보다
-        낮게 판정된다. 미응답은 0 이 아니라 '모름'이다.
-        """
-        items = [self.b3_home_books, self.b4_parent_reading,
-                 self.b5_reading_talk, self.b6_library_visit]
-        if any(v is None for v in items):
-            return None
-        return sum(items)
+def compute_home_environment_score(
+    parent_reading_support, books_at_home, parent_reading_model, bookstore_library_visits
+):
+    """B-3~B-6 합산 (4~16). 하나라도 미응답이면 None.
+
+    부분 응답으로 합을 내면 안 된다. 3문항만 답한 합(3~12)은 4문항 합과 같은
+    척도가 아니어서 P33/P67 경계에 그대로 대면 환경이 실제보다 낮게 판정된다.
+    미응답은 0 이 아니라 '모름'이다.
+    """
+    items = (parent_reading_support, books_at_home,
+             parent_reading_model, bookstore_library_visits)
+    if any(v is None for v in items):
+        return None
+    return sum(items)
 
 
 # =========================================================================
