@@ -25,6 +25,7 @@ from app.schemas.diagnosis import (
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
+from app.services.stt import analyzer as oral_analyzer
 from app.services.survey import definition as D
 from app.services.survey import reader_type as RT
 from app.api.deps import get_current_user
@@ -576,21 +577,65 @@ async def submit_oral_fluency(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """음독 유창성 결과 저장 (MVP1 비활성 — demo_mode 전용)"""
+    """음독 유창성 결과 저장 (B안 — 타이머 자동 + 오류 수 감독자 입력).
+
+    [지문 음절 수는 서버가 센다]
+    클라이언트가 보낸 분모를 그대로 믿으면 정확도를 조작할 수 있다.
+    round_id 로 지문을 찾아 원문에서 직접 센다.
+
+    [전사가 있으면 함께 남긴다]
+    감독자가 센 오류 수가 정답이고, 전사 기반 자동 산출값이 그 옆에 남는다.
+    이 대조가 쌓이면 '자동 채점(A안)이 사람 채점을 대신할 수 있는가'를
+    별도 벤치마크 없이 판단할 수 있다.
+    """
     await _owned_session(db, data.session_id, user)
-    accurate_syllables = data.total_syllables - data.error_count
-    automaticity = (accurate_syllables / data.reading_time_seconds) * 10 if data.reading_time_seconds > 0 else 0
-    accuracy = 1 - (data.error_count / data.total_syllables) if data.total_syllables > 0 else 0
+    round_ = await _owned_round(db, data.round_id, user)
+    if round_.diagnosis_session_id != data.session_id:
+        raise HTTPException(status_code=400, detail="회차가 이 세션에 속하지 않습니다.")
+    if round_.text_id is None:
+        raise HTTPException(status_code=400, detail="회차에 지문이 없습니다.")
+
+    t_q = await db.execute(select(TextContent).where(TextContent.id == round_.text_id))
+    text = t_q.scalar_one_or_none()
+    if not text:
+        raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
+
+    a = oral_analyzer.analyze_oral_reading(
+        original_text=text.content,
+        transcript=data.transcript or "",
+        reading_time_seconds=data.reading_time_seconds,
+        error_count_override=data.error_count,
+    )
+
+    raw = dict(data.raw_data or {})
+    raw.update({
+        "input_mode": "supervisor",          # B안 경로임을 남긴다
+        "syllables_per_second": oral_analyzer.syllables_per_second(a),
+        "eojeol_total": a.eojeol_total,
+        "eojeol_errors": a.eojeol_errors,
+    })
+    if data.transcript:
+        # 사람이 센 값과 자동 산출값의 대조 — A안 타당성의 근거가 된다
+        raw["auto"] = {
+            "error_count": a.substitutions + a.deletions + a.insertions,
+            "substitutions": a.substitutions,
+            "deletions": a.deletions,
+            "insertions": a.insertions,
+            "transcript_length_ratio": a.transcript_length_ratio,
+            "stt_quality_flag": a.stt_quality_flag,
+            "disfluency_detectable": a.disfluency_detectable,
+        }
 
     result = FluencyResult(
         session_id=data.session_id,
+        round_id=round_.id,
         type=FluencyType.oral,
         reading_time_seconds=data.reading_time_seconds,
-        total_syllables=data.total_syllables,
-        error_count=data.error_count,
-        automaticity_score=round(automaticity, 2),
-        accuracy_score=round(accuracy, 4),
-        raw_data=data.raw_data,
+        total_syllables=a.total_syllables,
+        error_count=a.error_count,
+        automaticity_score=a.automaticity_score,
+        accuracy_score=a.accuracy_score,
+        raw_data=raw,
     )
     db.add(result)
     await db.commit()

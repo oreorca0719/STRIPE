@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -125,10 +125,19 @@ class RoundResponse(BaseModel):
 
 # ---- 유창성 (기존 유지) ---------------------------------------------------
 class OralFluencySubmit(BaseModel):
+    """음독 유창성 제출 (B안 — 타이머 자동 + 오류 수 감독자 입력).
+
+    total_syllables 를 받지 않는다. 지문의 음절 수는 서버가 알고 있고,
+    클라이언트가 보낸 값을 그대로 믿으면 분모를 조작해 정확도를 올릴 수 있다.
+    round_id 로 지문을 찾아 서버가 센다.
+    """
     session_id: int
-    reading_time_seconds: float
-    total_syllables: int
-    error_count: int
+    round_id: int                                # 어느 지문을 읽었는지
+    reading_time_seconds: float = Field(gt=0)
+    # 감독자가 센 총 오류 수. 도메인 §2-1 의 두 공식은 이 값 하나만 요구한다
+    # (유형별 분해는 공식에 들어가지 않는다).
+    error_count: int = Field(ge=0)
+    transcript: Optional[str] = None             # STT 를 돌렸다면 함께 남긴다
     raw_data: Optional[dict] = None
 
 
@@ -146,6 +155,11 @@ class FluencyResultResponse(BaseModel):
     automaticity_score: Optional[float]
     accuracy_score: Optional[float]
     silent_reading_time: Optional[float]
+    # 음독 B안에서 감독자가 '몇 음절 중 몇 개'를 확인할 수 있어야 한다.
+    # 분모를 서버가 셌으므로 그 값을 돌려주어 눈으로 대조하게 한다.
+    total_syllables: Optional[int] = None
+    error_count: Optional[int] = None
+    reading_time_seconds: Optional[float] = None
     created_at: datetime
 
     class Config:
