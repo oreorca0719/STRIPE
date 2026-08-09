@@ -17,6 +17,7 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.models.user import User
 from app.services.stt import ClovaSTTAdapter, MockSTTAdapter
+from app.services.stt import vad as vad_svc
 from app.services.stt.analyzer import analyze_oral_reading, syllables_per_second
 
 # 라우터 전체에 인증을 건다. 개별 엔드포인트에서 빠뜨릴 여지를 없앤다.
@@ -103,3 +104,51 @@ async def stt_health():
     """STT 연결 상태. 관리자 화면의 시스템 점검용."""
     healthy = await get_stt_adapter().health_check()
     return {"status": "ok" if healthy else "unavailable", "adapter": adapter_name()}
+
+
+@router.post("/timing")
+async def measure_reading_time(
+    audio: UploadFile = File(..., description="녹음 파일 (WAV/WebM)"),
+    user: User = Depends(get_current_user),
+):
+    """녹음에서 실제 발화 구간을 재고 **음성은 즉시 버린다**.
+
+    [왜 별도 엔드포인트인가]
+    소요시간만 필요할 때 전사(STT)를 돌릴 이유가 없다. 전사는 외부 API 를 타고
+    비용이 들지만, 발화 구간은 로컬에서 2MB 모델로 끝난다. B안(타이머 자동 +
+    오류 수 감독자 입력)에서 자동화하는 부분이 정확히 이것이다.
+
+    [음성을 저장하지 않는다]
+    바이트는 메모리에서 처리하고 숫자만 돌려준다. 아동 음성은 민감정보이고,
+    기술설계 §2-5 의 기본 방침이 '처리 후 즉시 폐기'다. 보관이 필요해지면
+    별도 동의와 방침 갱신이 선행되어야 한다(STR-86).
+
+    [VAD 가 없으면]
+    ML 런타임이 없는 환경에서는 available=false 로 돌려준다. 그때는 화면이
+    측정한 버튼 간격을 쓰게 되고, 그 사실이 결과에 남는다.
+    """
+    if not (audio.content_type or "").startswith(ALLOWED_PREFIXES + ("video/webm",)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="오디오 파일만 업로드할 수 있습니다.")
+
+    raw = await audio.read()
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="파일 크기는 10MB 이하여야 합니다.")
+
+    if not vad_svc.available():
+        return {"available": False,
+                "reason": "VAD 런타임 또는 모델이 없습니다. 화면 측정 시간을 사용하세요."}
+
+    try:
+        result = vad_svc.detect(raw)
+    except Exception as e:                      # 형식 오류·손상 파일
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"오디오를 읽지 못했습니다: {e}")
+
+    if result is None or not result.segments:
+        # 녹음은 됐는데 발화가 없다. 마이크가 안 잡혔거나 아이가 읽지 않았다.
+        return {"available": True, "speech_detected": False,
+                "reason": "발화가 감지되지 않았습니다. 다시 녹음해 주세요."}
+
+    return {"available": True, "speech_detected": True, **result.to_dict()}

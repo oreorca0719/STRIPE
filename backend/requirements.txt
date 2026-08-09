@@ -20,3 +20,9 @@ redis==5.0.1
 pytest==8.0.0
 aiosqlite==0.19.0   # 계정 운영 엔드포인트 단위 테스트용 (Postgres 없이 users 테이블만 생성)
 # build trigger
+
+# 음독 발화 구간 검출 (STR-83). silero-vad ONNX 를 CPU 로 돌린다.
+# torch 를 끌어오지 않아 이미지가 가볍고, 음성이 서버 밖으로 나가지 않는다.
+# 둘 다 선택적 의존성 — 없으면 VAD 가 비활성이고 화면 측정 시간을 쓴다.
+onnxruntime==1.28.0
+soundfile==0.14.0
