@@ -101,7 +101,10 @@ def available() -> bool:
         import numpy  # noqa: F401
         import onnxruntime  # noqa: F401
         import soundfile  # noqa: F401
-    except ImportError:
+    except Exception:
+        # ImportError 만 잡으면 안 된다. soundfile 은 시스템 라이브러리
+        # (libsndfile)가 없을 때 OSError 를 던지는데, 그건 slim 이미지에
+        # 기본 포함되지 않는다. 여기서 새면 엔드포인트가 500 을 낸다.
         return False
     return True
 
