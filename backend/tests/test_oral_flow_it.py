@@ -245,3 +245,58 @@ def test_음독_저장이_묵독_판정을_건드리지_않는다():
             rows = (await db.execute(select(FluencyResult))).scalars().all()
             assert len(rows) == 1 and rows[0].type == FluencyType.oral
     _run(go)
+
+
+# ── 화면 이탈·복귀 기록 (STR-79) ─────────────────────────────────────────
+
+def test_이탈_이벤트가_묵독_기록에_남는다():
+    """문준석 요청 — '나중에 넣으면 이미 수집된 데이터에는 적용할 수 없다'.
+    보정하지 않고 원본과 집계를 남기는 것이 계약이다."""
+    async def go():
+        s = await _seed()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            r = await ac.post("/api/diagnosis/fluency/silent", json={
+                "session_id": s["sid"], "round_id": s["rid"],
+                "silent_reading_time": 100.0,
+                "away_events": [
+                    {"type": "hidden", "at_ms": 10_000},
+                    {"type": "visible", "at_ms": 25_000},     # 15초 이탈
+                ],
+            })
+            assert r.status_code == 201, r.text
+
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(FluencyResult).where(FluencyResult.type == FluencyType.silent)
+            )).scalar_one()
+            a = row.raw_data["attention"]
+            assert a["away_count"] == 1
+            assert a["away_total_ms"] == 15_000
+            assert a["notice"] is True                    # 15/100 > 10%
+            # 원본이 남아야 어떤 보정 방식이든 나중에 다시 계산된다
+            assert a["spans"][0]["duration_ms"] == 15_000
+            assert len(a["events"]) == 2
+            # A4 는 보정하지 않은 원래 시간으로 산출된다
+            assert row.silent_reading_time == 100.0
+    _run(go)
+
+
+def test_이탈_이벤트를_안_보내도_저장된다():
+    """구버전 화면 호환. 이 필드가 없다고 진단이 막히면 안 된다."""
+    async def go():
+        s = await _seed()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            r = await ac.post("/api/diagnosis/fluency/silent", json={
+                "session_id": s["sid"], "round_id": s["rid"],
+                "silent_reading_time": 60.0,
+            })
+            assert r.status_code == 201, r.text
+
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                select(FluencyResult).where(FluencyResult.type == FluencyType.silent)
+            )).scalar_one()
+            assert row.raw_data["attention"]["away_count"] == 0
+    _run(go)

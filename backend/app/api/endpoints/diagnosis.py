@@ -24,6 +24,7 @@ from app.schemas.diagnosis import (
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
+from app.services.diagnosis import attention as attention_svc
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
 from app.services.stt import analyzer as oral_analyzer
 from app.services.survey import definition as D
@@ -664,6 +665,10 @@ async def submit_silent_fluency(
         if row and row[0]:
             a4 = round(row[0] / data.silent_reading_time, 3)
 
+    # 화면 이탈·복귀 기록 (STR-79). 보정은 하지 않고 원본과 집계를 남긴다 —
+    # 얼마를 빼는 것이 맞는지는 기획·파일럿으로 정할 문제다.
+    attention = attention_svc.summarize(data.away_events, data.silent_reading_time)
+
     result = FluencyResult(
         session_id=data.session_id,
         round_id=data.round_id,
@@ -671,6 +676,7 @@ async def submit_silent_fluency(
         silent_reading_time=data.silent_reading_time,
         a4_syllable_per_sec=a4,
         comprehension_check_score=data.comprehension_check_score,
+        raw_data={"attention": attention},
     )
     db.add(result)
     await db.commit()

@@ -460,9 +460,44 @@ async function loadRound(roundId: number) {
   if (round.roundId !== null) await restoreUnsavedBackup(round.roundId)
 }
 
+// ── 화면 이탈·복귀 기록 (STR-79) ──────────────────────────────────────────
+// 읽는 도중 다른 탭으로 갔다 오면 그 시간이 읽기 시간에 그대로 섞인다.
+// 나중에 빼내려면 '언제 나갔다 언제 돌아왔는지'가 있어야 하는데, 그 기록은
+// 미리 남겨두지 않으면 만들 수 없다. 그래서 지금부터 남긴다.
+//
+// 보정은 서버에서도 하지 않는다 — 원본만 남기고 얼마를 뺄지는 나중에 정한다.
+const awayEvents = ref<{ type: 'hidden' | 'visible'; at_ms: number }[]>([])
+let readingStartedAt = 0
+
+function markAway(type: 'hidden' | 'visible') {
+  // 읽기 중이 아닐 때의 탭 전환은 읽기 시간과 무관하다
+  if (!timerRunning.value || !readingStartedAt) return
+  awayEvents.value.push({ type, at_ms: Date.now() - readingStartedAt })
+}
+
+function onVisibility() {
+  markAway(document.hidden ? 'hidden' : 'visible')
+}
+// blur/focus 는 창 자체를 벗어난 경우(다른 앱 전환)를 잡는다.
+// visibilitychange 와 겹칠 수 있으나 서버가 중복 hidden 을 걸러낸다.
+function onBlur() { markAway('hidden') }
+function onFocus() { markAway('visible') }
+
 function startReading() {
   timerRunning.value = true; timerSeconds.value = 0
+  readingStartedAt = Date.now()
+  awayEvents.value = []
+  document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('blur', onBlur)
+  window.addEventListener('focus', onFocus)
   timerInterval = setInterval(() => timerSeconds.value++, 1000)
+}
+
+function stopAwayTracking() {
+  document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('blur', onBlur)
+  window.removeEventListener('focus', onFocus)
+  readingStartedAt = 0
 }
 
 // 지문을 실제로 읽었다고 보기 어려운 속도면 되묻는다.
@@ -481,6 +516,7 @@ async function stopReading() {
     tooFastWarned.value = true
     timerRunning.value = false
     if (timerInterval) clearInterval(timerInterval)
+    stopAwayTracking()
     tooFastWarning.value = '너무 빨라요! 글을 끝까지 읽었는지 확인하고 다시 읽어줘 📖'
     timerSeconds.value = 0
     return
@@ -488,6 +524,7 @@ async function stopReading() {
 
   if (timerInterval) clearInterval(timerInterval)
   timerRunning.value = false
+  stopAwayTracking()
   hasRead.value = true
   tooFastWarning.value = ''
   silentSeconds.value = elapsed
@@ -503,6 +540,7 @@ async function sendSilentReading() {
   try {
     await api.post('/api/diagnosis/fluency/silent', {
       session_id: sessionId.value, silent_reading_time: silentSeconds.value, round_id: round.roundId,
+      away_events: awayEvents.value,
     })
     phase.value = 'questions'
   } catch (e: any) {

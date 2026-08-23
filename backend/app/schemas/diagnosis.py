@@ -146,6 +146,10 @@ class SilentFluencySubmit(BaseModel):
     silent_reading_time: float
     round_id: Optional[int] = None              # 주어지면 A4(음절/초) 산출
     comprehension_check_score: Optional[float] = None
+    # 읽는 동안의 화면 이탈·복귀 (STR-79). [{"type":"hidden"|"visible","at_ms":n}]
+    # 이탈 시간이 읽기 시간에 섞이는데, 나중에 빼내려면 이 기록이 있어야 한다.
+    # 미리 남기지 않으면 만들 수 없어 지금부터 받는다.
+    away_events: Optional[List[dict]] = None
 
 
 class FluencyResultResponse(BaseModel):
