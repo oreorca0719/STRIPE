@@ -32,6 +32,32 @@ class Settings(BaseSettings):
     # 전부 응시 불가가 된다. 파일럿 시작 시점에 동의 기록을 넣고 켤 것.
     REQUIRE_PILOT_CONSENT: bool = False
 
+    # ── 법정 기재 사항 (STR-86) ──────────────────────────────────────────
+    # 방침·약관·동의서에 들어가는 값들이다. 문안에 직접 적지 않고 여기에 두는
+    # 이유: PM 확정이 MVP1 완결 시점으로 미뤄져 있고(문준석 2026-07-31),
+    # 확정되면 문서 세 개를 손으로 고치는 대신 값만 넣고 배포하면 되게 한다.
+    #
+    # 빈 문자열 = 미확정. 화면·API 는 빈 값을 "(지정 필요)" 로 표시하고,
+    # 방침 게시 가능 여부를 판단하는 근거로 쓴다.
+    ORG_NAME: str = ""              # 서비스 운영 주체 (사업자명·단체명)
+    ORG_REPRESENTATIVE: str = ""    # 대표자
+    ORG_ADDRESS: str = ""           # 소재지
+    ORG_REG_NO: str = ""            # 사업자등록번호 (있는 경우)
+
+    PRIVACY_OFFICER_NAME: str = ""      # 개인정보 보호책임자 성명
+    PRIVACY_OFFICER_TITLE: str = ""     # 직책
+    PRIVACY_OFFICER_EMAIL: str = ""     # 열람·삭제 요구를 받는 창구
+    PRIVACY_OFFICER_PHONE: str = ""
+
+    POLICY_ANNOUNCED_ON: str = ""   # 공고일 YYYY-MM-DD
+    POLICY_EFFECTIVE_ON: str = ""   # 시행일. 공고일 + 7일 이상, 파일럿 시작 이전
+
+    # 파일럿 기간 — 종료일이 보관기간(6개월)의 기산점이다.
+    # 종료일이 없으면 "언제 파기하는가" 를 확정할 수 없다. STR-79 에서 확정.
+    PILOT_START_ON: str = ""        # YYYY-MM-DD
+    PILOT_END_ON: str = ""          # YYYY-MM-DD
+    RETENTION_MONTHS: int = 6       # 파일럿 종료일 + N개월
+
     class Config:
         env_file = ".env"
         case_sensitive = True

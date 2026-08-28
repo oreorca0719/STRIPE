@@ -15,6 +15,7 @@ from app.models.core import (
 )
 from app.schemas.user import UserResponse
 from app.api.deps import require_admin
+from app.services import legal as _legal
 
 # 관리자 전용 — 모든 엔드포인트에 관리자 인증 요구
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -357,12 +358,17 @@ async def get_system(db: AsyncSession = Depends(get_db)):
             "migration": migration,
         },
         "deployment": {
-            "platform": "AWS EC2 (t3.small, ap-northeast-1)",
+            # 서울(ap-northeast-2)이다. 아동 개인정보의 국외 이전을 피하기 위해
+            # 도쿄에서 옮겼다(STR-94). 표기가 도쿄로 남아 있던 것을 정정한다.
+            "platform": "AWS EC2 (t3.small, ap-northeast-2 서울)",
             "runtime": "Docker Compose — caddy · frontend(nginx) · backend(FastAPI) · postgres",
             "tls": "Let's Encrypt (Caddy 자동 발급·갱신)",
             "cicd": "GitHub Actions — test · build · SSH 배포",
             "backup": "매일 03:00 UTC · pg_dump → S3 (30일 보관)",
         },
+        # 법정 기재 사항 (STR-86). 미확정 항목이 무엇인지 화면에서 바로 보이게
+        # 한다 — 방침 게시·법률 자문·파일럿 착수가 이 값들에 걸려 있다.
+        "legal": _legal.legal_info().__dict__,
     }
 
 
