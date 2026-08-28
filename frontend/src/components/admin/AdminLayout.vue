@@ -226,4 +226,50 @@ function handleLogout() {
   padding: 2rem;
   background: #0f1117;
 }
+
+/* ── 좁은 화면 대응 ─────────────────────────────────────────────────────
+   원인 두 가지가 겹쳐 375px 에서 문서 폭이 1600px 까지 벌어졌다.
+
+   ① .admin-main 이 flex 아이템인데 min-width 기본값이 auto 라, 내부 표가
+      최소폭(860px)을 요구하면 축소되지 않고 그대로 밀어낸다.
+      → min-width: 0 을 줘야 flex 아이템이 실제로 줄어든다.
+   ② 사이드바 240px 고정 + margin-left 240px. 375px 에서 콘텐츠에 135px 만
+      남는다.
+
+   관리자 화면은 표 중심이라 좁은 폭에서 완전히 쓰기는 어렵다. 다만 파일럿
+   현장에서 태블릿으로 진행 현황을 확인하는 상황은 있을 수 있어, 최소한
+   '가로 스크롤로 화면이 깨지는' 상태는 없앤다. 표 자체는 각 화면의
+   .table-wrap(overflow-x: auto)이 처리한다.                              */
+.admin-main { min-width: 0; }
+.admin-content { min-width: 0; }
+
+@media (max-width: 900px) {
+  /* 사이드바를 아이콘만 남긴 좁은 바로 줄인다 — 화면 전환은 유지된다.
+     메뉴 이름은 title 속성으로 남겨 hover 시 확인할 수 있다. */
+  .sidebar { width: 60px; padding: 1rem 0; }
+  .sidebar-logo { padding: 0 0 1rem; justify-content: center; gap: 0; }
+  .sidebar-logo > div { display: none; }          /* 로고 텍스트(STRIPE·관리자) */
+  .logo-icon { font-size: 1.5rem; }
+
+  .sidebar-nav { padding: 0 0.4rem; }
+  .nav-item { justify-content: center; padding: 0.7rem 0; gap: 0; }
+  .nav-item > span:not(.nav-icon) { display: none; }   /* 메뉴 이름 */
+  .nav-icon { width: auto; }
+
+  .sidebar-footer { padding: 0.8rem 0.4rem 0; }
+  .student-btn, .logout-btn { padding: 0.55rem 0; justify-content: center; gap: 0; }
+  .student-btn { font-size: 0; }                  /* 이모지만 남긴다 */
+  .student-btn span, .logout-btn span { font-size: 1rem; }
+  .logout-btn { font-size: 0; }
+
+  .admin-main { margin-left: 60px; }
+
+  .admin-header { padding: 0.8rem 1rem; }
+  .admin-content { padding: 1rem 0.75rem; }
+}
+
+@media (max-width: 560px) {
+  .admin-content { padding: 0.75rem 0.5rem; }
+  .admin-header { padding: 0.7rem 0.75rem; }
+}
 </style>

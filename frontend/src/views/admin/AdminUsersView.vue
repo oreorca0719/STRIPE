@@ -711,4 +711,15 @@ function handleLogout() { router.push('/login') }
   display: flex; align-items: center; justify-content: center;
 }
 .page-info { color: #555; font-size: 0.85rem; font-weight: 700; }
+
+/* 좁은 화면 — 툴바가 한 줄에 고정돼 있어 768px 에서 가로 스크롤이 났다.
+   검색창 280px + 버튼 2개가 탭과 같은 줄을 차지한다. 줄바꿈을 허용하고
+   검색창을 남는 폭만큼 늘어나게 둔다. */
+@media (max-width: 900px) {
+  .toolbar { flex-wrap: wrap; padding: 0.9rem 1rem; gap: 0.7rem; }
+  .tabs { flex-wrap: wrap; }
+  .search-bar { width: 100%; }
+  .search-bar input { width: auto; flex: 1; min-width: 0; }
+  .modal { max-width: 100%; }
+}
 </style>
