@@ -119,8 +119,11 @@
           <p v-if="tooFastWarning" class="too-fast">{{ tooFastWarning }}</p>
 
           <div class="timer-area">
-            <div class="timer" :class="{ running: timerRunning }">
-              <span class="timer-dot" v-if="timerRunning"></span>⏱ {{ timerDisplay }}
+            <!-- 경과 시간은 화면을 못 보는 학생에게도 전달돼야 한다.
+                 매초 읽어주면 방해가 되므로 polite 로 둔다. -->
+            <div class="timer" :class="{ running: timerRunning }"
+                 role="timer" aria-live="polite" :aria-label="`경과 시간 ${timerDisplay}`">
+              <span class="timer-dot" v-if="timerRunning" aria-hidden="true"></span>⏱ {{ timerDisplay }}
             </div>
             <button v-if="!timerRunning" class="btn-primary btn-lg" @click="startReading">
               {{ hasRead ? '다시 읽기' : '읽기 시작' }}
@@ -131,14 +134,27 @@
           </div>
         </div>
 
-        <!-- 독해 문항 -->
+        <!-- 독해 문항
+             [지문을 다시 보여주지 않는다 — 의도된 설계]
+             묵독은 "한 번에 얼마나 빠르고 정확하게 읽는가"를 재는 것이다.
+             문항을 풀며 지문을 되돌아볼 수 있으면 읽기 능력이 아니라 검색
+             능력을 재게 되고, 무엇보다 A4(읽기 속도)와 정답률의 연결이 끊긴다
+             — 대충 빨리 읽고 문항에서 찾으면 되기 때문이다. 그러면 유창성×독해
+             매트릭스 판정 자체가 성립하지 않는다.
+             도메인 문서 §2-1 묵독 유창성의 '이해' 측정도 "지문 없이 독해 문항
+             응답"으로 정의돼 있다.
+             학생이 불편해한다는 이유로 지문을 붙이지 말 것. -->
         <div v-else-if="phase === 'questions'" class="step-content questions">
           <h2>이제 문제를 풀어볼까?</h2>
           <p class="guide">방금 읽은 글을 생각하며 답을 골라줘!</p>
 
           <!-- 답한 문항 진행률 -->
           <div class="answer-progress">
-            <div class="ap-bar"><div class="ap-fill" :style="{ width: answeredPct + '%' }"></div></div>
+            <div class="ap-bar" role="progressbar" :aria-valuenow="answeredCount"
+                 :aria-valuemin="0" :aria-valuemax="round.questions.length"
+                 :aria-label="`${round.questions.length}문제 중 ${answeredCount}문제 완료`">
+              <div class="ap-fill" :style="{ width: answeredPct + '%' }"></div>
+            </div>
             <span class="ap-label">{{ answeredCount }} / {{ round.questions.length }} 문제 완료</span>
           </div>
 
@@ -851,4 +867,52 @@ p { color: var(--gray); line-height: 1.6; }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-stop { background: var(--coral); color: white; border: none; padding: 0.9rem 2.5rem; border-radius: 99px; font-size: 1rem; font-weight: 800; }
 .btn-stop:disabled { opacity: 0.6; }
+
+/* ── 좁은 화면 대응 ─────────────────────────────────────────────────────
+   패딩이 main(2rem) + card(2.5rem) + text-box(2.2rem) 세 겹으로 쌓여 있어
+   375px 기기에서 지문 폭이 231px(한 줄 약 10글자)까지 좁아졌다.
+   줄바꿈이 과도하면 안구 이동이 늘어 A4(읽기 속도)가 실제보다 느리게 나온다 —
+   화면 폭이 측정값을 바꾸므로 가독성이 아니라 측정 타당도 문제다.        */
+@media (max-width: 640px) {
+  .main { padding: 1rem 0.75rem; }
+  .page-header { margin-bottom: 1.2rem; }
+  .page-header h1 { font-size: 1.35rem; }
+  .page-header p { font-size: 0.85rem; }
+
+  .steps-bar { padding: 0.9rem 0.6rem; margin-bottom: 1rem; }
+  .step-dot { width: 30px; height: 30px; font-size: 0.8rem; }
+  .step-label { font-size: 0.68rem; }
+
+  .diagnosis-card { padding: 1.2rem 0.9rem; min-height: 0; }
+
+  /* 지문은 폭을 최대한 준다. 좌측 강조선도 6px → 4px */
+  .text-box { padding: 1.2rem 1rem; border-left-width: 4px; }
+  .reading-text { line-height: 1.95; }
+
+  .timer { font-size: 1.9rem; }
+  .btn-lg { padding: 0.95rem 2rem; font-size: 1rem; width: 100%; }
+  .btn-primary, .btn-stop { width: 100%; padding: 0.95rem 1.5rem; }
+
+  .question-card { padding: 1.1rem 0.9rem; }
+  .option { padding: 0.85rem 0.9rem; }
+  .font-ctl { flex-wrap: wrap; justify-content: center; }
+}
+
+/* 아주 좁은 기기(iPhone SE 등) — 여백을 한 번 더 줄인다 */
+@media (max-width: 380px) {
+  .main { padding: 0.75rem 0.5rem; }
+  .diagnosis-card { padding: 1rem 0.7rem; }
+  .text-box { padding: 1rem 0.8rem; }
+}
+
+/* ── 읽기 시작·종료 버튼 고정 ───────────────────────────────────────────
+   지문이 길면 버튼이 화면 밖으로 밀린다(1280x720 에서 top 1186px).
+   학생이 스크롤해 버튼을 찾는 동안 타이머는 이미 돌고 있거나(종료 시),
+   아직 시작하지 않아 대기한다. 어느 쪽이든 측정에 잡음이 섞인다.
+   읽기 단계에서만 하단에 고정한다.                                      */
+.reading .timer-area {
+  position: sticky; bottom: 0; z-index: 5;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), var(--white) 28%);
+  padding: 1rem 0 0.6rem; margin-top: -0.5rem; width: 100%;
+}
 </style>
