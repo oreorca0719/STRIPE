@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.models.user import User
 from app.services.stt import ClovaSTTAdapter, MockSTTAdapter
 from app.services.stt import vad as vad_svc
-from app.services.stt.analyzer import analyze_oral_reading, syllables_per_second
+from app.services.stt.analyzer import analyze_oral_reading, SCORING_RULE_VERSION
 
 # 라우터 전체에 인증을 건다. 개별 엔드포인트에서 빠뜨릴 여지를 없앤다.
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -67,32 +67,37 @@ async def transcribe_oral_reading(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
                             detail=f"STT 오류: {stt.error}")
 
-    a = analyze_oral_reading(original_text, stt.transcript, reading_time_seconds)
+    # 계약의 scored_time_ms 는 recording_start~end(버튼·타임아웃 기준)다.
+    # VAD 로 잰 발화 구간으로 대체하지 않는다 — 계약이 금지한다.
+    a = analyze_oral_reading(
+        original_text, stt.transcript,
+        scored_time_ms=int(round(reading_time_seconds * 1000)),
+    )
 
+    # 계약 필드명을 그대로 낸다. unscorable 이면 A1/A2 는 null 이며
+    # 0 으로 채우지 않는다 — "측정 못 함"과 "0점"은 다른 의미다.
     return {
         "transcript": stt.transcript,
         "confidence": stt.confidence,
         "duration_seconds": stt.duration_seconds,
+        "score_status": a.score_status,
+        "score_unavailable_reason": a.score_unavailable_reason,
+        "scoring_rule_version": SCORING_RULE_VERSION,
         "analysis": {
-            "automaticity_score": a.automaticity_score,     # 10초당 정확 음절
-            "syllables_per_second": syllables_per_second(a),  # 묵독 A4 와 같은 척도
-            "accuracy_score": a.accuracy_score,
-            "error_count": a.error_count,
-            "total_syllables": a.total_syllables,
-            "accurate_syllables": a.accurate_syllables,
-            # 유형 분해는 부가 정보. 도메인 공식은 총 오류 수만 쓴다.
-            "substitutions": a.substitutions,
-            "deletions": a.deletions,
-            "insertions": a.insertions,
-            # 반복·자기교정은 상용 STT 가 전사에서 지운다. 0 건이 아니라 미측정.
-            "disfluency_detectable": a.disfluency_detectable,
-            "eojeol_total": a.eojeol_total,
-            "eojeol_errors": a.eojeol_errors,
+            "A1_correct_syllables_per_minute": a.a1_correct_syllables_per_minute,
+            "A2_target_syllable_accuracy": a.a2_target_syllable_accuracy,
+            "scored_M": a.scored_m, "scored_S": a.scored_s,
+            "scored_D": a.scored_d, "scored_I": a.scored_i,
+            "oral_syllable_count": a.oral_syllable_count,       # attempted = M+S+D
+            "text_syllable_count": a.text_syllable_count,
+            "scored_time_ms": a.scored_time_ms,
+            "continuation_source_offset": a.continuation_source_offset,
+            # 위치 배열은 계산 가능성만 제공한다. 오독 유형을 단정하지 않는다.
+            "alignment_deviations": a.alignment_deviations,
         },
         "quality": {
+            "quality_gate": a.quality_gate,                     # usable|retry|unusable
             "transcript_length_ratio": a.transcript_length_ratio,
-            "stt_quality_flag": a.stt_quality_flag,
-            "usable": a.usable,
             "notes": a.notes,
         },
         "stt_adapter": adapter_name(),

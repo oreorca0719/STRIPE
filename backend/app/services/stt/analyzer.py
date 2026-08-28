@@ -1,32 +1,41 @@
 """음독 오류 분석 — 참조 텍스트와 발화 전사의 정렬 기반 대조.
 
-[이전 구현의 결함]
-음절 '개수'만 비교했다. 그래서 같은 길이의 아무 말이나 하면 정확도 1.000 이
-나왔다 — 대치를 한 건도 잡지 못했다. 과제를 수행하지 않고도 만점이 나오는
-측정이라, 정답 위치 편향·선지 길이 편향과 같은 계열의 결함이었다.
+[산식 정본 — 음독 개발전달 패키지 v1.0 전역 불변조건]
+    A1 = scored_M ÷ (scored_time_ms / 60000)          음절/분
+    A2 = scored_M ÷ (scored_M + scored_S + scored_D)  insertion 제외
+여기서 M=일치, S=대치, D=생략, I=첨가다.
 
-[무엇을 재는가]
-도메인 문서 §2-1 의 두 공식이 요구하는 것은 **총 오류 수 하나**다.
-    자동성 = (정확 음절 수 ÷ 소요시간) × 10
-    정확성 = (생략 + 대치 + 첨가 + 반복 + 수정 총 오류 수) ÷ 총 음절 수
-유형별 분해는 두 공식 어디에도 들어가지 않는다. 그래서 이 모듈의 1차 산출은
-총 오류 수이고, 유형 분해는 부가 정보로만 낸다.
+[A2 의 분모에서 insertion 을 빼는 이유]
+첨가는 원문에 없는 것을 더 말한 것이라 '원문의 어느 음절을 맞혔나'를 재는
+분모에 들어갈 자리가 없다. 분모는 학생이 읽어내야 했던 음절(M+S+D)이고,
+이 값은 attempted(시도한 원문 구간 길이)와 같다.
+이전 구현은 (총음절 − 오류)/총음절 로 계산해 첨가를 감점에 포함했고,
+그만큼 정확도가 실제보다 낮게 나왔다.
 
-[반복·자기교정은 못 잡는다]
-상용 STT 는 말더듬·반복·자기교정을 지우고 정제된 문장을 내놓는다. 전사에
-남지 않는 것은 정렬로도 복원되지 않는다. 이 두 유형은 0 으로 두고
-`disfluency_detectable=False` 로 명시한다 — 0 건인 것과 못 재는 것은 다르다.
+[A1 단위는 분당이다]
+이전 구현은 10초당(×10)이었다. 도메인 문서의 서술과 계약이 갈렸던 지점이며,
+계약이 CWPM(분당)으로 확정했다. 6배 차이라 경계값(P33/P67)과 직접 어긋난다.
 
-[단위가 두 가지다 — 기획 확인 필요]
-사람이 세는 미스큐는 보통 어절/낱말 단위이고, 도메인 공식의 분모는 음절이다.
-둘을 섞으면 감독자 입력값(B안)과 자동 산출값(A안)이 비교되지 않는다.
-그래서 음절 기준과 어절 기준을 모두 낸다.
+[오독 유형 자동 분류는 하지 않는다 — 신설 금지]
+계약이 alignment_deviations(S/D/I)를 '계산 가능성만 제공'으로 한정한다.
+학습자의 실제 오독 여부·유형(왜곡·억양·자기교정 등) 자동 판정과 7유형
+분류는 미지원이며 신설하지 않는다. 반복·자기교정은 상용 STT 가 전사에서
+지우므로 정렬로도 복원되지 않는다 — 0 건인 것과 못 재는 것은 다르다.
+
+[unscorable 은 0 이 아니다]
+채점이 성립하지 않으면 A1/A2 는 null 이다. 0 이나 clamp 로 대체하지 않는다.
+"측정하지 못함"과 "0점"은 다른 의미이고, 후자로 바꾸면 기술 실패가 학생의
+능력 부족으로 읽힌다.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import List, Optional
+
+# 채점 규칙 판본. 산식·게이트가 바뀌면 올린다 — 과거 레코드가 어느 규칙으로
+# 계산됐는지 남아야 파일럿 데이터를 나중에 재해석할 수 있다(계약: lineage).
+SCORING_RULE_VERSION = "oral-2026.08.28"
 
 # 전사 길이가 원문 대비 이 범위를 벗어나면 판정에 쓰지 않는다.
 # 묵독 A4 타당성 게이트(STR-62)와 같은 취지 — 미독·중단·오인식을 걸러낸다.
@@ -53,76 +62,113 @@ def eojeols(text: str) -> List[str]:
 
 @dataclass
 class OralReadingAnalysis:
-    # 도메인 공식 산출값
-    automaticity_score: float      # 10초당 정확 음절 수
-    accuracy_score: float          # 1 − 오류율
-    error_count: int               # 총 오류 (음절 기준)
-    total_syllables: int
-    accurate_syllables: int
-    reading_time_seconds: float
+    """계약 필드명을 그대로 쓴다 — 스키마·리포트와 이름이 갈리면 대조가 어렵다."""
 
-    # 유형 분해 (부가 정보). 반복·자기교정은 구조적으로 탐지 불가.
-    substitutions: int = 0
-    deletions: int = 0
-    insertions: int = 0
-    repetitions: int = 0
-    self_corrections: int = 0
-    disfluency_detectable: bool = False
+    # 채점 성립 여부. unscorable 이면 A1/A2 는 None 이다(0 아님).
+    score_status: str                       # scored | unscorable
+    score_unavailable_reason: Optional[str] = None
 
-    # 어절 기준 — 사람이 세는 단위와 맞추기 위한 병행 산출
-    eojeol_total: int = 0
-    eojeol_errors: int = 0
+    # 산출값 — 계약 산식
+    a1_correct_syllables_per_minute: Optional[float] = None   # M ÷ (ms/60000)
+    a2_target_syllable_accuracy: Optional[float] = None       # M ÷ (M+S+D)
 
-    # 품질 게이트
+    # 정렬 카운트. attempted = M+S+D = 학생이 읽어내야 했던 원문 구간
+    scored_m: Optional[int] = None
+    scored_s: Optional[int] = None
+    scored_d: Optional[int] = None
+    scored_i: Optional[int] = None
+    oral_syllable_count: Optional[int] = None    # attempted. 정렬 전이면 None
+
+    # 위치 배열 — 계산 가능성만 제공. 오독 유형 자동 단정 금지.
+    alignment_deviations: dict = field(default_factory=dict)
+
+    # 묵독 이어읽기 시작점. 정렬이 소비한 접두부 끝.
+    continuation_source_offset: Optional[int] = None
+
+    scored_time_ms: Optional[int] = None     # recording_start~end (버튼 기준)
+    text_syllable_count: int = 0
+
+    # 품질 게이트 — "이 STT 결과를 채점에 쓸 수 있는가"만 판정한다.
+    # 학생이 잘 읽었는가와는 다른 축이다.
+    quality_gate: str = "usable"             # usable | retry | unusable
     transcript_length_ratio: float = 0.0
-    stt_quality_flag: str = "pass"   # pass | low | fail
+
+    # 감독자가 직접 센 오류 수(B안). 자동 산출값과 나란히 보존해 대조한다.
+    supervisor_error_count: Optional[int] = None
+
     notes: List[str] = field(default_factory=list)
 
     @property
     def usable(self) -> bool:
-        """판정 입력으로 쓸 수 있는가."""
-        return self.stt_quality_flag != "fail"
+        return self.score_status == "scored"
 
 
 def _quality(ratio: float) -> str:
-    if ratio < LENGTH_RATIO_FAIL_LOW or ratio > LENGTH_RATIO_FAIL_HIGH:
-        return "fail"
-    if ratio < LENGTH_RATIO_LOW_LOW or ratio > LENGTH_RATIO_LOW_HIGH:
-        return "low"
-    return "pass"
+    """전사를 채점에 쓸 수 있는지만 본다.
 
-
-def _align_counts(ref: List[str], hyp: List[str]) -> tuple[int, int, int]:
-    """정렬해 (대치, 생략, 첨가) 개수를 센다.
-
-    difflib 의 opcode 를 쓴다. replace 구간은 길이가 다를 수 있으므로
-    겹치는 만큼을 대치로, 남는 쪽을 생략/첨가로 나눈다.
+    ★ 임계값은 잠정이다. 계약이 quality_gate 의 구체 임계값·신호를 기술
+    재량으로 열어 두었고(파일럿 PC-20 로 조정), 확정치가 아니다.
     """
-    sub = dele = ins = 0
+    if ratio < LENGTH_RATIO_FAIL_LOW or ratio > LENGTH_RATIO_FAIL_HIGH:
+        return "unusable"
+    if ratio < LENGTH_RATIO_LOW_LOW or ratio > LENGTH_RATIO_LOW_HIGH:
+        return "retry"
+    return "usable"
+
+
+def _align(ref: List[str], hyp: List[str]) -> dict:
+    """음절 정렬 → M/S/D/I 카운트와 위치.
+
+    difflib 의 opcode 를 쓴다. replace 구간은 길이가 다를 수 있으므로 겹치는
+    만큼을 대치로, 남는 쪽을 생략/첨가로 나눈다.
+
+    위치 배열은 원문 인덱스 기준이다(첨가만 전사 인덱스). 계약상 이 값은
+    '계산 가능성'일 뿐이며 오독 유형을 단정하는 데 쓰지 않는다.
+    """
+    m = sub = dele = ins = 0
+    pos_s: List[int] = []
+    pos_d: List[int] = []
+    pos_i: List[int] = []
+
     for tag, i1, i2, j1, j2 in SequenceMatcher(None, ref, hyp, autojunk=False).get_opcodes():
         r, h = i2 - i1, j2 - j1
-        if tag == "replace":
-            sub += min(r, h)
-            dele += max(0, r - h)
-            ins += max(0, h - r)
+        if tag == "equal":
+            m += r
+        elif tag == "replace":
+            k = min(r, h)
+            sub += k
+            pos_s.extend(range(i1, i1 + k))
+            if r > h:
+                dele += r - h
+                pos_d.extend(range(i1 + k, i2))
+            elif h > r:
+                ins += h - r
+                pos_i.extend(range(j1 + k, j2))
         elif tag == "delete":
             dele += r
+            pos_d.extend(range(i1, i2))
         elif tag == "insert":
             ins += h
-    return sub, dele, ins
+            pos_i.extend(range(j1, j2))
+
+    return {"m": m, "s": sub, "d": dele, "i": ins,
+            "deviations": {"S": pos_s, "D": pos_d, "I": pos_i}}
 
 
 def analyze_oral_reading(
     original_text: str,
     transcript: str,
-    reading_time_seconds: float,
-    error_count_override: Optional[int] = None,
+    scored_time_ms: int,
+    supervisor_error_count: Optional[int] = None,
 ) -> OralReadingAnalysis:
-    """참조 텍스트와 전사를 대조해 음독 유창성 지표를 산출한다.
+    """음독 채점. 계약(패키지 #1 L3)의 처리 순서를 따른다.
 
-    error_count_override 를 주면 그 값을 총 오류 수로 쓴다 — 감독자가 직접 센
-    경우(B안)다. 이때도 전사 기반 분해는 그대로 계산해 두어, 사람이 센 값과
-    자동 산출값을 나중에 대조할 수 있게 한다. 그 대조가 A안 타당성의 근거가 된다.
+    scored_time_ms 는 recording_start~recording_end(버튼·타임아웃 기준)다.
+    VAD 로 잰 실제 발화 구간으로 대체하지 않는다 — 계약이 명시적으로 금지한다.
+    VAD 는 quality_gate 내부 신호로만 쓸 수 있다.
+
+    supervisor_error_count 는 감독자가 직접 센 오류 수(B안)다. 자동 산출을
+    덮어쓰지 않고 나란히 보존한다. 그 대조가 A안 타당성의 근거가 된다.
     """
     ref = syllables(original_text)
     hyp = syllables(transcript)
@@ -130,57 +176,67 @@ def analyze_oral_reading(
     notes: List[str] = []
 
     ratio = (len(hyp) / total) if total else 0.0
-    flag = _quality(ratio)
-    if flag == "fail":
-        notes.append(f"전사 길이비 {ratio:.2f} — 판정에서 제외")
-    elif flag == "low":
+    gate = _quality(ratio)
+
+    def _unscorable(reason: str) -> OralReadingAnalysis:
+        """채점 불가. A1/A2 는 None 이다 — 0 이나 clamp 로 바꾸지 않는다.
+
+        정렬 전에 빠져나가므로 scored_M/S/D 는 미정의이고, 따라서
+        oral_syllable_count 도 None 이다(계약 F1 가드).
+        """
+        return OralReadingAnalysis(
+            score_status="unscorable",
+            score_unavailable_reason=reason,
+            text_syllable_count=total,
+            scored_time_ms=scored_time_ms,
+            quality_gate=gate,
+            transcript_length_ratio=round(ratio, 4),
+            supervisor_error_count=supervisor_error_count,
+            notes=notes,
+        )
+
+    # ④ empty transcript 가드 — 정렬 이전. 길이비 게이트보다 먼저 본다.
+    #    빈 전사는 길이비 0.0 이라 unusable 에도 걸리지만, 사유가 달라야 한다.
+    #    "인식 품질이 나빴다"와 "아무것도 안 들어왔다"는 후속 처리가 다르다.
+    if not hyp:
+        notes.append("전사가 비어 있음")
+        return _unscorable("empty_transcript_unresolved")
+
+    if total == 0:
+        notes.append("지문에 한글 음절이 없음")
+        return _unscorable("empty_transcript_unresolved")
+
+    # ③ 품질 게이트 — 채점에 쓸 수 있는가. 학생이 잘 읽었는가와 다른 축이다.
+    if gate == "unusable":
+        notes.append(f"전사 길이비 {ratio:.2f} — 채점 불가")
+        return _unscorable("stt_unusable")
+
+    # ⑤ 정렬
+    al = _align(ref, hyp)
+    m, sub, dele, ins = al["m"], al["s"], al["d"], al["i"]
+
+    # ⑥ 산식 — attempted = M+S+D (학생이 읽어내야 했던 원문 구간)
+    attempted = m + sub + dele
+    a1 = m / (scored_time_ms / 60000) if scored_time_ms > 0 else None
+    a2 = m / attempted if attempted else None
+
+    if gate == "retry":
         notes.append(f"전사 길이비 {ratio:.2f} — 신뢰도 낮음")
-
-    sub, dele, ins = _align_counts(ref, hyp)
-    auto_errors = sub + dele + ins
-
-    e_ref, e_hyp = eojeols(original_text), eojeols(transcript)
-    e_sub, e_del, e_ins = _align_counts(e_ref, e_hyp)
-
-    if error_count_override is not None:
-        errors = max(0, int(error_count_override))
-        notes.append(f"감독자 입력 {errors} (자동 산출 {auto_errors})")
-    else:
-        errors = auto_errors
-
-    # 오류가 총 음절 수를 넘으면 정확도가 음수가 된다. 그런 값은 지표로
-    # 의미가 없고 화면에도 낼 수 없으므로 0 에서 자른다.
-    accurate = max(0, total - errors)
-    automaticity = (accurate / reading_time_seconds) * 10 if reading_time_seconds > 0 else 0.0
-    accuracy = (accurate / total) if total else 0.0
+    if supervisor_error_count is not None:
+        notes.append(f"감독자 입력 {supervisor_error_count} (자동 S+D+I {sub+dele+ins})")
 
     return OralReadingAnalysis(
-        automaticity_score=round(automaticity, 2),
-        accuracy_score=round(accuracy, 4),
-        error_count=errors,
-        total_syllables=total,
-        accurate_syllables=accurate,
-        reading_time_seconds=reading_time_seconds,
-        substitutions=sub,
-        deletions=dele,
-        insertions=ins,
-        repetitions=0,
-        self_corrections=0,
-        disfluency_detectable=False,
-        eojeol_total=len(e_ref),
-        eojeol_errors=e_sub + e_del + e_ins,
+        score_status="scored",
+        a1_correct_syllables_per_minute=round(a1, 2) if a1 is not None else None,
+        a2_target_syllable_accuracy=round(a2, 4) if a2 is not None else None,
+        scored_m=m, scored_s=sub, scored_d=dele, scored_i=ins,
+        oral_syllable_count=attempted,
+        alignment_deviations=al["deviations"],
+        continuation_source_offset=attempted,   # 정렬이 소비한 접두부 끝
+        scored_time_ms=scored_time_ms,
+        text_syllable_count=total,
+        quality_gate=gate,
         transcript_length_ratio=round(ratio, 4),
-        stt_quality_flag=flag,
+        supervisor_error_count=supervisor_error_count,
         notes=notes,
     )
-
-
-def syllables_per_second(analysis: OralReadingAnalysis) -> Optional[float]:
-    """판정용 음절/초.
-
-    도메인 공식의 자동성은 '10초당'이라 묵독 A4(음절/초)와 단위가 다르다.
-    두 축을 같은 척도에서 비교하려면 여기서 맞춰야 한다.
-    """
-    if analysis.reading_time_seconds <= 0:
-        return None
-    return round(analysis.accurate_syllables / analysis.reading_time_seconds, 3)

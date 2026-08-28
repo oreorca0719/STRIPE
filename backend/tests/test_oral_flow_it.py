@@ -139,9 +139,12 @@ def test_지문_음절수는_서버가_센다():
             row = (await db.execute(select(FluencyResult))).scalar_one()
             assert row.total_syllables == 18
             assert row.error_count == 3
-            # 자동성 = (정확 음절 ÷ 시간) × 10 = (15/20)*10
-            assert row.automaticity_score == pytest.approx(7.5, abs=0.01)
-            assert row.accuracy_score == pytest.approx(15 / 18, abs=0.001)
+            # 전사가 없으면 채점이 성립하지 않는다(계약: empty transcript).
+            # A1/A2 는 null 이며 0 으로 채우지 않는다.
+            assert row.raw_data["score_status"] == "unscorable"
+            assert row.raw_data["score_unavailable_reason"] == "empty_transcript_unresolved"
+            assert row.automaticity_score is None
+            assert row.accuracy_score is None
     _run(go)
 
 
@@ -161,12 +164,16 @@ def test_감독자_입력과_자동_산출이_나란히_남는다():
 
         async with AsyncSessionLocal() as db:
             row = (await db.execute(select(FluencyResult))).scalar_one()
-            assert row.error_count == 1                     # 지표는 사람 값
+            assert row.error_count == 1                     # 사람이 센 값은 그대로
             assert row.raw_data["input_mode"] == "supervisor"
+            assert row.raw_data["score_status"] == "scored"
             auto = row.raw_data["auto"]
-            assert auto["error_count"] == 2                  # 자동 산출 보존
-            assert auto["substitutions"] == 2
-            assert auto["disfluency_detectable"] is False
+            assert auto["scored_S"] == 2                     # 자동 산출 보존
+            assert auto["scored_M"] + auto["scored_S"] + auto["scored_D"] \
+                   == auto["oral_syllable_count"]
+            # A2 분모에 insertion 이 들어가지 않는다
+            assert auto["A2_target_syllable_accuracy"] == pytest.approx(
+                auto["scored_M"] / auto["oral_syllable_count"], abs=1e-4)  # 저장은 4자리 반올림
     _run(go)
 
 
@@ -181,12 +188,17 @@ def test_전사가_없어도_저장된다():
                 "reading_time_seconds": 25.0, "error_count": 0,
             })
             assert r.status_code == 201, r.text
-            assert r.json()["accuracy_score"] == 1.0
+            # 채점이 성립하지 않으므로 A2 는 null 이다. 1.0 이 아니다 —
+            # "오류 0건"과 "채점 불가"는 다른 의미다.
+            assert r.json()["accuracy_score"] is None
 
         async with AsyncSessionLocal() as db:
             row = (await db.execute(select(FluencyResult))).scalar_one()
             assert "auto" not in row.raw_data          # 전사가 없으니 대조도 없다
-            assert row.raw_data["syllables_per_second"] == pytest.approx(18 / 25, abs=0.001)
+            assert row.raw_data["score_status"] == "unscorable"
+            # 레코드 자체는 남는다 — oral 시행 여부(oral_attempted)의 신호가
+            # 상황②(시행·채점불가)와 상황③(설계상 묵독)을 가른다.
+            assert row.error_count == 0
     _run(go)
 
 

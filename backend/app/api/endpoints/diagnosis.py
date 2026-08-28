@@ -601,41 +601,49 @@ async def submit_oral_fluency(
     if not text:
         raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
 
+    # 계약(패키지 #1 L3)의 scored_time_ms 는 recording_start~end 다.
+    # 이 엔드포인트는 초 단위를 받으므로 ms 로 환산해 넘긴다.
     a = oral_analyzer.analyze_oral_reading(
         original_text=text.content,
         transcript=data.transcript or "",
-        reading_time_seconds=data.reading_time_seconds,
-        error_count_override=data.error_count,
+        scored_time_ms=int(round(data.reading_time_seconds * 1000)),
+        supervisor_error_count=data.error_count,
     )
 
     raw = dict(data.raw_data or {})
     raw.update({
         "input_mode": "supervisor",          # B안 경로임을 남긴다
-        "syllables_per_second": oral_analyzer.syllables_per_second(a),
-        "eojeol_total": a.eojeol_total,
-        "eojeol_errors": a.eojeol_errors,
+        "score_status": a.score_status,
+        "score_unavailable_reason": a.score_unavailable_reason,
+        "quality_gate": a.quality_gate,
+        "transcript_length_ratio": a.transcript_length_ratio,
+        "scored_time_ms": a.scored_time_ms,
+        "scoring_rule_version": oral_analyzer.SCORING_RULE_VERSION,
     })
-    if data.transcript:
-        # 사람이 센 값과 자동 산출값의 대조 — A안 타당성의 근거가 된다
+    if a.score_status == "scored":
+        # 사람이 센 값과 자동 산출값의 대조 — A안 타당성의 근거가 된다.
+        # 계약 필드명을 그대로 쓴다(스키마 신설 시 그대로 옮겨진다).
         raw["auto"] = {
-            "error_count": a.substitutions + a.deletions + a.insertions,
-            "substitutions": a.substitutions,
-            "deletions": a.deletions,
-            "insertions": a.insertions,
-            "transcript_length_ratio": a.transcript_length_ratio,
-            "stt_quality_flag": a.stt_quality_flag,
-            "disfluency_detectable": a.disfluency_detectable,
+            "A1_correct_syllables_per_minute": a.a1_correct_syllables_per_minute,
+            "A2_target_syllable_accuracy": a.a2_target_syllable_accuracy,
+            "scored_M": a.scored_m, "scored_S": a.scored_s,
+            "scored_D": a.scored_d, "scored_I": a.scored_i,
+            "oral_syllable_count": a.oral_syllable_count,
+            "continuation_source_offset": a.continuation_source_offset,
+            "alignment_deviations": a.alignment_deviations,
         }
 
+    # 감독자가 센 오류 수가 정본이다(B안). 자동 산출은 raw 에 나란히 둔다.
+    # unscorable 이면 A1/A2 는 null 로 남긴다 — 0 으로 채우지 않는다.
     result = FluencyResult(
         session_id=data.session_id,
         round_id=round_.id,
         type=FluencyType.oral,
         reading_time_seconds=data.reading_time_seconds,
-        total_syllables=a.total_syllables,
-        error_count=a.error_count,
-        automaticity_score=a.automaticity_score,
-        accuracy_score=a.accuracy_score,
+        total_syllables=a.text_syllable_count,
+        error_count=data.error_count,
+        automaticity_score=a.a1_correct_syllables_per_minute,
+        accuracy_score=a.a2_target_syllable_accuracy,
         raw_data=raw,
     )
     db.add(result)
