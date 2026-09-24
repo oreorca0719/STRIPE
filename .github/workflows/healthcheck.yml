@@ -1,0 +1,81 @@
+# 운영 감시 (STR-87)
+#
+# [왜 필요한가]
+# 단일 t3.small 에 모든 컨테이너가 올라가 있는데 감시가 없었다. 서비스가 죽어도
+# 누군가 화면을 열어보기 전까지 아무도 모른다. 파일럿 중이라면 그 '누군가'가
+# 응시 중인 아이가 된다.
+#
+# [왜 GitHub Actions 인가]
+# 외부 감시 SaaS 는 계정·비용이 들고, EC2 안에 두면 EC2 가 죽었을 때 같이 죽는다.
+# Actions 는 **바깥에서** 돌고 공개 저장소 기준 예약 실행이 무료다. 실패하면
+# GitHub 이 저장소 소유자에게 메일을 보낸다 — 별도 알림 설정·시크릿이 필요 없다.
+#
+# [한계 — 명시해 둔다]
+# · 예약 실행은 정시에 보장되지 않는다(러너가 붐비면 수 분~수십 분 밀린다).
+#   분 단위 감시가 필요해지면 외부 감시로 옮겨야 한다.
+# · 기본 알림은 메일이다. 즉각 통보가 필요하면 별도 채널을 붙여야 한다.
+# · 부하 점검(학급 30명 동시 응시)은 이 워크플로의 범위가 아니다 — STR-87 잔여.
+name: 운영 감시 — 헬스체크
+
+on:
+  schedule:
+    # 15분 간격. 진단 1회가 20~30분이므로, 이보다 성기면 한 아이가 진단을
+    # 통째로 날리는 동안에도 감지되지 않는다.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# 앞 실행이 밀려 있을 때 겹쳐 돌 이유가 없다. 다만 취소하지는 않는다 —
+# 진행 중인 점검을 죽이면 그 회차는 결과가 없는 채로 끝난다.
+concurrency:
+  group: healthcheck
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE: https://54-180-21-185.nip.io
+    steps:
+      # nip.io + Let's Encrypt 조합이라 인증서는 정상 발급된다. -k 를 쓰지
+      # 않는 이유가 여기 있다 — 인증서가 깨지면 그것도 장애다.
+      - name: 서비스 응답 (liveness)
+        run: |
+          code=$(curl -sS -o /tmp/live.txt -w '%{http_code}' --max-time 20 "$BASE/api/health")
+          echo "HTTP $code"; cat /tmp/live.txt; echo
+          test "$code" = "200"
+
+      - name: DB 연결 (readiness)
+        run: |
+          code=$(curl -sS -o /tmp/ready.txt -w '%{http_code}' --max-time 20 "$BASE/api/health/ready")
+          echo "HTTP $code"; cat /tmp/ready.txt; echo
+          # 503 이면 API 는 살아 있는데 DB 가 끊긴 것이다. 겉보기 정상·실사용
+          # 불가 상태이며, 이 단계가 그것을 잡는 유일한 지점이다.
+          test "$code" = "200"
+
+      - name: 학생 화면 (프론트·프록시)
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/")
+          echo "HTTP $code"
+          test "$code" = "200"
+
+      # 인증 가드가 풀리면 STT 가 외부에 열린다(과금·남용 경로). 가드는 코드로
+      # 고정해 두었으나, 배포 사고로 되돌아가는 것을 감시로도 잡는다.
+      - name: 인증 가드 (401 이어야 한다)
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/api/audio/health")
+          echo "HTTP $code"
+          test "$code" = "401"
+
+      # 인증서는 조용히 만료된다. 만료 당일에 알면 늦다.
+      - name: HTTPS 인증서 잔여 기간
+        run: |
+          end=$(echo | openssl s_client -connect 54-180-21-185.nip.io:443 \
+                 -servername 54-180-21-185.nip.io 2>/dev/null \
+                 | openssl x509 -noout -enddate | cut -d= -f2)
+          left=$(( ( $(date -d "$end" +%s) - $(date +%s) ) / 86400 ))
+          echo "만료 $end — 잔여 ${left}일"
+          if [ "$left" -lt 10 ]; then
+            echo "::error::인증서 잔여 ${left}일. Caddy 자동 갱신이 동작하지 않고 있다."
+            exit 1
+          fi
