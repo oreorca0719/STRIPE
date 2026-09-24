@@ -92,6 +92,7 @@ async def transcribe_oral_reading(
             "text_syllable_count": a.text_syllable_count,
             "scored_time_ms": a.scored_time_ms,
             "continuation_source_offset": a.continuation_source_offset,
+            "alignment_mode": a.alignment_mode,   # 60초에 걸렸으면 prefix_global
             # 위치 배열은 계산 가능성만 제공한다. 오독 유형을 단정하지 않는다.
             "alignment_deviations": a.alignment_deviations,
         },

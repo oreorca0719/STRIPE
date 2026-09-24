@@ -630,6 +630,7 @@ async def submit_oral_fluency(
             "scored_D": a.scored_d, "scored_I": a.scored_i,
             "oral_syllable_count": a.oral_syllable_count,
             "continuation_source_offset": a.continuation_source_offset,
+            "alignment_mode": a.alignment_mode,   # 60초에 걸렸으면 prefix_global
             "alignment_deviations": a.alignment_deviations,
         }
 

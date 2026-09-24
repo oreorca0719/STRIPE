@@ -26,16 +26,37 @@
 채점이 성립하지 않으면 A1/A2 는 null 이다. 0 이나 clamp 로 대체하지 않는다.
 "측정하지 못함"과 "0점"은 다른 의미이고, 후자로 바꾸면 기술 실패가 학생의
 능력 부족으로 읽힌다.
+
+[정렬은 편집거리로 한다 — difflib 교체]
+계약의 editDistanceAlign 이다. 직전 구현은 difflib.SequenceMatcher 였는데
+이것은 최단 편집거리를 보장하지 않는다(가장 긴 연속 일치를 우선하는 휴리스틱).
+무작위 오류를 넣은 4,000 건으로 재보니 323 건(8%)에서 실제보다 오류를 많이
+셌고, 최악은 편집거리 4 를 14 로 셌다. 연속 일치가 끊기면 대치를 생략+첨가로
+쪼개는데, 생략은 A2 의 분모에도 들어가므로 정확도가 두 번 깎인다.
+알고리즘 내부 구현은 계약이 명시한 기술 재량이라 교체했다.
+
+[60초에 걸린 회차는 접두부로 정렬한다 — prefix_global]
+계약 ⑤의 변경 금지 항목이다(mode = elapsed_ms≥60000 ? prefix_global : global).
+끝까지 못 읽은 뒷부분을 생략으로 세면, 시간이 모자란 것이 오독으로 기록된다.
+게다가 길이비 하한에도 걸려 회차 전체가 stt_unusable("인식 실패")이 된다 —
+시간 부족이 마이크 실패로 귀속되는 것이라 이 프로젝트가 막으려는 오귀속
+그 자체다. 그래서 이 모드에서는 하한을 적용하지 않고, 정렬이 소비한 접두부
+끝(continuation_source_offset)을 묵독 이어읽기 시작점으로 넘긴다.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 from typing import List, Optional
 
 # 채점 규칙 판본. 산식·게이트가 바뀌면 올린다 — 과거 레코드가 어느 규칙으로
 # 계산됐는지 남아야 파일럿 데이터를 나중에 재해석할 수 있다(계약: lineage).
-SCORING_RULE_VERSION = "oral-2026.08.28"
+SCORING_RULE_VERSION = "oral-2026.09.24"
+
+# 읽기는 60초에 끊긴다. 그때는 지문을 끝까지 읽지 못한 것이므로 전사를
+# 지문 전체가 아니라 접두부에 맞춘다(계약 ⑤, 변경 금지).
+ORAL_TIMEOUT_MS = 60000
+MODE_GLOBAL = "global"
+MODE_PREFIX = "prefix_global"
 
 # 전사 길이가 원문 대비 이 범위를 벗어나면 판정에 쓰지 않는다.
 # 묵독 A4 타당성 게이트(STR-62)와 같은 취지 — 미독·중단·오인식을 걸러낸다.
@@ -85,6 +106,9 @@ class OralReadingAnalysis:
     # 묵독 이어읽기 시작점. 정렬이 소비한 접두부 끝.
     continuation_source_offset: Optional[int] = None
 
+    # global | prefix_global. 60초에 걸린 회차만 prefix_global 이다.
+    alignment_mode: Optional[str] = None
+
     scored_time_ms: Optional[int] = None     # recording_start~end (버튼 기준)
     text_syllable_count: int = 0
 
@@ -103,55 +127,80 @@ class OralReadingAnalysis:
         return self.score_status == "scored"
 
 
-def _quality(ratio: float) -> str:
+def _quality(ratio: float, mode: str = MODE_GLOBAL) -> str:
     """전사를 채점에 쓸 수 있는지만 본다.
 
     ★ 임계값은 잠정이다. 계약이 quality_gate 의 구체 임계값·신호를 기술
     재량으로 열어 두었고(파일럿 PC-20 로 조정), 확정치가 아니다.
+
+    ★ prefix_global 에서는 하한을 적용하지 않는다.
+    60초에 걸린 회차는 지문의 앞부분만 읽은 것이 정상이라, 전사가 짧은 것은
+    인식 실패가 아니라 설계대로 일어난 일이다. 하한을 그대로 걸면 타임아웃
+    회차가 전부 unusable 로 떨어져 "시간이 모자랐다"가 "마이크가 안 됐다"로
+    기록된다. 상한은 어느 모드에서나 유효하다 — 지문 전체보다 긴 전사는
+    끝까지 읽었더라도 설명되지 않는다.
     """
-    if ratio < LENGTH_RATIO_FAIL_LOW or ratio > LENGTH_RATIO_FAIL_HIGH:
+    lower_applies = mode != MODE_PREFIX
+    if ratio > LENGTH_RATIO_FAIL_HIGH or (lower_applies and ratio < LENGTH_RATIO_FAIL_LOW):
         return "unusable"
-    if ratio < LENGTH_RATIO_LOW_LOW or ratio > LENGTH_RATIO_LOW_HIGH:
+    if ratio > LENGTH_RATIO_LOW_HIGH or (lower_applies and ratio < LENGTH_RATIO_LOW_LOW):
         return "retry"
     return "usable"
 
 
-def _align(ref: List[str], hyp: List[str]) -> dict:
-    """음절 정렬 → M/S/D/I 카운트와 위치.
+def _align(ref: List[str], hyp: List[str], mode: str = MODE_GLOBAL) -> dict:
+    """음절 편집거리 정렬 → M/S/D/I 카운트와 위치, 소비한 접두부 끝.
 
-    difflib 의 opcode 를 쓴다. replace 구간은 길이가 다를 수 있으므로 겹치는
-    만큼을 대치로, 남는 쪽을 생략/첨가로 나눈다.
+    계약의 editDistanceAlign 이다. 대치·생략·첨가에 같은 비용 1 을 주고
+    최소 비용 경로를 되짚는다.
 
-    위치 배열은 원문 인덱스 기준이다(첨가만 전사 인덱스). 계약상 이 값은
-    '계산 가능성'일 뿐이며 오독 유형을 단정하는 데 쓰지 않는다.
+    mode=prefix_global 이면 원문 뒤쪽에 자유 갭을 둔다 — 전사가 원문의 어느
+    접두부까지를 설명하는지 찾고, 그 뒤는 '읽지 않은 것'으로 두어 생략으로
+    세지 않는다. 동률이면 가장 짧은 접두부를 고른다(도달하지 않은 지문을
+    학생에게 부담시키지 않는 쪽).
+
+    위치 배열은 원문 인덱스 기준이다(첨가는 '이 원문 위치 앞에 끼어들었다').
+    계약상 이 값은 '계산 가능성'일 뿐이며 오독 유형을 단정하는 데 쓰지 않는다.
     """
+    n, m_len = len(ref), len(hyp)
+    d = [[0] * (m_len + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        d[i][0] = i
+    for j in range(1, m_len + 1):
+        d[0][j] = j
+    for i in range(1, n + 1):
+        ri, prev, row = ref[i - 1], d[i - 1], d[i]
+        for j in range(1, m_len + 1):
+            row[j] = min(prev[j - 1] + (0 if ri == hyp[j - 1] else 1),
+                         prev[j] + 1,
+                         row[j - 1] + 1)
+
+    end = min(range(n + 1), key=lambda i: (d[i][m_len], i)) if mode == MODE_PREFIX else n
+
     m = sub = dele = ins = 0
     pos_s: List[int] = []
     pos_d: List[int] = []
     pos_i: List[int] = []
+    i, j = end, m_len
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + (0 if ref[i - 1] == hyp[j - 1] else 1):
+            if ref[i - 1] == hyp[j - 1]:
+                m += 1
+            else:
+                sub += 1
+                pos_s.append(i - 1)
+            i, j = i - 1, j - 1
+        elif i > 0 and d[i][j] == d[i - 1][j] + 1:
+            dele += 1
+            pos_d.append(i - 1)
+            i -= 1
+        else:
+            ins += 1
+            pos_i.append(i)
+            j -= 1
+    pos_s.reverse(); pos_d.reverse(); pos_i.reverse()
 
-    for tag, i1, i2, j1, j2 in SequenceMatcher(None, ref, hyp, autojunk=False).get_opcodes():
-        r, h = i2 - i1, j2 - j1
-        if tag == "equal":
-            m += r
-        elif tag == "replace":
-            k = min(r, h)
-            sub += k
-            pos_s.extend(range(i1, i1 + k))
-            if r > h:
-                dele += r - h
-                pos_d.extend(range(i1 + k, i2))
-            elif h > r:
-                ins += h - r
-                pos_i.extend(range(j1 + k, j2))
-        elif tag == "delete":
-            dele += r
-            pos_d.extend(range(i1, i2))
-        elif tag == "insert":
-            ins += h
-            pos_i.extend(range(j1, j2))
-
-    return {"m": m, "s": sub, "d": dele, "i": ins,
+    return {"m": m, "s": sub, "d": dele, "i": ins, "end": end,
             "deviations": {"S": pos_s, "D": pos_d, "I": pos_i}}
 
 
@@ -175,8 +224,11 @@ def analyze_oral_reading(
     total = len(ref)
     notes: List[str] = []
 
+    # 정렬 모드는 게이트보다 먼저 정한다. 60초에 걸린 회차는 전사가 짧은
+    # 것이 정상이라, 게이트가 하한을 적용할지가 모드에 달려 있다.
+    mode = MODE_PREFIX if scored_time_ms >= ORAL_TIMEOUT_MS else MODE_GLOBAL
     ratio = (len(hyp) / total) if total else 0.0
-    gate = _quality(ratio)
+    gate = _quality(ratio, mode)
 
     def _unscorable(reason: str) -> OralReadingAnalysis:
         """채점 불가. A1/A2 는 None 이다 — 0 이나 clamp 로 바꾸지 않는다.
@@ -212,14 +264,25 @@ def analyze_oral_reading(
         return _unscorable("stt_unusable")
 
     # ⑤ 정렬
-    al = _align(ref, hyp)
+    al = _align(ref, hyp, mode)
     m, sub, dele, ins = al["m"], al["s"], al["d"], al["i"]
 
     # ⑥ 산식 — attempted = M+S+D (학생이 읽어내야 했던 원문 구간)
     attempted = m + sub + dele
-    a1 = m / (scored_time_ms / 60000) if scored_time_ms > 0 else None
-    a2 = m / attempted if attempted else None
+    if not attempted:
+        # 전사가 지문의 어느 구간도 설명하지 못했다. A2 의 분모가 없다.
+        notes.append("전사가 지문의 어느 구간과도 정렬되지 않음")
+        return _unscorable("stt_unusable")
 
+    # 불변식 — 위반은 버그다. 정렬이 깨진 채 점수가 나가는 것을 막는다.
+    assert attempted == al["end"], "정렬 소비 접두부가 채점 음절 수와 다르다"
+    assert m + sub + ins == len(hyp), "전사 음절 수가 정렬과 맞지 않다"
+
+    a1 = m / (scored_time_ms / 60000) if scored_time_ms > 0 else None
+    a2 = m / attempted
+
+    if mode == MODE_PREFIX:
+        notes.append(f"60초 종료 — 접두부 {al['end']}/{total} 음절까지 정렬")
     if gate == "retry":
         notes.append(f"전사 길이비 {ratio:.2f} — 신뢰도 낮음")
     if supervisor_error_count is not None:
@@ -232,7 +295,8 @@ def analyze_oral_reading(
         scored_m=m, scored_s=sub, scored_d=dele, scored_i=ins,
         oral_syllable_count=attempted,
         alignment_deviations=al["deviations"],
-        continuation_source_offset=attempted,   # 정렬이 소비한 접두부 끝
+        continuation_source_offset=al["end"],   # 정렬이 소비한 접두부 끝
+        alignment_mode=mode,
         scored_time_ms=scored_time_ms,
         text_syllable_count=total,
         quality_gate=gate,
