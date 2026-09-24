@@ -217,9 +217,32 @@ class MetacognitionResult:
     d2_gap: int
 
 
-def judge_metacognition(predicted_correct: int, overall_accuracy: Optional[float]) -> MetacognitionResult:
-    """D-2(예측 0~10) vs 실제(정답률×10). |gap|≤tolerance → accurate."""
-    actual_10 = round((overall_accuracy or 0) * 10)
+def judge_metacognition(
+    predicted_correct: Optional[int],
+    overall_accuracy: Optional[float],
+) -> Optional[MetacognitionResult]:
+    """D-2(예측 0~10) vs 실제(정답률×10). |gap|≤tolerance → accurate.
+
+    **둘 중 하나라도 없으면 판정하지 않고 None 을 돌려준다.**
+
+    [왜 0 으로 채우면 안 되는가]
+    이전 구현은 예측을 `predicted_correct or 0` 으로, 실제를
+    `(overall_accuracy or 0)` 으로 받았다. 그런데 D-2 는 예약·비활성이라
+    예측이 **항상 None** 이다. 그래서 gap 이 언제나 `0 − 실제` 가 되어
+    **전원이 "과소평가"로 판정됐다.** 그 값이 학생 리포트에 실린다.
+
+    없는 값을 0 으로 채우면 '재지 않았다'가 '0 이라고 답했다'로 바뀐다.
+    아이가 자기 점수를 낮게 볼 것이라고 답한 적이 없는데 그렇게 기록되는
+    것이라, 측정하지 않은 것을 측정한 것처럼 만드는 결함이다. 음독의
+    unscorable→null 원칙(STR-132)과 같은 계열이다.
+
+    None 을 돌려주면 judgment_results 의 세 컬럼이 모두 null 이 되고
+    리포트에서 이 항목이 표시되지 않는다. 세 컬럼 다 nullable 이며,
+    소비하는 쪽은 이미 전부 None 을 확인하고 있다.
+    """
+    if predicted_correct is None or overall_accuracy is None:
+        return None
+    actual_10 = round(overall_accuracy * 10)
     gap = predicted_correct - actual_10
     if gap > METACOG_TOLERANCE:
         meta = Metacognition.overestimate

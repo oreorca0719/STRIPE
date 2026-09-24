@@ -39,7 +39,7 @@ def _q(code, text_id, set_id, area, ans):
     )
 
 
-async def _seed():
+async def _seed(predicted_correct: int | None = 7):
     async with AsyncSessionLocal() as db:
         # 깨끗한 상태 보장 (재실행 대비)
         await db.execute(sql_text(
@@ -91,7 +91,8 @@ async def _seed():
             _q("Q6", t2.id, s2.id, TargetArea.A6, 1),
         ])
         prof = StudentProfile(user_id=u.id, grade=4, interest_topics=["animal"],
-                              predicted_correct=7, type_1=ReaderType1.intermittent)
+                              predicted_correct=predicted_correct,
+                              type_1=ReaderType1.intermittent)
         db.add(prof)
         await db.commit()
 
@@ -102,8 +103,8 @@ async def _seed():
         return u.id, prof.id, t1.id, t2.id, qids
 
 
-async def _run():
-    uid, pid, t1, t2, qids = await _seed()
+async def _run(predicted_correct: int | None = 7):
+    uid, pid, t1, t2, qids = await _seed(predicted_correct)
     app = FastAPI()
     app.include_router(diagnosis.router, prefix="/api/diagnosis")
     transport = ASGITransport(app=app)
@@ -179,7 +180,13 @@ async def _run():
         assert j["comprehension_level"] == "high"              # 5/6=0.833 ≥ 0.80
         assert j["label_5"] == "observe", j                    # mid×high
         assert j["prescription_group"] == "G2", j
-        assert j["metacognition"] == "accurate"                # 예측7 vs 실제8, |gap|=1
+        if predicted_correct is None:
+            # D-2 는 예약·비활성이라 운영에서는 이쪽이 실제 경로다. 0 으로 채우면
+            # gap 이 0−실제 가 되어 전원이 "과소평가"로 판정된다(STR-127).
+            assert j["metacognition"] is None, j
+            assert j["d2_gap"] is None and j["actual_10"] is None, j
+        else:
+            assert j["metacognition"] == "accurate"             # 예측7 vs 실제8, |gap|=1
         assert p["prescription_type"] in ("A_and_B", "A_only")
         print(f"PASS finalize: fluency={j['fluency_value']}({j['fluency_level']}), "
               f"comp={j['comprehension_level']}, label={j['label_5']}, group={j['prescription_group']}")
@@ -191,6 +198,8 @@ async def _run():
         assert rep["report_content"]["layer1"]["label"] == "보통이야", rep
         assert rep["llm_polished"] is False                    # 키 없음 → 템플릿만
         assert "basic" in rep["disclaimer_flags"]
+        if predicted_correct is None:
+            assert rep["report_content"]["layer2"]["metacognition"] is None, rep
         print(f"PASS report: label='{rep['report_content']['layer1']['label']}', "
               f"llm_polished={rep['llm_polished']}")
 
@@ -199,6 +208,15 @@ async def _run():
 
 def test_full_flow():
     asyncio.run(_run())
+
+
+def test_full_flow_without_d2():
+    """D-2 미수집 — 운영의 실제 경로다.
+
+    기존 _seed 가 predicted_correct=7 을 박아 두어 이 경로가 검증되지 않았고,
+    그 사이 전원이 "과소평가"로 판정되고 있었다.
+    """
+    asyncio.run(_run(predicted_correct=None))
 
 
 # ---------------------------------------------------------------------------

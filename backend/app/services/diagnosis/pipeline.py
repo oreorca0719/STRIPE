@@ -102,7 +102,9 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     cj = J.judge_comprehension(cells, grade_group)
 
     placement = J.matrix_lookup(fj.fluency_level, cj.comprehension_level)
-    meta = J.judge_metacognition(profile.predicted_correct or 0, cj.overall_accuracy)
+    # D-2 가 예약·비활성이라 predicted_correct 는 현재 항상 None 이다.
+    # 0 으로 채우면 전원이 '과소평가'로 판정된다 — 미수집은 미평가(null)로 둔다.
+    meta = J.judge_metacognition(profile.predicted_correct, cj.overall_accuracy)
     reliability = _worst(session.reliability_flag, fj.reliability_flag, cj.reliability_flag)
     anchor = session.anchor_difficulty or Difficulty.normal
 
@@ -137,9 +139,9 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         prescription_group=placement.prescription_group,
         anchor_level=session.anchor_level or anchor.value,
         anchor_difficulty=anchor,
-        metacognition=meta.metacognition,
-        d2_gap=meta.d2_gap,
-        actual_10=meta.actual_10,
+        metacognition=meta.metacognition if meta else None,
+        d2_gap=meta.d2_gap if meta else None,
+        actual_10=meta.actual_10 if meta else None,
         reliability_flag=reliability,
         disclaimer_flags=disclaimers or None,
     )

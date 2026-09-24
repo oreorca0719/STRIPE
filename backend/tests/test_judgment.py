@@ -158,3 +158,22 @@ def test_metacognition(pred, acc, expected, gap):
     m = J.judge_metacognition(pred, acc)
     assert m.metacognition == expected
     assert m.d2_gap == gap
+
+
+# 미수집을 0 으로 채우면 '재지 않았다'가 '0 이라고 답했다'로 바뀐다.
+# D-2 가 비활성인 동안 이 결함이 전원을 '과소평가'로 판정하고 있었다.
+@pytest.mark.parametrize("pred,acc,why", [
+    (None, 0.8, "D-2 미수집 — 예측이 없다"),
+    (7, None, "독해 결과가 없다 — 비교 대상이 없다"),
+    (None, None, "둘 다 없다"),
+])
+def test_메타인지는_입력이_없으면_판정하지_않는다(pred, acc, why):
+    assert J.judge_metacognition(pred, acc) is None, why
+
+
+def test_예측_0은_미수집과_다르게_취급한다():
+    """0 은 '하나도 못 맞힐 것 같다'고 답한 것이다. 미응답이 아니다."""
+    m = J.judge_metacognition(0, 0.8)
+    assert m is not None
+    assert m.metacognition == Metacognition.underestimate
+    assert m.d2_gap == -8
