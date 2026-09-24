@@ -27,6 +27,7 @@ load_dotenv(BACKEND_DIR / ".env")
 
 from sqlalchemy import text as sa_text
 from app.services.content import item_quality
+from app.services.content import topic_tags as TT
 from app.core.database import AsyncSessionLocal
 from app.models.core import (
     TextContent, ItemSet, Question,
@@ -79,13 +80,35 @@ async def load(path: Path, reset: bool, force: bool = False):
 
         seq = {}  # (genre,tag) → 카운터
         n_text = n_q = 0
+
+        # 태그를 먼저 전건 검증한다. 한 편씩 넣다가 중간에 멈추면 절반만 적재된
+        # 상태가 남고, 그 상태가 정상인지 아닌지 알 수 없게 된다.
+        bad = []
+        for i, item in enumerate(data):
+            try:
+                item["topic_tags"] = TT.validate(item.get("topic_tags"))
+            except TT.TagError as e:
+                bad.append(f"  [{i}] {item.get('title', '?')} — {e}")
+        if bad:
+            raise SystemExit(
+                "주제 태그 검증 실패 %d건. 적재하지 않았다.
+%s
+
+"
+                "태그가 C-1 선지와 맞지 않으면 그 지문은 어떤 학생과도 매칭되지 않는다 "
+                "(오류 없이 조용히 빠진다). 매핑이 필요하면 기획 확인이 선행돼야 한다."
+                % (len(bad), "
+".join(bad))
+            )
+
         for item in data:
             genre = item["genre"]
-            tag = (item.get("topic_tags") or ["GEN"])[0]
+            tag = item["topic_tags"][0]              # 검증·정규화 완료(소문자 1개)
             key = (genre, tag)
             seq[key] = seq.get(key, 0) + 1
             gabbr = GENRE_ABBR.get(genre, "GEN")
-            base = f"G46_{gabbr}_{tag}_{seq[key]:03d}"
+            # 식별자는 대문자로 읽기 쉽게 두되, 저장 태그는 소문자 정본이다.
+            base = f"G46_{gabbr}_{tag.upper()}_{seq[key]:03d}"
             text_code = f"TXT_{base}"
             set_code = f"SET_{base}"
 
@@ -96,7 +119,7 @@ async def load(path: Path, reset: bool, force: bool = False):
                 content=item["content"],
                 grade_group=GradeGroup(item["grade_group"]),
                 genre=TextGenre(genre),
-                topic_tags=item.get("topic_tags") or [],
+                topic_tags=item["topic_tags"],      # 검증·정규화 완료
                 syllable_count=int(item.get("syllable_count") or 0),
                 difficulty_level=Difficulty(item["difficulty_level"]),
                 text_structure=_structure(item.get("text_structure")),

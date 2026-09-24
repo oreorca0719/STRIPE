@@ -26,8 +26,10 @@ from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
+sys.path.insert(0, str(BACKEND_DIR))
 
 from anthropic import Anthropic  # noqa: E402
+from app.services.content import topic_tags as TT  # noqa: E402
 
 # 생성 모델 (품질 우선). 실패 시 폴백.
 MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
@@ -58,10 +60,23 @@ GRADE_SPECS = {
     },
 }
 
-# B7 관심주제 태그 (시드용 최소 taxonomy — text_selection 관심매칭에 사용)
+# 주제 태그 — **학생이 C-1 에서 고를 수 있는 코드만 쓴다.**
+#
+# 이전에는 여기서 자체 taxonomy 를 쓰고 있었다("시드용 최소 taxonomy").
+#   narrative  ANIMAL FRIENDSHIP ADVENTURE FAMILY FANTASY
+#   expository SCIENCE NATURE SPACE HISTORY DAILY
+# C-1 선지는 소문자이고 ADVENTURE·NATURE·SPACE·DAILY 는 아예 없다. 텍스트
+# 선택은 두 값의 집합 교집합으로 매칭하므로, 대소문자만 달라도 절대 만나지
+# 않는다. 실제로 학생이 15종을 전부 골라도 매칭 지문이 0/48 편이었다.
+# 오류가 나지 않고 '관심과 무관한 순서'로 떨어져 드러나지 않았다.
+#
+# ★ 장르별 배분은 잠정이다(기획 확인 대상). 어떤 주제를 이야기글로 쓸지
+#   설명글로 쓸지는 편집 판단이고, C-1 선지 자체에는 그 구분이 없다.
 TOPIC_TAGS = {
-    "narrative": ["ANIMAL", "FRIENDSHIP", "ADVENTURE", "FAMILY", "FANTASY"],
-    "expository": ["SCIENCE", "NATURE", "SPACE", "HISTORY", "DAILY"],
+    # 우정·학교생활 / 가족·성장 / 판타지·모험 / 추리·미스터리 / 유머·재미
+    "narrative": ["friendship", "family", "fantasy", "mystery", "humor"],
+    # 과학·실험 / 동물·자연 / 역사·위인 / 다른 나라·문화 / 사회·경제
+    "expository": ["science", "animal", "history", "world", "society"],
 }
 
 GENRE_KO = {"narrative": "이야기글(서사)", "expository": "설명글(정보)"}
@@ -190,7 +205,9 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
     data["grade_group"] = grade_group
     data["genre"] = genre
     data["difficulty_level"] = difficulty
-    data["topic_tags"] = [topic]
+    # 정본 검증을 여기서 건다. 생성 시점에 막지 않으면 '매칭되지 않는 지문'이
+    # 조용히 쌓이고, 나중에는 어느 편이 왜 안 걸리는지 찾을 수 없다.
+    data["topic_tags"] = TT.validate([topic])
     data["syllable_count"] = count_syllables(data.get("content", ""))
     return data
 
