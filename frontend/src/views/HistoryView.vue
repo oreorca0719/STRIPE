@@ -39,9 +39,6 @@
               <div class="row-title">
                 <span class="row-emoji">{{ labelInfo(it.label_5).emoji }}</span>
                 <span class="row-label">{{ labelInfo(it.label_5).ko }}</span>
-                <span v-if="changeOf(i)" class="chip" :class="`chip--${changeOf(i)!.dir}`">
-                  {{ changeOf(i)!.text }}
-                </span>
               </div>
               <div class="row-meta">
                 <span>글 이해 {{ LEVEL_3_KO[it.comprehension_level] ?? '-' }}</span>
@@ -100,15 +97,19 @@ const error = ref(false)
  * 직전 판정 대비 변화. 목록은 최신순이라 다음 인덱스가 이전 진단이다.
  * 등급 단계(lv) 비교만 한다 — 표본이 적어 통계적 해석은 하지 않는다(STR-15 확정 전).
  */
-function changeOf(i: number) {
-  const cur = items.value[i]
-  const prev = items.value.slice(i + 1).find((x) => x.label_5)
-  if (!cur?.label_5 || !prev) return null
-  const d = labelInfo(cur.label_5).lv - labelInfo(prev.label_5).lv
-  if (d > 0) return { dir: 'up', text: '올랐어요' }
-  if (d < 0) return { dir: 'down', text: '내렸어요' }
-  return { dir: 'same', text: '그대로' }
-}
+/*
+ * [제거됨 2026-09-24] 직전 판정과 비교해 '올랐어요 / 내렸어요 / 그대로' 를
+ * 표시하던 기능을 뺐다. C-2 비교가능성 계약의 변경 금지 항목이다.
+ *
+ *   "(금지) change 산출 · 비교형 병치 · 화살표/추세/성장 표현"
+ *
+ * 두 세션은 **다른 지문·다른 문항**으로 측정된 것이라, 검사 동등성(form/task
+ * comparability)이 확립되기 전에는 두 결과를 나란히 놓고 '올랐다'고 말할 근거가
+ * 없다. 측정 도구가 달라졌는데 학생이 변한 것으로 읽힌다.
+ *
+ * 개별 회차 값을 각각 보여주는 것은 계약이 허용한다 — 목록은 그대로 둔다.
+ * comparability_established 가 열리면 그때 되살린다.
+ */
 
 function open(it: any) {
   if (!it.label_5) return          // 판정 없는 세션은 볼 결과가 없다
@@ -181,12 +182,8 @@ onMounted(load)
 .row-label { font-weight: 800; color: var(--navy); }
 .row-label--muted { color: var(--gray); font-weight: 700; }
 
-.chip {
-  font-size: 0.72rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 99px;
-}
-.chip--up { background: #E6F7F5; color: #0F9B8E; }
-.chip--down { background: #FFECEC; color: #D9534F; }
-.chip--same { background: var(--gray-light); color: var(--gray); }
+/* .chip / .chip--up / --down / --same 은 증감 표시와 함께 제거했다.
+   쓰지 않는 스타일을 남겨 두면 나중에 누군가 되살려 붙이기 쉬워진다. */
 
 .row-meta { font-size: 0.85rem; color: var(--gray); }
 .row-meta .dot { margin: 0 0.35rem; }

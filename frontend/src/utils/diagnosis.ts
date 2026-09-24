@@ -3,6 +3,11 @@
  *
  * 판정 등급(label_5)은 학생에게 원문 그대로 노출하지 않고 친화 표현으로 바꾼다(§2 SCR-13).
  * 홈·이력·결과 화면이 각자 매핑을 두면 같은 등급이 화면마다 다른 말로 보이므로 여기서만 정의한다.
+ *
+ * ★ 이 표의 `ko` 는 서버 `report.py` 의 STUDENT_LABEL 과 **같아야 한다**(STR-123 확정표).
+ * 결과 화면은 서버가 준 라벨을 우선 쓰고 이 표를 폴백으로 쓰는데, 두 표가 다르면
+ * 리포트 생성이 실패했을 때만 학생이 다른 말을 보게 된다 — 드물게 어긋나는 쪽이
+ * 오히려 찾기 어렵다. 이력 화면은 리포트를 읽지 않으므로 **항상** 이 표를 쓴다.
  */
 
 export interface Label5Info {
@@ -13,14 +18,19 @@ export interface Label5Info {
 }
 
 export const LABEL_5: Record<string, Label5Info> = {
-  excellent: { lv: 5, ko: '아주 잘함', msg: '정말 훌륭해요! 더 넓은 책의 세계로 나아가 볼까요?', emoji: '🌟' },
-  observe:   { lv: 4, ko: '잘함',      msg: '잘하고 있어요! 조금만 더 하면 최고 수준이에요.',    emoji: '😊' },
-  caution:   { lv: 3, ko: '보통',      msg: '또래와 비슷해요. 꾸준히 읽으면 쑥쑥 늘어요 💪',     emoji: '🌱' },
-  risk:      { lv: 2, ko: '조금 부족',  msg: '이 부분을 함께 연습해봐요. 할 수 있어요!',         emoji: '🤗' },
-  urgent:    { lv: 1, ko: '도움 필요',  msg: '천천히 하나씩 같이 해봐요. 괜찮아요!',             emoji: '🌈' },
+  excellent: { lv: 5, ko: '잘하는 편!',            msg: '지금처럼 꾸준히 읽어보자 🌟',        emoji: '🌟' },
+  observe:   { lv: 4, ko: '보통이야',              msg: '지금처럼 꾸준히 읽어보자 😊',        emoji: '😊' },
+  caution:   { lv: 3, ko: '조금 더 연습하면 좋겠어', msg: '조금씩 같이 해보자 🌱',             emoji: '🌱' },
+  risk:      { lv: 2, ko: '이 부분을 더 연습해보자', msg: '하나씩 같이 해보자. 할 수 있어 🤗',  emoji: '🤗' },
+  urgent:    { lv: 1, ko: '함께 연습해보자!',       msg: '천천히 하나씩 같이 해보자 🌈',       emoji: '🌈' },
 }
 
-export const DEFAULT_LABEL_5: Label5Info = { lv: 3, ko: '보통', msg: '', emoji: '🌱' }
+// 폴백 문구에서 난도 방향을 빼 둔 이유(STR-96): 위기 판정을 받은 학생이 애독자라는
+// 이유로 "더 어려운 책에도 도전해보자" 를 받던 결함이 있었다. 서버 폴백에서는
+// 걷어냈는데 화면 폴백에 "더 넓은 책의 세계로" · "최고 수준이에요" 가 남아 있었다.
+// 후자는 특히 observe("보통이야") 학생에게 최상위에 가깝다고 말하는 것이었다.
+
+export const DEFAULT_LABEL_5: Label5Info = { lv: 3, ko: '결과 준비 중', msg: '', emoji: '🌱' }
 
 export function labelInfo(label5?: string | null): Label5Info {
   return (label5 && LABEL_5[label5]) || DEFAULT_LABEL_5
