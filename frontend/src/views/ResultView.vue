@@ -37,7 +37,11 @@
       <div v-else class="result-content">
         <div class="level-card">
           <div class="hero-emoji">{{ levelInfo.emoji }}</div>
-          <div class="level-badge">Lv. {{ levelInfo.lv }} / 5</div>
+          <!-- 'Lv. n / 5' 를 뺐다(PM 결정 2026-09-24). 이 서비스의 목적은
+               "순위를 나누는 것이 아니라 이 정도 수준이면 이런 책을 읽으면
+               좋겠다고 알려주는 것"인데, 숫자 등급은 그 반대로 읽힌다.
+               확정표를 적용하면 '보통이야'가 Lv.4/5 로 표시되어 말과 숫자가
+               어긋나기도 했다. 라벨 문구가 수준을 전달하는 유일한 통로다. -->
           <h2>읽기 수준 <span class="highlight">{{ studentLabel }}</span></h2>
           <p>{{ report?.report_content?.layer1?.encouragement || levelInfo.msg }}</p>
           <span class="provisional">※ 판정 기준은 파일럿 전 잠정값이에요</span>
@@ -210,7 +214,6 @@ onMounted(load)
   border-radius: var(--radius); padding: 2.5rem; color: white;
   display: flex; flex-direction: column; gap: 0.7rem;
 }
-.level-badge { background: rgba(255,255,255,0.2); display: inline-block; padding: 0.4rem 1rem; border-radius: 99px; font-weight: 900; font-size: 0.9rem; width: fit-content; }
 .level-card h2 { font-size: 1.5rem; font-weight: 900; }
 .highlight { color: var(--yellow); }
 .level-card p { opacity: 0.95; line-height: 1.6; }

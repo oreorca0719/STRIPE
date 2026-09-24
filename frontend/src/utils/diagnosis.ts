@@ -10,19 +10,21 @@
  * 오히려 찾기 어렵다. 이력 화면은 리포트를 읽지 않으므로 **항상** 이 표를 쓴다.
  */
 
+// lv(1~5 숫자 등급)는 제거했다(PM 결정 2026-09-24). 결과 화면에 'Lv. n / 5'
+// 로 노출되던 값인데, 순위를 나누지 않는다는 제품 목적과 어긋났다.
+// 수준은 라벨 문구가 전달한다.
 export interface Label5Info {
-  lv: number
   ko: string
   msg: string
   emoji: string
 }
 
 export const LABEL_5: Record<string, Label5Info> = {
-  excellent: { lv: 5, ko: '잘하는 편!',            msg: '지금처럼 꾸준히 읽어보자 🌟',        emoji: '🌟' },
-  observe:   { lv: 4, ko: '보통이야',              msg: '지금처럼 꾸준히 읽어보자 😊',        emoji: '😊' },
-  caution:   { lv: 3, ko: '조금 더 연습하면 좋겠어', msg: '조금씩 같이 해보자 🌱',             emoji: '🌱' },
-  risk:      { lv: 2, ko: '이 부분을 더 연습해보자', msg: '하나씩 같이 해보자. 할 수 있어 🤗',  emoji: '🤗' },
-  urgent:    { lv: 1, ko: '함께 연습해보자!',       msg: '천천히 하나씩 같이 해보자 🌈',       emoji: '🌈' },
+  excellent: { ko: '잘하는 편!',            msg: '지금처럼 꾸준히 읽어보자 🌟',        emoji: '🌟' },
+  observe:   { ko: '보통이야',              msg: '지금처럼 꾸준히 읽어보자 😊',        emoji: '😊' },
+  caution:   { ko: '조금 더 연습하면 좋겠어', msg: '조금씩 같이 해보자 🌱',             emoji: '🌱' },
+  risk:      { ko: '이 부분을 더 연습해보자', msg: '하나씩 같이 해보자. 할 수 있어 🤗',  emoji: '🤗' },
+  urgent:    { ko: '함께 연습해보자!',       msg: '천천히 하나씩 같이 해보자 🌈',       emoji: '🌈' },
 }
 
 // 폴백 문구에서 난도 방향을 빼 둔 이유(STR-96): 위기 판정을 받은 학생이 애독자라는
@@ -30,7 +32,7 @@ export const LABEL_5: Record<string, Label5Info> = {
 // 걷어냈는데 화면 폴백에 "더 넓은 책의 세계로" · "최고 수준이에요" 가 남아 있었다.
 // 후자는 특히 observe("보통이야") 학생에게 최상위에 가깝다고 말하는 것이었다.
 
-export const DEFAULT_LABEL_5: Label5Info = { lv: 3, ko: '결과 준비 중', msg: '', emoji: '🌱' }
+export const DEFAULT_LABEL_5: Label5Info = { ko: '결과 준비 중', msg: '', emoji: '🌱' }
 
 export function labelInfo(label5?: string | null): Label5Info {
   return (label5 && LABEL_5[label5]) || DEFAULT_LABEL_5
