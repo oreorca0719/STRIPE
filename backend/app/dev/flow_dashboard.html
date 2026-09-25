@@ -51,14 +51,17 @@
   .feat.sel small{color:#79b8b2}
 
   /* ── 흐름도 ─────────────────────────────────────────────── */
-  #canvas{position:relative;overflow-x:auto;overflow-y:hidden;padding-bottom:.2rem}
+  #canvas{position:relative;overflow-x:auto;overflow-y:visible;padding-bottom:.3rem}
   #wire{position:absolute;inset:0;pointer-events:none;overflow:visible}
-  .colgrid{position:relative;display:flex;gap:112px;align-items:flex-start;padding:.2rem 0 .5rem}
-  .col{display:flex;flex-direction:column;gap:9px;width:156px;flex:0 0 156px}
+  .colgrid{position:relative;display:flex;gap:112px;align-items:stretch;padding:.2rem 0 .6rem}
+  .col{display:flex;flex-direction:column;width:156px;flex:0 0 156px}
+  /* 블록 사이를 넉넉히 벌린다 — 선이 서로 붙으면 어느 것이 어느 것인지 안 보인다.
+     노드는 세로 가운데에 모아, 열마다 개수가 달라도 흐름이 가운데로 이어지게 한다. */
+  .colnodes{display:flex;flex-direction:column;gap:36px;flex:1;justify-content:center}
   .coltitle{font-size:.66rem;color:#6d7288;letter-spacing:.9px;text-transform:uppercase;
             padding-bottom:.25rem;border-bottom:1px solid var(--line);margin-bottom:.15rem}
   .node{position:relative;border:1.5px solid #2b3040;background:#141822;border-radius:7px;
-         padding:.4rem .45rem;cursor:pointer;
+         padding:.85rem .5rem;cursor:pointer;
          transition:border-color .12s,background .12s,opacity .12s,box-shadow .12s}
   .node:hover{border-color:#4b5169}
   .node .nm{font-size:.79rem;line-height:1.25}
@@ -176,16 +179,28 @@
 let REG=null, TRACES=[], selFeature=null, selTrace=null;
 let hoverMod=null, pinMod=null, hoverEdge=null, hideOral=true;
 const $=(id)=>document.getElementById(id);
+/** 연결선 다시 그리기 예약.
+ *  requestAnimationFrame 은 **탭이 가려져 있으면 발화하지 않는다.** 그 상태로
+ *  갱신이 들어오면 선이 사라진 채 남는다(실제로 그랬다). 타이머를 함께 걸어
+ *  어느 쪽이든 한 번은 그려지게 하고, 중복 실행은 플래그로 막는다. */
+let _wirePending=false;
+function scheduleWires(){
+  if(_wirePending) return;
+  _wirePending=true;
+  const run=()=>{ if(!_wirePending) return; _wirePending=false; drawWires(); };
+  requestAnimationFrame(run);
+  setTimeout(run, 60);
+}
 const esc=(s)=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 const ORAL=new Set(['stt.adapter','stt.clova','stt.mock','stt.vad','stt.analyzer']);
 
 async function boot(){
   REG=await (await fetch('registry')).json();
   drawFeatures(); render(); connect();
-  addEventListener('resize',()=>requestAnimationFrame(drawWires));
-  $('canvas').addEventListener('scroll',()=>requestAnimationFrame(drawWires));
+  addEventListener('resize',()=>scheduleWires());
+  $('canvas').addEventListener('scroll',()=>scheduleWires());
 }
-function render(){ drawNodes(); drawEdgeTable(); requestAnimationFrame(drawWires); }
+function render(){ drawNodes(); drawEdgeTable(); scheduleWires(); }
 
 /* ── 상태 ─────────────────────────────────────────────────── */
 const shown=(k)=> !(hideOral && ORAL.has(k));
@@ -217,6 +232,7 @@ function drawNodes(){
     const mods=REG.modules.filter(m=>m.col===c && shown(m.key));
     if(!mods.length) return '';
     return `<div class="col"><div class="coltitle">${REG.col_names[c]||('col '+c)}</div>`
+     + `<div class="colnodes">`
      + mods.map(m=>{
         const cls=['node'];
         if(nb){ if(!nb.has(m.key)) cls.push('dim'); }
@@ -230,12 +246,12 @@ function drawNodes(){
           onclick="togglePin('${m.key}')" title="${m.key}">
           ${n?`<span class="cnt">${n}</span>`:''}
           <div class="nm"><span class="purity ${m.purity}"></span>${m.label}</div></div>`;
-      }).join('')+`</div>`;
+      }).join('')+`</div></div>`;
   }).join('');
 }
 const cid=(k)=>k.replace(/\./g,'_');
 function setHover(k){ if(pinMod) return; hoverMod=k; drawNodes(); drawEdgeTable();
-                      requestAnimationFrame(drawWires); }
+                      scheduleWires(); }
 function togglePin(k){
   pinMod=(pinMod===k)?null:k; hoverMod=null;
   $('hint').textContent = pinMod
@@ -259,6 +275,25 @@ function drawWires(){
     <marker id="ah" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
       <path d="M0,0 L6,2.7 L0,5.4 z" fill="#FFE66D"/></marker></defs>`];
   const labels=[];
+
+  /* 선이 붙는 자리를 노드 높이에 나눠 배분한다.
+     전부 세로 중앙에 붙이면 한 노드로 들어오는 선 여러 개가 끝에서 겹쳐,
+     어느 선이 어디서 왔는지 구분되지 않는다(실측 최소 간격 4.2px 였다).
+     나가는 선은 오른쪽 변에, 들어오는 선은 왼쪽 변에 순서대로 나눠 단다. */
+  const visible=REG.edges.filter(e=>shown(e.src)&&shown(e.dst));
+  const outIdx=new Map(), inIdx=new Map(), outN=new Map(), inN=new Map();
+  for(const e of visible){
+    outN.set(e.src,(outN.get(e.src)||0)+1);
+    inN.set(e.dst,(inN.get(e.dst)||0)+1);
+  }
+  const seenOut=new Map(), seenIn=new Map();
+  for(const e of visible){
+    const k=e.src+'>'+e.dst;
+    const so=(seenOut.get(e.src)||0); seenOut.set(e.src,so+1); outIdx.set(k,so);
+    const si=(seenIn.get(e.dst)||0);  seenIn.set(e.dst,si+1);  inIdx.set(k,si);
+  }
+  /** 노드 변 위에서 i번째(전체 n개) 부착점의 세로 위치 */
+  const anchorY=(rect,i,n)=>rect.top + rect.height*(i+1)/(n+1);
   // 열과 열 사이의 '빈 틈' 중심 좌표. 라벨은 여기에만 놓는다 — 노드 위에
   // 글자가 얹히면 둘 다 안 읽힌다.
   const colBoxes=[...document.querySelectorAll('.col')].map(c=>{
@@ -298,8 +333,11 @@ function drawWires(){
     const ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
     const sl=cv.scrollLeft, st=cv.scrollTop;
     const back=ra.left>rb.left;                       // 되돌아가는 선
-    const sx=(back?ra.left:ra.right)-box.left+sl, sy=ra.top-box.top+ra.height/2+st;
-    const ex=(back?rb.right:rb.left)-box.left+sl,  ey=rb.top-box.top+rb.height/2+st;
+    const k=e.src+'>'+e.dst;
+    const sx=(back?ra.left:ra.right)-box.left+sl;
+    const sy=anchorY(ra, outIdx.get(k), outN.get(e.src))-box.top+st;
+    const ex=(back?rb.right:rb.left)-box.left+sl;
+    const ey=anchorY(rb, inIdx.get(k), inN.get(e.dst))-box.top+st;
     const dx=Math.max(34,Math.abs(ex-sx)*0.45)*(back?-1:1);
 
     // 이 선을 강조할지: 고정/호버한 모듈에 붙은 선이거나, 표에서 올린 선
@@ -351,8 +389,8 @@ function drawEdgeTable(){
            || (!fk && feat && !(feat.has(e.src)&&feat.has(e.dst)));
     const lit=fk && (e.src===fk||e.dst===fk);
     return `<tr class="row ${off?'faded':''} ${lit?'lit':''}"
-      onmouseenter="hoverEdge='${e.src}>${e.dst}';requestAnimationFrame(drawWires)"
-      onmouseleave="hoverEdge=null;requestAnimationFrame(drawWires)"
+      onmouseenter="hoverEdge='${e.src}>${e.dst}';scheduleWires()"
+      onmouseleave="hoverEdge=null;scheduleWires()"
       onclick="togglePin('${e.src}')">
       <td>${esc(label(e.src))}</td><td class="arrow">→</td><td>${esc(label(e.dst))}</td>
       <td class="pay">${esc(e.payload)}</td>
