@@ -27,7 +27,7 @@ from app.contracts.base import Contract, FreeText, Unitless
 DOC_PATH = pathlib.Path(__file__).resolve().parents[3] / "docs" / "데이터_형식_명세.md"
 
 # 명세에 싣는 순서 (라인의 흐름 순서). 새 파일을 만들면 여기에 넣는다.
-MODULE_ORDER = ["measurement", "oral", "judgment", "prescription", "report", "student", "survey", "content", "admin", "pilot", "privacy", "review", "ops"]
+MODULE_ORDER = ["account", "session", "measurement", "oral", "judgment", "prescription", "report", "student", "survey", "content", "admin", "pilot", "privacy", "review", "ops"]
 
 
 def _type_text(tp, meta=()) -> str:

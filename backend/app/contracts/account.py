@@ -1,17 +1,27 @@
-from typing import Annotated, List, Optional
-from app.contracts.base import ResponseModel
-from pydantic import BaseModel, field_validator
+"""계정 라인의 형식 — 가입·로그인·계정 발급·계정 정보.
 
-from app.contracts.base import Bool, Contract, Count, Int, Text, Unitless
-from app.models.user import UserRole, GradeLevel
+생산자  화면(로그인·관리자 계정 화면) · api/endpoints/auth.py
+소비자  services/user_service.py · 화면(인증 저장소·관리자 계정 목록)
+저장    users
 
+[실명 금지]
+학생 아이디·이름은 식별코드(elem5-017)다. 식별코드↔학생 매핑표는 시스템 밖에 있다.
+"""
+from __future__ import annotations
 
-# ── 요청 (화면 → 서버) — 엄격 형식: 모르는 키·타입 자동 변환 거부 ─────────
+from typing import Annotated, List, Literal, Optional
+
+from pydantic import field_validator
+
+from app.contracts.base import Bool, Contract, Count, Int, RowContract, Text, Unitless
+from app.enums import GradeLevel, UserRole
+
 _USERNAME = Text("아이디 — 학생은 식별코드(elem5-017), 실명 금지")
 _PASSWORD = Text("비밀번호 — 저장하지 않고 해시만 남긴다")
 _NAME = Text("표시 이름")
 
 
+# ── 요청 (화면 → 서버) ───────────────────────────────────────────────────
 class UserRegister(Contract):
     username: _USERNAME
     password: _PASSWORD
@@ -125,30 +135,30 @@ class CredentialChange(Contract):
 
 
 # ── 응답 (서버 → 화면) ───────────────────────────────────────────────────
-class UserResponse(ResponseModel):
-    id: int
-    username: str
-    name: str
+class UserResponse(RowContract):
+    id: Int
+    username: _USERNAME
+    name: _NAME
     role: UserRole
     grade: Optional[GradeLevel]
-    is_active: bool
-    must_change_password: bool = False
+    is_active: Bool
+    must_change_password: Bool = False
 
 
-class IssuedCredential(ResponseModel):
+class IssuedCredential(Contract):
     """계정 발급·비밀번호 초기화 응답. temp_password 는 이때만 평문으로 나간다."""
     user: UserResponse
-    temp_password: str
+    temp_password: Text("임시 비밀번호 — 이 응답에서만 평문, 다시 조회할 수 없다")
 
 
-class BulkIssued(ResponseModel):
+class BulkIssued(Contract):
     """다건 발급 결과. 임시 비밀번호가 여러 건 한 번에 나가므로 재조회 경로는 없다."""
     grade: GradeLevel
-    count: int
+    count: Count
     credentials: List[IssuedCredential]
 
 
-class TokenResponse(ResponseModel):
-    access_token: str
-    token_type: str = "bearer"
+class TokenResponse(Contract):
+    access_token: Text("JWT — 화면이 요청마다 실어 보낸다")
+    token_type: Literal["bearer"] = "bearer"
     user: UserResponse

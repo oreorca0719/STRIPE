@@ -72,7 +72,7 @@ async def _seed():
         iset = ItemSet(
             set_code="SET_PILOT_1", text_id=t.id, grade_group=t.grade_group,
             genre=t.genre, difficulty_level=t.difficulty_level,
-            item_set_review_status=ReviewStatus.approved, total_questions=3,
+            item_set_review_status=ReviewStatus.approved, question_count=3,
         )
         db.add(iset)
         await db.flush()
@@ -99,7 +99,7 @@ async def _seed():
 
             abandoned = n == 4
             sess = DiagnosisSession(
-                student_id=u.id, silent_mode=True, total_rounds=1,
+                student_id=u.id, silent_mode=True, round_count=1,
                 status=DiagSessionStatus.abandoned if abandoned else DiagSessionStatus.completed,
             )
             db.add(sess)
@@ -128,7 +128,7 @@ async def _seed():
                     is_correct=i < 2, target_area=area,
                 ))
             db.add(ComprehensionResult(
-                round_id=rd.id, total_questions=3, correct_count=2, round_accuracy=2 / 3,
+                round_id=rd.id, question_count=3, correct_count=2, round_accuracy=2 / 3,
             ))
             # 판정 결과는 실제 판정 함수로 만든다. 예전에는 약점 프로필에 {},
             # 위치에 "F2C2" 를 넣었는데 둘 다 운영 코드가 만들 수 없는 모양이었다.
@@ -142,7 +142,7 @@ async def _seed():
                 fluency_level=Level3.mid, fluency_source=FluencySource.silent,
                 fluency_valid=True, fluency_value=a4, fluency_value_unit=FluencyUnit.SPS,
                 comprehension_level=Level3.mid, overall_accuracy=profile.overall_accuracy,
-                total_correct=profile.correct_count, total_questions=profile.question_count,
+                correct_count=profile.correct_count, question_count=profile.question_count,
                 weakness_profile_12=profile,
                 matrix_position=placement.matrix_position, label_5=Label5.observe,
                 prescription_group=PrescriptionGroup.G3,

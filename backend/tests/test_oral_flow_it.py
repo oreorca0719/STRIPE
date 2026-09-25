@@ -71,7 +71,7 @@ async def _seed():
 
         iset = ItemSet(set_code="SET_ORAL_1", text_id=t.id, grade_group=GradeGroup.G4_G6,
                        genre=TextGenre.narrative, difficulty_level=Difficulty.normal,
-                       item_set_review_status=ReviewStatus.approved, total_questions=0)
+                       item_set_review_status=ReviewStatus.approved, question_count=0)
         db.add(iset); await db.flush()
         t.item_set_id = iset.id
         await db.commit()
@@ -353,7 +353,7 @@ async def _add_questions(s):
         db.add(other); await db.flush()
         oset = ItemSet(set_code="SET_OTHER", text_id=other.id, grade_group=GradeGroup.G4_G6,
                        genre=TextGenre.narrative, difficulty_level=Difficulty.normal,
-                       item_set_review_status=ReviewStatus.approved, total_questions=1)
+                       item_set_review_status=ReviewStatus.approved, question_count=1)
         db.add(oset); await db.flush()
         mine_set = (await db.execute(select(ItemSet).where(ItemSet.text_id == s["tid"]))).scalar_one()
         qs = []

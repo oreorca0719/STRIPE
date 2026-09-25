@@ -167,3 +167,64 @@ class DeletionRequestList(Contract):
 class DeletionReasons(Contract):
     reasons: List[CodeLabel]
     backup_notice: Text("백업본 잔존 안내 — 방침 문구")
+
+
+# ── 보호자 동의 회수 기록 (STR-97) — 관리자 동의 화면 ─────────────────
+class ConsentUpsert(Contract):
+    """회수 기록 등록·갱신. 학생 1명당 1건이므로 같은 학생에 다시 보내면 갱신된다."""
+    user_id: Int
+    confirm_method: ConsentConfirmMethod = ConsentConfirmMethod.written
+    consent_required: Bool = True
+    consent_optional: Bool = False
+    consented_at: Optional[datetime] = Field(None, description="미지정 시 서버 시각")
+    document_location: Optional[Text("종이 원본 보관 위치")] = None
+    note: Optional[Text("메모")] = None
+
+    @field_validator("document_location", "note")
+    @classmethod
+    def strip_blank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+
+class ConsentRevoke(Contract):
+    note: Optional[Text("철회 메모")] = None
+
+
+class ConsentRow(Contract):
+    """학생별 동의 현황. 기록이 없는 학생도 has_record=False 로 함께 내려준다 —
+    '아직 안 받은 사람'이 보이지 않으면 회수 누락을 발견할 수 없다."""
+    user_id: Int
+    username: Text("식별코드")
+    name: Text("표시 이름 — 식별코드")
+    grade: Optional[GradeLevel] = None
+    is_active: Bool
+
+    has_record: Bool
+    consent_id: Optional[Int] = None
+    confirm_method: Optional[ConsentConfirmMethod] = None
+    consent_required: Optional[Bool] = None
+    consent_optional: Optional[Bool] = None
+    consented_at: Optional[datetime] = None
+    document_location: Optional[Text("종이 원본 보관 위치")] = None
+    revoked: Optional[Bool] = None
+    revoked_at: Optional[datetime] = None
+    recorded_by_name: Optional[Text("기록한 관리자 이름")] = None
+    note: Optional[Text("메모")] = None
+    can_take_diagnosis: Bool = Field(description="필수 동의가 있고 철회되지 않았다")
+
+
+class ConsentSummary(Contract):
+    student_count: Count
+    collected_count: Count = Field(description="필수 동의 회수 완료(철회 안 됨)")
+    revoked_count: Count
+    missing_count: Count = Field(description="기록 자체가 없음")
+    refused_count: Count = Field(description="기록은 있으나 필수 동의 없음")
+    enforcement_on: Bool = Field(description="REQUIRE_PILOT_CONSENT 현재 값 — 켜져 있으면 미동의 학생 응시 차단")
+
+
+class ConsentListResponse(Contract):
+    summary: ConsentSummary
+    items: List[ConsentRow]

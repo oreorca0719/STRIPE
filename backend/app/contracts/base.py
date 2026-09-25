@@ -38,10 +38,14 @@ class Contract(BaseModel):
                               json_schema_serialization_defaults_required=True)
 
 
-class ResponseModel(BaseModel):
-    """schemas/ 의 기존 응답 형식이 쓰는 부모. ORM 행에서 바로 만들 수 있다."""
-    model_config = ConfigDict(from_attributes=True,
-                              json_schema_serialization_defaults_required=True)
+class RowContract(Contract):
+    """DB 행에서 바로 만드는 응답 형식. Contract 의 규칙을 그대로 지키고, ORM 행의
+    속성을 읽는 것만 더한다(from_attributes).
+
+    예전에는 응답이 느슨한 부모(ResponseModel)를 써서, 서버가 틀린 타입을 내보내도
+    바꿔서 내보냈고 원칙 검사 대상에서도 빠져 있었다.
+    """
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── 원칙 3: 자유 문자열은 표시를 달아야만 쓸 수 있다 ──────────────────────

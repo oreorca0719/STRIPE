@@ -17,7 +17,7 @@ from app.contracts.measurement import (
     AdaptiveDecision, AnswerSubmit, AwayEvents, SilentReadingSubmit,
 )
 from app.core.config import settings
-from app.schemas.diagnosis import (
+from app.contracts.session import (
     SessionCreate, SessionResponse,
     RoundCreate, RoundResponse,
     FluencyResultResponse,
@@ -25,9 +25,11 @@ from app.schemas.diagnosis import (
     RoundCompleteResponse,
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
-    ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
     RoundContentResponse, QuestionPublic,
-    MySessionItem, MySummaryResponse, ResumeResponse,
+    MySessionItem, MySummaryResponse, ResumePhase, ResumeResponse,
+)
+from app.contracts.survey import (
+    ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
@@ -145,7 +147,7 @@ def _to_my_item(session: DiagnosisSession, judgment: Optional[JudgmentResult]) -
         status=session.status,
         started_at=session.started_at,
         completed_at=session.completed_at,
-        total_rounds=session.total_rounds,
+        round_count=session.round_count,
         label_5=judgment.label_5 if judgment else None,
         prescription_group=judgment.prescription_group if judgment else None,
         fluency_level=judgment.fluency_level if judgment else None,
@@ -387,7 +389,7 @@ async def resume_session(
         session_id=session.id,
         round=round_,
         round_number=round_.round_number,
-        phase="questions" if has_fluency else "reading",
+        phase=ResumePhase.questions if has_fluency else ResumePhase.reading,
         answered=answered,
         text_reissued=text_reissued,
     )
@@ -552,7 +554,7 @@ async def create_round(
         genre=data.genre,
     )
     db.add(round_)
-    session.total_rounds = (session.total_rounds or 0) + 1
+    session.round_count = (session.round_count or 0) + 1
     await db.commit()
     await db.refresh(round_)
     return round_
@@ -761,7 +763,7 @@ async def start_diagnosis(
     )
     db.add(round_)
     session.text_id = text.id
-    session.total_rounds = 1
+    session.round_count = 1
     await db.commit()
     await db.refresh(round_)
     return round_
@@ -798,7 +800,7 @@ async def complete_round(
     # 명세의 집계 칸(§1-14). 값은 전부 위 집계 한 곳에서 계산한다.
     comp = ComprehensionResult(
         round_id=round_id,
-        total_questions=agg.question_count,
+        question_count=agg.question_count,
         correct_count=agg.correct_count,
         round_accuracy=agg.accuracy,
         betts_level=betts,
@@ -880,7 +882,7 @@ async def complete_round(
                 text_repeated=next_repeated,
             )
             db.add(nr)
-            session.total_rounds = (session.total_rounds or 0) + 1
+            session.round_count = (session.round_count or 0) + 1
             await db.flush()
             await db.refresh(nr)
             next_round = nr

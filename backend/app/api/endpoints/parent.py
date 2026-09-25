@@ -25,7 +25,7 @@ from app.models.core import (
     ParentResponse, StudentProfile, UserRelation, compute_home_environment_score,
 )
 from app.models.user import User, UserRole
-from app.schemas.parent import ParentSurveyIn, ParentSurveyOut
+from app.contracts.survey import ParentSurveyIn, ParentSurveyOut
 from app.contracts.survey import SurveyQuestions
 from app.services.survey import definition as D
 

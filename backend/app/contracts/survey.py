@@ -25,7 +25,9 @@ from typing import Annotated, List, Literal, Optional, Union
 from annotated_types import Interval, Len
 from pydantic import AfterValidator, Field, StrictInt, model_validator
 
-from app.contracts.base import Bool, Contract, Count, Int, Text, Unitless
+from datetime import datetime
+
+from app.contracts.base import Bool, Contract, Count, Int, RowContract, Text, Unitless
 from app.enums import Gender, QuestionStatus, ReaderType1, ResponseType
 
 SURVEY_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "survey_questions.json"
@@ -307,3 +309,40 @@ class ParentSurveyIn(Contract):
 # 응답 형식의 칸 ↔ 설문 파일의 저장 칸. tests/test_survey_definition.py 가 둘이
 # 어긋나지 않는지 본다(문항을 추가·삭제하면 여기서 드러난다).
 REQUEST_BY_PART = {"student": ProfileCreate, "parent": ParentSurveyIn}
+
+
+# ── 서버 → 화면: 설문 결과 ─────────────────────────────────────────────
+class ReaderTypeProbeResponse(Contract):
+    type_1: ReaderType1
+    show_non_reader_questions: Bool = Field(
+        description="조건부 문항(A-5·A-6)을 띄울지. 화면이 분류 규칙을 스스로 해석하지 않게 판단만 내려준다")
+
+
+class ProfileResponse(RowContract):
+    id: Int
+    user_id: Int
+    grade: Optional[answer("student", "B-1")] = Field(description="B-1 학년 (7=중1)")
+    type_1: Optional[ReaderType1]
+    interest_topics: Optional[TopicCodes]
+
+
+class ParentSurveyOut(RowContract):
+    id: Int
+    profile_id: Int
+    parent_user_id: Optional[Int] = Field(description="관리자 대리 입력(종이 회수분)이면 null")
+
+    parent_freq_estimate: Optional[answer("parent", "E-1")]
+    parent_reading_level: Optional[answer("parent", "E-2")]
+    parent_predicted_correct_count: Optional[answer("parent", "E-3")]
+    parent_recommend_freq: Optional[answer("parent", "E-4")]
+    parent_info_source: Optional[ParentInfoSource]
+    parent_book_criteria: Optional[ParentBookCriteria]
+
+    parent_reading_support: Optional[answer("parent", "B-3")]
+    books_at_home: Optional[answer("parent", "B-4")]
+    parent_reading_model: Optional[answer("parent", "B-5")]
+    bookstore_library_visits: Optional[answer("parent", "B-6")]
+
+    home_environment_score: Optional[Annotated[Count, Field(ge=4, le=16)]] = Field(
+        description="B-3~B-6 합 4~16. 넷 중 하나라도 비면 null")
+    created_at: datetime

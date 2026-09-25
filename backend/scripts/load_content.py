@@ -115,7 +115,7 @@ async def load(path: Path, reset: bool, force: bool = False):
                 genre=genre,
                 difficulty_level=item.difficulty_level,
                 item_set_review_status=ReviewStatus.approved,
-                total_questions=len(qs),
+                question_count=len(qs),
             )
             session.add(iset)
             await session.flush()  # iset.id 확보

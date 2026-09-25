@@ -205,12 +205,12 @@ def judge_metacognition(
     """
     if predicted_correct is None or overall_accuracy is None:
         return None
-    actual_10 = round(overall_accuracy * 10)
-    gap = predicted_correct - actual_10
+    actual_correct_count_of_10 = round(overall_accuracy * 10)
+    gap = predicted_correct - actual_correct_count_of_10
     if gap > METACOG_TOLERANCE:
         meta = Metacognition.overestimate
     elif gap < -METACOG_TOLERANCE:
         meta = Metacognition.underestimate
     else:
         meta = Metacognition.accurate
-    return MetacognitionResult(metacognition=meta, actual_correct_count_of_10=actual_10, gap_count=gap)
+    return MetacognitionResult(metacognition=meta, actual_correct_count_of_10=actual_correct_count_of_10, gap_count=gap)

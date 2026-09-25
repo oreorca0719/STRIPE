@@ -26,7 +26,7 @@ from app.models.core import (
     JudgmentResult, PrescriptionResult, Report,
     ReviewStatus, DiagSessionStatus, Label5,
 )
-from app.schemas.user import UserResponse
+from app.contracts.account import UserResponse
 from app.api.deps import require_admin
 from app.services import legal as _legal
 from app.services.diagnosis import attention
@@ -148,12 +148,12 @@ async def list_diagnoses(db: AsyncSession = Depends(get_db)):
         select(
             DiagnosisSession.id, DiagnosisSession.status,
             DiagnosisSession.started_at, DiagnosisSession.completed_at,
-            DiagnosisSession.total_rounds,
+            DiagnosisSession.round_count,
             User.id.label("student_id"), User.name.label("student_name"), User.username,
             JudgmentResult.label_5, JudgmentResult.prescription_group,
             JudgmentResult.overall_accuracy, JudgmentResult.fluency_level,
             JudgmentResult.comprehension_level,
-            JudgmentResult.total_correct, JudgmentResult.total_questions,
+            JudgmentResult.correct_count, JudgmentResult.question_count,
         )
         .join(User, User.id == DiagnosisSession.student_id)
         .outerjoin(JudgmentResult, JudgmentResult.diagnosis_session_id == DiagnosisSession.id)
@@ -163,12 +163,12 @@ async def list_diagnoses(db: AsyncSession = Depends(get_db)):
         DiagnosisListItem(
             session_id=r.id, status=r.status,
             started_at=r.started_at, completed_at=r.completed_at,
-            round_count=r.total_rounds,
+            round_count=r.round_count,
             student_id=r.student_id, student_name=r.student_name, username=r.username,
             label_5=r.label_5, prescription_group=r.prescription_group,
             overall_accuracy=r.overall_accuracy,
             fluency_level=r.fluency_level, comprehension_level=r.comprehension_level,
-            correct_count=r.total_correct, question_count=r.total_questions,
+            correct_count=r.correct_count, question_count=r.question_count,
         )
         for r in q.all()
     ]
@@ -233,7 +233,7 @@ async def get_diagnosis_detail(session_id: int, db: AsyncSession = Depends(get_d
             betts_level=comp.betts_level if comp else None,
             accuracy=comp.round_accuracy if comp else None,
             correct_count=comp.correct_count if comp else None,
-            question_count=comp.total_questions if comp else None,
+            question_count=comp.question_count if comp else None,
             reading_time_ms=fl.reading_time_ms if fl else None,
             a4_syllable_per_sec=fl.a4_syllable_per_sec if fl else None,
             away_count=len(away.spans) if away else None,
@@ -253,7 +253,7 @@ async def get_diagnosis_detail(session_id: int, db: AsyncSession = Depends(get_d
     return DiagnosisDetail(
         session=SessionBrief(
             id=sess.id, status=sess.status, started_at=sess.started_at,
-            completed_at=sess.completed_at, round_count=sess.total_rounds,
+            completed_at=sess.completed_at, round_count=sess.round_count,
             reliability_flag=sess.reliability_flag,
         ),
         student=StudentBrief(id=student.id, name=student.name, username=student.username)
@@ -265,7 +265,7 @@ async def get_diagnosis_detail(session_id: int, db: AsyncSession = Depends(get_d
             fluency_value_unit=judgment.fluency_value_unit,
             comprehension_level=judgment.comprehension_level,
             overall_accuracy=judgment.overall_accuracy,
-            correct_count=judgment.total_correct, question_count=judgment.total_questions,
+            correct_count=judgment.correct_count, question_count=judgment.question_count,
             # 저장 형식은 정답 수·문항 수만 갖는다. 정답률을 붙인 보기 형식으로 내보낸다.
             weakness_profile_12=WeaknessProfileView.model_validate(
                 judgment.weakness_profile_12, from_attributes=True),

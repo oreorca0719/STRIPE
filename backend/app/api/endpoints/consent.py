@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.core import ConsentRecord
 from app.models.user import User, UserRole
-from app.schemas.consent import (
+from app.contracts.privacy import (
     ConsentListResponse, ConsentRevoke, ConsentRow, ConsentSummary, ConsentUpsert,
 )
 
@@ -25,7 +25,7 @@ router = APIRouter(dependencies=[Depends(require_admin)])
 def _row(u: User, c: ConsentRecord | None, recorder: str | None) -> ConsentRow:
     return ConsentRow(
         user_id=u.id, username=u.username, name=u.name,
-        grade=u.grade.value if u.grade else None, is_active=u.is_active,
+        grade=u.grade, is_active=u.is_active,
         has_record=c is not None,
         consent_id=c.id if c else None,
         confirm_method=c.confirm_method if c else None,
@@ -77,11 +77,11 @@ async def list_consents(
         rows.append(_row(u, c, recorders.get(c.recorded_by) if c else None))
 
     summary = ConsentSummary(
-        total_students=len(rows),
-        collected=sum(1 for r in rows if r.can_take_diagnosis),
-        revoked=sum(1 for r in rows if r.revoked),
-        missing=sum(1 for r in rows if not r.has_record),
-        refused=sum(1 for r in rows if r.has_record and not r.consent_required),
+        student_count=len(rows),
+        collected_count=sum(1 for r in rows if r.can_take_diagnosis),
+        revoked_count=sum(1 for r in rows if r.revoked),
+        missing_count=sum(1 for r in rows if not r.has_record),
+        refused_count=sum(1 for r in rows if r.has_record and not r.consent_required),
         enforcement_on=settings.REQUIRE_PILOT_CONSENT,
     )
 

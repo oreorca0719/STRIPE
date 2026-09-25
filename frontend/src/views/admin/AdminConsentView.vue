@@ -18,11 +18,11 @@
       <template v-else>
         <!-- 요약 -->
         <div class="summary-row">
-          <div class="sum"><span class="sum-k">전체 학생</span><span class="sum-v">{{ summary.total_students }}</span></div>
-          <div class="sum ok"><span class="sum-k">회수 완료</span><span class="sum-v">{{ summary.collected }}</span></div>
-          <div class="sum warn"><span class="sum-k">미회수</span><span class="sum-v">{{ summary.missing }}</span></div>
-          <div class="sum bad"><span class="sum-k">철회</span><span class="sum-v">{{ summary.revoked }}</span></div>
-          <div v-if="summary.refused" class="sum bad"><span class="sum-k">동의 거부</span><span class="sum-v">{{ summary.refused }}</span></div>
+          <div class="sum"><span class="sum-k">전체 학생</span><span class="sum-v">{{ summary.student_count }}</span></div>
+          <div class="sum ok"><span class="sum-k">회수 완료</span><span class="sum-v">{{ summary.collected_count }}</span></div>
+          <div class="sum warn"><span class="sum-k">미회수</span><span class="sum-v">{{ summary.missing_count }}</span></div>
+          <div class="sum bad"><span class="sum-k">철회</span><span class="sum-v">{{ summary.revoked_count }}</span></div>
+          <div v-if="summary.refused_count" class="sum bad"><span class="sum-k">동의 거부</span><span class="sum-v">{{ summary.refused_count }}</span></div>
         </div>
 
         <!-- 강제 여부 -->

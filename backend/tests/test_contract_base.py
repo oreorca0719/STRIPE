@@ -70,3 +70,23 @@ def test_한_칸에_같은_종류의_제약이_겹치지_않는다():
             if any(c[k] > 1 for k in kinds):
                 dup.append(f"{model.__name__}.{name}")
     assert not dup, dup
+
+
+def test_형식은_contracts_폴더에만_있다():
+    """형식을 다른 곳에 만들면 원칙 검사·명세에서 빠진다. 실제로 app/schemas 의
+    응답 25개가 느슨한 부모를 써서 검사 밖에 있었다(2026-09-26 옮김)."""
+    import main  # noqa: F401 — 앱 전체를 불러와 모든 형식이 등록되게 한다
+    from pydantic_settings import BaseSettings
+
+    seen, stack, outside = set(), [BaseModel], []
+    while stack:
+        for sub in stack.pop().__subclasses__():
+            if sub in seen:
+                continue
+            seen.add(sub)
+            stack.append(sub)
+            mod = sub.__module__
+            if mod.startswith("app.") and not mod.startswith("app.contracts") \
+                    and not issubclass(sub, BaseSettings):     # 서버 설정은 데이터 라인이 아니다
+                outside.append(f"{mod}.{sub.__name__}")
+    assert not outside, f"형식은 app/contracts 에 둔다: {outside}"

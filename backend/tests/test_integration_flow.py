@@ -74,10 +74,10 @@ async def _seed(predicted_correct: int | None = 7):
 
         s1 = ItemSet(set_code="SET_1", text_id=t1.id, grade_group=GradeGroup.G4_G6,
                      genre=TextGenre.narrative, difficulty_level=Difficulty.normal,
-                     item_set_review_status=ReviewStatus.approved, total_questions=3)
+                     item_set_review_status=ReviewStatus.approved, question_count=3)
         s2 = ItemSet(set_code="SET_2", text_id=t2.id, grade_group=GradeGroup.G4_G6,
                      genre=TextGenre.expository, difficulty_level=Difficulty.hard,
-                     item_set_review_status=ReviewStatus.approved, total_questions=3)
+                     item_set_review_status=ReviewStatus.approved, question_count=3)
         db.add_all([s1, s2])
         await db.flush()
         t1.item_set_id, t2.item_set_id = s1.id, s2.id
@@ -184,15 +184,15 @@ async def _run(predicted_correct: int | None = 7):
             # D-2 는 예약·비활성이라 운영에서는 이쪽이 실제 경로다. 0 으로 채우면
             # gap 이 0−실제 가 되어 전원이 "과소평가"로 판정된다(STR-127).
             assert j["metacognition"] is None, j
-            assert j["d2_gap"] is None and j["actual_10"] is None, j
+            assert j["metacognition_gap_count"] is None and j["actual_correct_count_of_10"] is None, j
         else:
             assert j["metacognition"] == "accurate"             # 예측7 vs 실제8, |gap|=1
         assert p["prescription_type"] in ("A_and_B", "A_only")
         # 약점 프로필 6칸 — 조회용 칸(total_*)은 칸들의 합과 같아야 한다(한 곳에서 계산)
         cells = j["weakness_profile_12"]["cells"]
         assert len(cells) == 6
-        assert sum(c["correct_count"] for c in cells) == j["total_correct"]
-        assert sum(c["question_count"] for c in cells) == j["total_questions"]
+        assert sum(c["correct_count"] for c in cells) == j["correct_count"]
+        assert sum(c["question_count"] for c in cells) == j["question_count"]
         # 처방은 지문을 id 로만 가리킨다
         assert all(isinstance(i, int) for i in p["recommended_texts"]["text_ids"])
         print(f"PASS finalize: fluency={j['fluency_value']}({j['fluency_level']}), "

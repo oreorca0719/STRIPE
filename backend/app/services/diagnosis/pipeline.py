@@ -108,8 +108,8 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         comprehension_level=cj.comprehension_level,
         # 아래 세 칸은 명세의 조회용 칸이다. 값은 전부 약점 프로필 한 곳에서 계산한다.
         overall_accuracy=None if cj.overall_accuracy is None else round(cj.overall_accuracy, 4),
-        total_correct=cj.profile.correct_count,
-        total_questions=cj.profile.question_count,
+        correct_count=cj.profile.correct_count,
+        question_count=cj.profile.question_count,
         weakness_profile_12=cj.profile,
         matrix_position=placement.matrix_position,
         label_5=placement.label_5,
@@ -117,8 +117,8 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         anchor_level=session.anchor_level or anchor.value,
         anchor_difficulty=anchor,
         metacognition=meta.metacognition if meta else None,
-        d2_gap=meta.gap_count if meta else None,
-        actual_10=meta.actual_correct_count_of_10 if meta else None,
+        metacognition_gap_count=meta.gap_count if meta else None,
+        actual_correct_count_of_10=meta.actual_correct_count_of_10 if meta else None,
         reliability_flag=reliability,
         disclaimer_flags=Disclaimers.of(disclaimer_codes),   # 없으면 빈 집합(null 아님)
     )

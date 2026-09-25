@@ -302,9 +302,9 @@ STRIPE/
 │   │   │   ├── diagnosis/           # 진단 엔진 (scoring·adaptive·judgment·
 │   │   │   │                        #   prescription·text_selection·pipeline·report)
 │   │   │   └── stt/                 # STT 어댑터 (clova·mock·analyzer)
-│   │   └── schemas/
-│   │       ├── user.py
-│   │       └── diagnosis.py
+│   │   ├── contracts/               # 모듈 간 데이터 형식 — 모든 요청·응답·JSONB 형식은 여기에만
+│   │   │                            #   (명세: docs/데이터_형식_명세.md, 자동 생성)
+│   │   └── enums.py                 # 정해진 값 목록
 │   ├── alembic/versions/
 │   │   ├── 001_create_users_table.py
 │   │   ├── 002_add_core_schema.py

@@ -99,7 +99,7 @@ async def main():
             r = await ac.post(f"/api/diagnosis/round/{rid}/complete"); r.raise_for_status()
             body = r.json()
             comp, dec = body["comprehension"], body["decision"]
-            print(f"      정답 {comp['correct_count']}/{comp['total_questions']}, Betts={comp['betts_level']} → {dec['action']}")
+            print(f"      정답 {comp['correct_count']}/{comp['question_count']}, Betts={comp['betts_level']} → {dec['action']}")
             if dec["action"] == "stop" or not body.get("next_round"):
                 if body.get("text_shortage"):
                     print("      (text_shortage 종료)")

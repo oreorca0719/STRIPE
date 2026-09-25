@@ -121,7 +121,7 @@ class ItemSet(Base):
     genre = Column(Enum(TextGenre), nullable=False)
     difficulty_level = Column(Enum(Difficulty), nullable=False)
     item_set_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
-    total_questions = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -217,7 +217,7 @@ class DiagnosisSession(Base):
     # nullable로 잠정 보존(1회차 텍스트 단축). 신규 흐름은 diagnosis_rounds 사용.
     text_id = Column(Integer, ForeignKey('texts.id', ondelete='SET NULL'), nullable=True)
     silent_mode = Column(Boolean, nullable=False, default=True)
-    total_rounds = Column(Integer, nullable=False, default=0)
+    round_count = Column(Integer, nullable=False, default=0)
     anchor_level = Column(String(20), nullable=True)
     anchor_difficulty = Column(Enum(Difficulty), nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
@@ -261,7 +261,7 @@ class ComprehensionResult(Base):
     __tablename__ = "comprehension_results"
     id = Column(Integer, primary_key=True, index=True)
     round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='CASCADE'), nullable=False)
-    total_questions = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
     correct_count = Column(Integer, nullable=False, default=0)
     round_accuracy = Column(Float, nullable=True)        # correct/total
     betts_level = Column(Enum(BettsLevel), nullable=True)
@@ -345,8 +345,8 @@ class JudgmentResult(Base):
     # 독해 (§3-2)
     comprehension_level = Column(Enum(Level3), nullable=False)
     overall_accuracy = Column(Float, nullable=True)
-    total_correct = Column(Integer, nullable=False, default=0)
-    total_questions = Column(Integer, nullable=False, default=0)
+    correct_count = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
     # 형식: contracts.judgment.WeaknessProfile (6칸, 칸마다 정답 수·문항 수)
     weakness_profile_12 = Column(ContractJSONB(WeaknessProfile), nullable=False)
     # 매트릭스 (§3-3)
@@ -357,8 +357,8 @@ class JudgmentResult(Base):
     anchor_level = Column(String(20), nullable=True)
     anchor_difficulty = Column(Enum(Difficulty), nullable=True)
     metacognition = Column(Enum(Metacognition), nullable=True)
-    d2_gap = Column(Integer, nullable=True)
-    actual_10 = Column(Integer, nullable=True)
+    metacognition_gap_count = Column(Integer, nullable=True)
+    actual_correct_count_of_10 = Column(Integer, nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
     disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -73,7 +73,7 @@
               </div>
             </div>
             <p class="metric-main">{{ levelKo(judgment.comprehension_level) }}</p>
-            <p class="sub">{{ judgment.total_questions }}문제 중 <strong>{{ judgment.total_correct }}문제</strong> 맞혔어요</p>
+            <p class="sub">{{ judgment.question_count }}문제 중 <strong>{{ judgment.correct_count }}문제</strong> 맞혔어요</p>
           </div>
         </div>
 

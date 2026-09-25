@@ -89,9 +89,9 @@ def test_list_includes_students_without_record():
         async with _client(_admin_app()) as ac:
             r = (await ac.get("/api/admin/consents")).json()
 
-            assert r["summary"]["total_students"] == 2
-            assert r["summary"]["missing"] == 2
-            assert r["summary"]["collected"] == 0
+            assert r["summary"]["student_count"] == 2
+            assert r["summary"]["missing_count"] == 2
+            assert r["summary"]["collected_count"] == 0
             assert len(r["items"]) == 2
             assert all(i["has_record"] is False for i in r["items"])
             assert all(i["can_take_diagnosis"] is False for i in r["items"])
@@ -124,8 +124,8 @@ def test_upsert_then_revoke_flow():
             assert again.json()["document_location"] == "3반 캐비닛 B"
 
             listed = (await ac.get("/api/admin/consents")).json()
-            assert listed["summary"]["collected"] == 1
-            assert listed["summary"]["missing"] == 1
+            assert listed["summary"]["collected_count"] == 1
+            assert listed["summary"]["missing_count"] == 1
 
             # 철회 — 행을 지우지 않고 표시만 바꾼다
             rev = await ac.post(f"/api/admin/consents/{S1}/revoke", json={"note": "보호자 요청"})
@@ -138,8 +138,8 @@ def test_upsert_then_revoke_flow():
             assert (await ac.post(f"/api/admin/consents/{S1}/revoke", json={})).status_code == 409
 
             after = (await ac.get("/api/admin/consents")).json()
-            assert after["summary"]["revoked"] == 1
-            assert after["summary"]["collected"] == 0
+            assert after["summary"]["revoked_count"] == 1
+            assert after["summary"]["collected_count"] == 0
 
         # 철회 후 다시 동의서를 받아오면 되살아나야 한다
         async with _client(_admin_app()) as ac:
@@ -169,7 +169,7 @@ def test_missing_only_filter():
             r = (await ac.get("/api/admin/consents?missing_only=true")).json()
             assert [i["user_id"] for i in r["items"]] == [S2]
             # 요약은 필터와 무관하게 전체 기준
-            assert r["summary"]["total_students"] == 2
+            assert r["summary"]["student_count"] == 2
 
     asyncio.run(_with_cleanup(_run))
 

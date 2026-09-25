@@ -375,7 +375,7 @@ export interface ConsentRow {
   user_id: number;
   username: string;
   name: string;
-  grade: string | null;
+  grade: GradeLevel | null;
   is_active: boolean;
   has_record: boolean;
   consent_id: number | null;
@@ -388,6 +388,7 @@ export interface ConsentRow {
   revoked_at: string | null;
   recorded_by_name: string | null;
   note: string | null;
+  /** 필수 동의가 있고 철회되지 않았다 */
   can_take_diagnosis: boolean;
 }
 
@@ -403,11 +404,15 @@ export interface ConsentSnapshot {
 }
 
 export interface ConsentSummary {
-  total_students: number;
-  collected: number;
-  revoked: number;
-  missing: number;
-  refused: number;
+  student_count: number;
+  /** 필수 동의 회수 완료(철회 안 됨) */
+  collected_count: number;
+  revoked_count: number;
+  /** 기록 자체가 없음 */
+  missing_count: number;
+  /** 기록은 있으나 필수 동의 없음 */
+  refused_count: number;
+  /** REQUIRE_PILOT_CONSENT 현재 값 — 켜져 있으면 미동의 학생 응시 차단 */
   enforcement_on: boolean;
 }
 
@@ -417,6 +422,7 @@ export interface ConsentUpsert {
   confirm_method?: ConsentConfirmMethod;
   consent_required?: boolean;
   consent_optional?: boolean;
+  /** 미지정 시 서버 시각 */
   consented_at?: string | null;
   document_location?: string | null;
   note?: string | null;
@@ -725,9 +731,13 @@ export interface FluencyResultResponse {
   session_id: number;
   round_id: number;
   type: FluencyType;
+  /** 두 버튼 사이 실제 시각 차이 */
   reading_time_ms: number;
+  /** 묵독 자동성. 음독이면 null */
   a4_syllable_per_sec: number | null;
+  /** 음독 — 감독자가 센 오류 수 */
   supervisor_error_count: number | null;
+  /** 음독 자동 채점. 서버가 센 지문 음절 수(text_syllable_count)도 여기 있다 */
   oral_analysis: OralReadingAnalysis | null;
   created_at: string;
 }
@@ -855,16 +865,18 @@ export interface JudgmentResultResponse {
   fluency_value_unit: FluencyUnit;
   comprehension_level: Level3;
   overall_accuracy: number | null;
-  total_correct: number;
-  total_questions: number;
+  correct_count: number;
+  question_count: number;
   weakness_profile_12: WeaknessProfileView;
   matrix_position: string;
   label_5: Label5;
   prescription_group: PrescriptionGroup;
   anchor_difficulty: Difficulty | null;
   metacognition: Metacognition | null;
-  d2_gap: number | null;
-  actual_10: number | null;
+  /** 예측 − 실제, 문항 수 차이. 음수면 과소평가. 예측(D-2)이 없으면 null */
+  metacognition_gap_count: number | null;
+  /** 실제 정답률을 10문항 기준으로 환산한 정답 수 */
+  actual_correct_count_of_10: number | null;
   reliability_flag: ReliabilityFlag;
   disclaimer_flags: Disclaimers;
 }
@@ -939,13 +951,13 @@ export interface MyDeletionRequests {
   backup_notice: string;
 }
 
-/** 이력 목록 한 줄. 판정 전(미완료) 세션은 판정 필드가 전부 None. */
+/** 이력 목록 한 줄. 판정 전(미완료) 세션은 판정 칸이 전부 null. */
 export interface MySessionItem {
   session_id: number;
   status: DiagSessionStatus;
   started_at: string | null;
   completed_at: string | null;
-  total_rounds: number;
+  round_count: number;
   label_5: Label5 | null;
   prescription_group: PrescriptionGroup | null;
   fluency_level: Level3 | null;
@@ -955,9 +967,10 @@ export interface MySessionItem {
   reliability_flag: ReliabilityFlag | null;
 }
 
-/** 학생 홈 요약. 진단 이력이 없으면 completed_count=0, latest=None. */
+/** 학생 홈 요약. 진단 이력이 없으면 completed_count=0, latest=null. */
 export interface MySummaryResponse {
   completed_count: number;
+  /** 이어하기 배너용 */
   in_progress_session_id: number | null;
   latest: MySessionItem | null;
 }
@@ -1130,6 +1143,7 @@ export interface ParentSurveyIn {
 export interface ParentSurveyOut {
   id: number;
   profile_id: number;
+  /** 관리자 대리 입력(종이 회수분)이면 null */
   parent_user_id: number | null;
   parent_freq_estimate: "1" | "2" | "3" | "4" | "5" | "6" | null;
   parent_reading_level: "1" | "2" | "3" | "4" | "5" | null;
@@ -1141,6 +1155,7 @@ export interface ParentSurveyOut {
   books_at_home: "1" | "2" | "3" | "4" | null;
   parent_reading_model: "1" | "2" | "3" | "4" | null;
   bookstore_library_visits: "1" | "2" | "3" | "4" | null;
+  /** B-3~B-6 합 4~16. 넷 중 하나라도 비면 null */
   home_environment_score: number | null;
   created_at: string;
 }
@@ -1220,7 +1235,8 @@ export interface ProfileCreate {
 export interface ProfileResponse {
   id: number;
   user_id: number;
-  grade: number | null;
+  /** B-1 학년 (7=중1) */
+  grade: "4" | "5" | "6" | "7" | null;
   type_1: ReaderType1 | null;
   interest_topics: TopicCode[] | null;
 }
@@ -1242,7 +1258,7 @@ export interface QuestionDetail {
   review_status: ReviewStatus;
 }
 
-/** 학생에게 내려보내는 문항 (answer_index·evidence·explanation 제외). */
+/** 학생에게 내려보내는 문항 — 정답 번호·근거·해설은 싣지 않는다(부정 방지). */
 export interface QuestionPublic {
   id: number;
   target_area: TargetArea;
@@ -1253,7 +1269,9 @@ export interface QuestionPublic {
 export interface QuestionResponseResult {
   id: number;
   round_id: number;
+  /** 문항이 삭제됐으면 null */
   question_id: number | null;
+  /** 고른 선지 번호 */
   student_answer: number;
   is_correct: boolean;
   target_area: TargetArea;
@@ -1316,6 +1334,7 @@ export interface ReaderTypeProbe {
 
 export interface ReaderTypeProbeResponse {
   type_1: ReaderType1;
+  /** 조건부 문항(A-5·A-6)을 띄울지. 화면이 분류 규칙을 스스로 해석하지 않게 판단만 내려준다 */
   show_non_reader_questions: boolean;
 }
 
@@ -1392,12 +1411,14 @@ export interface ReportDetail {
 export interface ReportResponse {
   id: number;
   judgment_id: number;
-  report_type: string;
+  report_type: ReportRole;
   report_content: ReportContent;
   disclaimer_flags: Disclaimers;
   llm_polished: boolean;
-  review_status: string;
+  review_status: ReviewStatus;
 }
+
+export type ReportRole = "student" | "parent" | "teacher"
 
 /** 1층 — 요약. */
 export interface ReportSummary {
@@ -1422,13 +1443,17 @@ export interface ResponseDetail {
   choices: string[] | null;
 }
 
-/** 이어할 지점. 프론트는 phase 에 따라 읽기/문항 화면으로 복귀한다. */
+export type ResumePhase = "reading" | "questions"
+
+/** 이어할 지점. 화면은 phase 에 따라 읽기/문항 화면으로 복귀한다. */
 export interface ResumeResponse {
   session_id: number;
   round: RoundResponse;
   round_number: number;
-  phase: string;
+  phase: ResumePhase;
+  /** {question_id: 고른 선지 번호} — 복원용 */
   answered: Record<string, number>;
+  /** 읽기 시간 미측정이라 지문을 교체했는지 */
   text_reissued: boolean;
 }
 
@@ -1493,6 +1518,7 @@ export interface RoundCompleteResponse {
   comprehension: RoundAggregateView;
   decision: AdaptiveDecision;
   next_round: RoundResponse | null;
+  /** 다음 회차에 줄 지문이 없어 끝냈다 */
   text_shortage: boolean;
   session: SessionResponse;
 }
@@ -1539,6 +1565,7 @@ export interface RoundDetail {
 export interface RoundResponse {
   id: number;
   diagnosis_session_id: number;
+  /** 1부터 */
   round_number: number;
   text_id: number | null;
   difficulty_level: Difficulty;
@@ -1571,6 +1598,7 @@ export interface SessionBrief {
 export interface SessionCreate {
   profile_id?: number | null;
   silent_mode?: boolean;
+  /** 전환기 호환 — 1회차 지문 지정 */
   text_id?: number | null;
 }
 
@@ -1581,7 +1609,8 @@ export interface SessionResponse {
   profile_id: number | null;
   text_id: number | null;
   silent_mode: boolean;
-  total_rounds: number;
+  /** 시작한 회차 수 */
+  round_count: number;
   status: DiagSessionStatus;
   started_at: string;
   completed_at: string | null;
@@ -1738,7 +1767,7 @@ export interface TextSummary {
 
 export interface TokenResponse {
   access_token: string;
-  token_type: string;
+  token_type: "bearer";
   user: UserResponse;
 }
 
