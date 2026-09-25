@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flow-dashboard",
+      "runtimeExecutable": "C:/Users/User/Desktop/RISA/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "main:app", "--port", "8000"],
+      "cwd": "backend",
+      "port": 8000,
+      "url": "http://localhost:8000",
+      "env": {
+        "FLOW_TRACE": "true",
+        "DATABASE_URL": "postgresql+asyncpg://stripe:stripe@localhost:5432/stripe"
+      }
+    }
+  ]
+}

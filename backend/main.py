@@ -25,6 +25,50 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 
 
+# ── 개발용 흐름 관찰 (로컬 전용) ─────────────────────────────────────────
+# settings.FLOW_TRACE 가 꺼져 있으면 아래 전체가 실행되지 않는다. 미들웨어도
+# 라우터도 붙지 않고, 서비스 함수를 감싸는 작업도 하지 않는다.
+#
+# ★ 켜고 배포하지 말 것. 값은 남지 않지만(형태만), 어느 학생이 어떤 경로를
+#   탔는지가 메모리에 남고 인증 없는 경로로 열린다.
+if settings.FLOW_TRACE:
+    from app.dev import flow_api, tracer
+
+    _wrapped = tracer.install()
+
+    @app.middleware("http")
+    async def _flow_trace(request, call_next):
+        # 추적하지 않는 것:
+        #  · 대시보드 자신 — 조회가 기록을 만들고 그 기록이 다시 조회를 부른다
+        #  · 정적 자원 — favicon 요청이 목록을 가득 채워 실제 흐름이 안 보인다
+        path = request.url.path
+        if path.startswith("/_dev/flow") or path in ("/favicon.ico", "/robots.txt"):
+            return await call_next(request)
+
+        # 경로에 세션 id 가 있으면 함께 남긴다. 나중에 관리자 화면에서
+        # '이 학생의 이 진단'으로 묶어 보려면 이 값이 있어야 한다.
+        sid = request.path_params.get("session_id") if request.path_params else None
+        label = f"{request.method} {request.url.path}"
+        t = tracer.start(label, session_id=_as_int(sid))
+        try:
+            return await call_next(request)
+        finally:
+            tracer.finish(t)
+
+    app.include_router(flow_api.router, prefix="/_dev/flow", include_in_schema=False)
+    # Windows 콘솔(cp949)은 em-dash·중점을 못 찍는다. 시작 로그가 죽으면
+    # 서버가 아예 안 뜨므로 여기서는 ASCII 만 쓴다.
+    print(f"[flow] trace ON - wrapped {_wrapped} functions "
+          f"- http://localhost:8000/_dev/flow/")
+
+
+def _as_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 @app.get("/api/health")
 async def health_check():
     """살아 있는가 (liveness). 의존성을 건드리지 않는다.
