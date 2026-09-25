@@ -25,10 +25,12 @@ from app.api.endpoints import audio, diagnosis
 from app.core.database import AsyncSessionLocal, engine
 from app.core.security import create_access_token
 from app.models.core import (
+    ComprehensionResult, Question, QuestionFormat, TargetArea,
     DiagnosisRound, DiagnosisSession, Difficulty, FluencyResult, FluencyType,
     GradeGroup, ItemSet, ReviewStatus, StudentProfile, TextContent, TextGenre,
 )
 from app.models.user import User, UserRole, GradeLevel
+from app.services.diagnosis import attention
 
 TABLES = ("users, student_profiles, diagnosis_sessions, diagnosis_rounds, "
           "fluency_results, texts, item_sets, questions")
@@ -263,52 +265,139 @@ def test_음독_저장이_묵독_판정을_건드리지_않는다():
 
 def test_이탈_이벤트가_묵독_기록에_남는다():
     """문준석 요청 — '나중에 넣으면 이미 수집된 데이터에는 적용할 수 없다'.
-    보정하지 않고 원본과 집계를 남기는 것이 계약이다."""
+    보정하지 않고 **원본만** 남긴다. 집계는 attention.summarize 로 계산한다."""
     async def go():
         s = await _seed()
         async with AsyncClient(transport=ASGITransport(app=_app()),
                                base_url="http://t", headers=_hdr(s["uid"])) as ac:
             r = await ac.post("/api/diagnosis/fluency/silent", json={
                 "session_id": s["sid"], "round_id": s["rid"],
-                "silent_reading_time": 100.0,
+                "reading_time_ms": 100_000,
                 "away_events": [
                     {"type": "hidden", "at_ms": 10_000},
                     {"type": "visible", "at_ms": 25_000},     # 15초 이탈
                 ],
             })
             assert r.status_code == 201, r.text
+            body = r.json()
+            assert body["reading_time_ms"] == 100_000
+            assert body["a4_syllable_per_sec"] == 0.18     # 18음절 / 100초
 
         async with AsyncSessionLocal() as db:
             row = (await db.execute(
                 select(FluencyResult).where(FluencyResult.type == FluencyType.silent)
             )).scalar_one()
-            a = row.raw_data["attention"]
-            assert a["away_count"] == 1
-            assert a["away_total_ms"] == 15_000
-            assert a["notice"] is True                    # 15/100 > 10%
-            # 원본이 남아야 어떤 보정 방식이든 나중에 다시 계산된다
-            assert a["spans"][0]["duration_ms"] == 15_000
-            assert len(a["events"]) == 2
+            # 원본이 형식 객체로 읽힌다
+            assert [e.at_ms for e in row.away_events.events] == [10_000, 25_000]
+            assert row.raw_data is None                       # 집계를 저장하지 않는다
+            summary = attention.summarize(row.away_events.events, row.reading_time_ms)
+            assert summary.away_total_ms == 15_000
+            assert attention.is_notable(summary) is True      # 15/100 > 10%
             # A4 는 보정하지 않은 원래 시간으로 산출된다
-            assert row.silent_reading_time == 100.0
+            assert row.reading_time_ms == 100_000
     _run(go)
 
 
-def test_이탈_이벤트를_안_보내도_저장된다():
-    """구버전 화면 호환. 이 필드가 없다고 진단이 막히면 안 된다."""
+@pytest.mark.parametrize("body,why", [
+    ({"reading_time_ms": 60_000}, "이탈 목록 누락"),
+    ({"reading_time_ms": 60.5, "away_events": []}, "ms 는 정수"),
+    ({"silent_reading_time": 60, "away_events": []}, "옛 칸 이름(초 단위)"),
+    ({"reading_time_ms": 60_000, "away_events": [], "comprehension_check_score": 1}, "없는 칸"),
+])
+def test_묵독_기록_형식이_틀리면_거부한다(body, why):
+    """예전에는 이탈 목록이 없어도, 잘못된 이벤트가 섞여도 받아서 조용히 버렸다."""
     async def go():
         s = await _seed()
         async with AsyncClient(transport=ASGITransport(app=_app()),
                                base_url="http://t", headers=_hdr(s["uid"])) as ac:
-            r = await ac.post("/api/diagnosis/fluency/silent", json={
-                "session_id": s["sid"], "round_id": s["rid"],
-                "silent_reading_time": 60.0,
-            })
-            assert r.status_code == 201, r.text
+            r = await ac.post("/api/diagnosis/fluency/silent",
+                              json={"session_id": s["sid"], "round_id": s["rid"], **body})
+            assert r.status_code == 422, (why, r.text)
+    _run(go)
 
+
+def test_같은_회차에_묵독을_두_번_보내면_409():
+    """응답을 못 받고 재전송한 경우. 두 줄이 생기면 A4 중앙값이 틀어진다."""
+    async def go():
+        s = await _seed()
+        body = {"session_id": s["sid"], "round_id": s["rid"],
+                "reading_time_ms": 60_000, "away_events": []}
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            assert (await ac.post("/api/diagnosis/fluency/silent", json=body)).status_code == 201
+            assert (await ac.post("/api/diagnosis/fluency/silent", json=body)).status_code == 409
         async with AsyncSessionLocal() as db:
-            row = (await db.execute(
-                select(FluencyResult).where(FluencyResult.type == FluencyType.silent)
-            )).scalar_one()
-            assert row.raw_data["attention"]["away_count"] == 0
+            n = (await db.execute(select(FluencyResult))).scalars().all()
+            assert len(n) == 1
+    _run(go)
+
+
+async def _add_questions(s):
+    """이 회차 지문의 문항 하나 + 다른 지문의 문항 하나."""
+    async with AsyncSessionLocal() as db:
+        other = TextContent(
+            text_code="TXT_OTHER", title="다른 글", content="다른 글입니다.",
+            grade_group=GradeGroup.G4_G6, genre=TextGenre.narrative,
+            topic_tags=["animal"], syllable_count=6,
+            difficulty_level=Difficulty.normal, text_review_status=ReviewStatus.approved,
+        )
+        db.add(other); await db.flush()
+        oset = ItemSet(set_code="SET_OTHER", text_id=other.id, grade_group=GradeGroup.G4_G6,
+                       genre=TextGenre.narrative, difficulty_level=Difficulty.normal,
+                       item_set_review_status=ReviewStatus.approved, total_questions=1)
+        db.add(oset); await db.flush()
+        mine_set = (await db.execute(select(ItemSet).where(ItemSet.text_id == s["tid"]))).scalar_one()
+        qs = []
+        for code, text_id, set_id in (("Q_MINE", s["tid"], mine_set.id), ("Q_OTHER", other.id, oset.id)):
+            q = Question(question_code=code, text_id=text_id, item_set_id=set_id,
+                         target_area=TargetArea.A5, question_type=QuestionFormat.multiple_choice,
+                         question_text="?", choices=["가", "나", "다", "라"], answer_index=1,
+                         evidence_text="근거", explanation="해설",
+                         question_review_status=ReviewStatus.approved)
+            db.add(q); qs.append(q)
+        await db.commit()
+        return qs[0].id, qs[1].id
+
+
+def test_다른_지문의_문항은_이_회차_응답으로_받지_않는다():
+    async def go():
+        s = await _seed()
+        mine, other = await _add_questions(s)
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            ok = await ac.post("/api/diagnosis/comprehension", json={
+                "round_id": s["rid"], "question_id": mine, "student_answer": 1})
+            assert ok.status_code == 201, ok.text
+            bad = await ac.post("/api/diagnosis/comprehension", json={
+                "round_id": s["rid"], "question_id": other, "student_answer": 1})
+            assert bad.status_code == 422, bad.text
+            over = await ac.post("/api/diagnosis/comprehension", json={
+                "round_id": s["rid"], "question_id": mine, "student_answer": 5})
+            assert over.status_code == 422, "선지가 4개인데 5번을 받았다"
+            zero = await ac.post("/api/diagnosis/comprehension", json={
+                "round_id": s["rid"], "question_id": mine, "student_answer": 0})
+            assert zero.status_code == 422, "선지 번호는 1부터"
+    _run(go)
+
+
+def test_회차를_두_번_완료하면_409이고_집계는_하나다():
+    """두 번 완료되면 Betts 이력이 중복돼 적응형 판단이 틀어지고 다음 회차가 둘 생긴다."""
+    async def go():
+        s = await _seed()
+        mine, _ = await _add_questions(s)
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            await ac.post("/api/diagnosis/comprehension", json={
+                "round_id": s["rid"], "question_id": mine, "student_answer": 1})
+            first = await ac.post(f"/api/diagnosis/round/{s['rid']}/complete")
+            assert first.status_code == 200, first.text
+            agg = first.json()["comprehension"]
+            assert (agg["correct_count"], agg["question_count"], agg["accuracy"]) == (1, 1, 1.0)
+            assert [a["area"] for a in agg["areas"]] == ["A5", "A6", "A7"]
+            assert agg["areas"][1]["accuracy"] is None          # 문항 없는 영역 — 0 이 아니다
+            second = await ac.post(f"/api/diagnosis/round/{s['rid']}/complete")
+            assert second.status_code == 409, second.text
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(select(ComprehensionResult))).scalars().all()
+            assert len(rows) == 1
     _run(go)

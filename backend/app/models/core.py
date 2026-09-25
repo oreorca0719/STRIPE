@@ -11,6 +11,7 @@ from app.contracts.column import ContractJSONB
 from app.contracts.judgment import Disclaimers, WeaknessProfile
 from app.contracts.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent, TemplateIds
+from app.contracts.measurement import AwayEvents
 
 
 # 값 목록은 app/enums.py 에 있다. 기존 import 경로를 위해 여기서 다시 내보낸다.
@@ -42,6 +43,8 @@ from app.enums import (  # noqa: F401
     ReportRole,
     DisclaimerCode,
     EnvironmentSkipReason,
+    AwayEventType,
+    AdaptiveAction,
 )
 
 # =========================================================================
@@ -225,7 +228,10 @@ class DiagnosisRound(Base):
     text_id = Column(Integer, ForeignKey('texts.id', ondelete='SET NULL'), nullable=True)
     difficulty_level = Column(Enum(Difficulty), nullable=False)
     genre = Column(Enum(TextGenre), nullable=False)
-    changed_variables = Column(JSONB, nullable=True)
+    # 이 학생이 예전에 읽은 지문이 다시 나왔나 (STR-95). 참/거짓 사실 하나라
+    # 자유 JSON(changed_variables)에서 칸으로 옮겼다. 명세의 changed_variables
+    # (회차 사이에 바뀐 변수)는 앞뒤 회차의 난도·장르에서 계산되므로 두지 않는다(원칙 5).
+    text_repeated = Column(Boolean, nullable=False, default=False, server_default='false')
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -250,6 +256,9 @@ class ComprehensionResult(Base):
     a6_inferential_accuracy = Column(Float, nullable=True)
     a7_critical_accuracy = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차 하나에 집계 하나. 회차 완료가 두 번 불리면 Betts 이력이 중복돼
+    # 적응형 판단이 틀어진다.
+    __table_args__ = (UniqueConstraint('round_id', name='uq_comprehension_round'),)
 
     round = relationship("DiagnosisRound", back_populates="comprehension_result")
     question_responses = relationship("QuestionResponse", back_populates="comp_result")
@@ -270,31 +279,39 @@ class QuestionResponse(Base):
     response_time_ms = Column(Integer, nullable=True)
     target_area = Column(Enum(TargetArea), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차·문항당 응답 하나. 답을 고치면 행을 갱신한다(분모가 부풀지 않게).
+    __table_args__ = (UniqueConstraint('round_id', 'question_id', name='uq_response_round_question'),)
 
     round = relationship("DiagnosisRound", back_populates="question_responses")
     comp_result = relationship("ComprehensionResult", back_populates="question_responses")
 
 
 # =========================================================================
-# fluency_results — 유창성 (기존 유지, Phase A 범위 밖)
-# MVP1 묵독은 silent_reading_time 사용. A4(음절/초) 산출은 Phase B에서 정식화.
+# fluency_results — 유창성. 회차·측정 종류(묵독/음독)당 한 줄.
+# 묵독: reading_time_ms + 지문 음절 수 → A4(음절/초). 이탈 원본은 away_events.
 # =========================================================================
 class FluencyResult(Base):
     __tablename__ = "fluency_results"
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey('diagnosis_sessions.id', ondelete='CASCADE'), nullable=False)
-    round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='SET NULL'), nullable=True)
+    round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='CASCADE'), nullable=False)
     type = Column(Enum(FluencyType), nullable=False)
-    reading_time_seconds = Column(Float, nullable=True)
+    # 읽기 시간 — 음독·묵독 공통, 두 버튼 사이의 실제 시각 차이(ms).
+    # 예전에는 묵독(silent_reading_time)·음독(reading_time_seconds)이 서로 다른
+    # 칸에 초 단위로 들어갔다(원칙 1·5).
+    reading_time_ms = Column(Integer, nullable=False)
+    a4_syllable_per_sec = Column(Float, nullable=True)   # 묵독 자동성 (음절/초, §1-13)
+    # 묵독 중 화면 이탈 원본. 집계는 attention.summarize 로 계산한다(원칙 4).
+    away_events = Column(ContractJSONB(AwayEvents), nullable=True)
+    # ── 음독 전용 — 음독 경로에서 정리한다 ──
     total_syllables = Column(Integer, nullable=True)
     error_count = Column(Integer, nullable=True)
     automaticity_score = Column(Float, nullable=True)
     accuracy_score = Column(Float, nullable=True)
-    silent_reading_time = Column(Float, nullable=True)
-    a4_syllable_per_sec = Column(Float, nullable=True)   # 묵독 자동성 (음절/초, §1-13)
-    comprehension_check_score = Column(Float, nullable=True)
     raw_data = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차·측정 종류당 하나. 재전송으로 두 줄이 생기면 A4 중앙값이 틀어진다.
+    __table_args__ = (UniqueConstraint('round_id', 'type', name='uq_fluency_round_type'),)
 
     session = relationship("DiagnosisSession", back_populates="fluency_results")
 

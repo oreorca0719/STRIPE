@@ -259,7 +259,7 @@ async def get_diagnosis_detail(session_id: int, db: AsyncSession = Depends(get_d
             "round_accuracy": comp.round_accuracy if comp else None,
             "correct_count": comp.correct_count if comp else None,
             "total_questions": comp.total_questions if comp else None,
-            "silent_reading_time": fl.silent_reading_time if fl else None,
+            "reading_time_ms": fl.reading_time_ms if fl else None,
             "a4_syllable_per_sec": fl.a4_syllable_per_sec if fl else None,
             "responses": responses,
         })

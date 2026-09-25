@@ -91,7 +91,7 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     rep_q = await db.execute(
         select(DiagnosisRound.id).where(
             DiagnosisRound.diagnosis_session_id == session.id,
-            DiagnosisRound.changed_variables["text_repeated"].astext == "true",
+            DiagnosisRound.text_repeated.is_(True),
         )
     )
     if rep_q.first() is not None:

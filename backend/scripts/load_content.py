@@ -91,14 +91,10 @@ async def load(path: Path, reset: bool, force: bool = False):
                 bad.append(f"  [{i}] {item.get('title', '?')} — {e}")
         if bad:
             raise SystemExit(
-                "주제 태그 검증 실패 %d건. 적재하지 않았다.
-%s
-
-"
+                "주제 태그 검증 실패 %d건. 적재하지 않았다.\n%s\n\n"
                 "태그가 C-1 선지와 맞지 않으면 그 지문은 어떤 학생과도 매칭되지 않는다 "
                 "(오류 없이 조용히 빠진다). 매핑이 필요하면 기획 확인이 선행돼야 한다."
-                % (len(bad), "
-".join(bad))
+                % (len(bad), "\n".join(bad))
             )
 
         for item in data:

@@ -121,7 +121,7 @@
                   <span v-if="r.betts_level" class="chip small">{{ bettsKo(r.betts_level) }}</span>
                   <span v-if="r.round_accuracy != null">{{ Math.round(r.round_accuracy * 100) }}%
                     ({{ r.correct_count }}/{{ r.total_questions }})</span>
-                  <span v-if="r.silent_reading_time" class="dim">읽기 {{ Math.round(r.silent_reading_time) }}초
+                  <span v-if="r.reading_time_ms" class="dim">읽기 {{ Math.round(r.reading_time_ms / 1000) }}초
                     <template v-if="r.a4_syllable_per_sec">· {{ r.a4_syllable_per_sec }}음절/초</template>
                   </span>
                 </span>

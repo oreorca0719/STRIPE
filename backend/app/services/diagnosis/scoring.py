@@ -2,9 +2,13 @@
 
 규칙 기반. LLM 미사용. 입력은 문항 단위 응답(target_area, is_correct)의 목록.
 """
-from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
-from app.models.core import BettsLevel, TargetArea
+from typing import Optional, Sequence
+
+from app.contracts.judgment import CellResponse
+from app.contracts.measurement import (
+    AREA_ORDER, AreaTally, AreaTallyView, RoundAggregate, RoundAggregateView,
+)
+from app.models.core import BettsLevel
 
 # Betts 읽기 수준 경계 (v1.2 §10)
 BETTS_INDEPENDENT = 0.90   # ≥0.90
@@ -20,40 +24,31 @@ def betts_level(accuracy: float) -> BettsLevel:
     return BettsLevel.frustration
 
 
-@dataclass
-class RoundAggregate:
-    total_questions: int
-    correct_count: int
-    round_accuracy: Optional[float]
-    betts_level: Optional[BettsLevel]
-    a5_factual_accuracy: Optional[float]
-    a6_inferential_accuracy: Optional[float]
-    a7_critical_accuracy: Optional[float]
+def aggregate_round(responses: Sequence[CellResponse]) -> RoundAggregate:
+    """문항 응답 → 회차 집계 (영역 3칸의 정답 수·문항 수). 결과 형식: contracts.measurement.RoundAggregate"""
+    return RoundAggregate(areas=[
+        AreaTally(
+            area=area,
+            correct_count=sum(1 for r in responses if r.target_area == area and r.is_correct),
+            question_count=sum(1 for r in responses if r.target_area == area),
+        )
+        for area in AREA_ORDER
+    ])
 
 
-def _area_accuracy(responses: Sequence, area: TargetArea) -> Optional[float]:
-    items = [r for r in responses if r.target_area == area]
-    if not items:
-        return None  # 측정 안 됨 (약점 아님)
-    return sum(1 for r in items if r.is_correct) / len(items)
+def round_betts(agg: RoundAggregate) -> Optional[BettsLevel]:
+    """회차 정답률 → Betts 수준. 문항이 없으면 None(측정 안 함)."""
+    return None if agg.accuracy is None else betts_level(agg.accuracy)
 
 
-def aggregate_round(responses: Iterable) -> RoundAggregate:
-    """문항 응답 목록 → 회차 집계.
-
-    responses: target_area(TargetArea), is_correct(bool) 속성을 갖는 객체들.
-    """
-    responses = list(responses)
-    total = len(responses)
-    correct = sum(1 for r in responses if r.is_correct)
-    accuracy = (correct / total) if total else None
-    betts = betts_level(accuracy) if accuracy is not None else None
-    return RoundAggregate(
-        total_questions=total,
-        correct_count=correct,
-        round_accuracy=accuracy,
-        betts_level=betts,
-        a5_factual_accuracy=_area_accuracy(responses, TargetArea.A5),
-        a6_inferential_accuracy=_area_accuracy(responses, TargetArea.A6),
-        a7_critical_accuracy=_area_accuracy(responses, TargetArea.A7),
+def view(agg: RoundAggregate) -> RoundAggregateView:
+    """화면에 보내는 모양 — 정답률·Betts 를 서버가 계산해 붙인다."""
+    return RoundAggregateView(
+        correct_count=agg.correct_count,
+        question_count=agg.question_count,
+        accuracy=agg.accuracy,
+        betts_level=round_betts(agg),
+        areas=[AreaTallyView(area=a.area, correct_count=a.correct_count,
+                             question_count=a.question_count, accuracy=a.accuracy)
+               for a in agg.areas],
     )

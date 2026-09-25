@@ -82,7 +82,8 @@ async def main():
 
             # 5) 묵독 유창성 (읽기시간 임의 30초 → A4 산출)
             r = await ac.post("/api/diagnosis/fluency/silent",
-                              json={"session_id": sid, "silent_reading_time": 30, "round_id": rid})
+                              json={"session_id": sid, "round_id": rid,
+                                    "reading_time_ms": 30_000, "away_events": []})
             r.raise_for_status()
             print(f"      묵독 A4 저장 (읽기 30초)")
 

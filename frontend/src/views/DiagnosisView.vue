@@ -342,7 +342,10 @@ const round = reactive<{
   syllableCount: number; questions: any[]
 }>({ roundId: null, title: '', content: '', genre: '', syllableCount: 0, questions: [] })
 const answers = reactive<Record<number, number>>({})
-const silentSeconds = ref(0)
+// 읽기 시간 — "읽기 시작"과 "다 읽었어" 사이의 실제 시각 차이(ms).
+// 화면 타이머(timerSeconds)는 보여주기용이다. 1초 단위라 거칠고, 탭이 가려지면
+// 브라우저가 늦춰 실제보다 짧게 잡힌다(→ A4 부풀림). 측정에 쓰지 않는다.
+const readingTimeMs = ref(0)
 
 const allAnswered = computed(() => round.questions.length > 0 && round.questions.every(q => answers[q.id]))
 const answeredCount = computed(() => round.questions.filter(q => !!answers[q.id]).length)
@@ -468,7 +471,7 @@ async function loadRound(roundId: number) {
   round.questions = r.data.questions
   for (const k of Object.keys(answers)) delete answers[Number(k)]
   unsavedIds.clear()
-  timerSeconds.value = 0; timerRunning.value = false; silentSeconds.value = 0
+  timerSeconds.value = 0; timerRunning.value = false; readingTimeMs.value = 0
   hasRead.value = false; tooFastWarned.value = false
   phase.value = 'reading'
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -483,12 +486,15 @@ async function loadRound(roundId: number) {
 //
 // 보정은 서버에서도 하지 않는다 — 원본만 남기고 얼마를 뺄지는 나중에 정한다.
 const awayEvents = ref<{ type: 'hidden' | 'visible'; at_ms: number }[]>([])
+// performance.now() 는 시스템 시계를 바꿔도 뒤로 가지 않는 단조 시계다.
+// 읽기 시간과 이탈 시각을 같은 시계로 재야 서로 비교할 수 있다.
 let readingStartedAt = 0
+const elapsedMs = () => Math.round(performance.now() - readingStartedAt)
 
 function markAway(type: 'hidden' | 'visible') {
   // 읽기 중이 아닐 때의 탭 전환은 읽기 시간과 무관하다
-  if (!timerRunning.value || !readingStartedAt) return
-  awayEvents.value.push({ type, at_ms: Date.now() - readingStartedAt })
+  if (!timerRunning.value) return
+  awayEvents.value.push({ type, at_ms: elapsedMs() })
 }
 
 function onVisibility() {
@@ -501,7 +507,7 @@ function onFocus() { markAway('visible') }
 
 function startReading() {
   timerRunning.value = true; timerSeconds.value = 0
-  readingStartedAt = Date.now()
+  readingStartedAt = performance.now()
   awayEvents.value = []
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('blur', onBlur)
@@ -513,7 +519,6 @@ function stopAwayTracking() {
   document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('blur', onBlur)
   window.removeEventListener('focus', onFocus)
-  readingStartedAt = 0
 }
 
 // 지문을 실제로 읽었다고 보기 어려운 속도면 되묻는다.
@@ -523,27 +528,26 @@ const tooFastWarned = ref(false)
 const tooFastWarning = ref('')
 
 async function stopReading() {
-  const elapsed = Math.max(1, timerSeconds.value)
+  // 이탈 기록을 먼저 멈춘 뒤 시간을 잰다 — 이탈 시각이 읽기 시간을 넘지 않게.
+  timerRunning.value = false
+  stopAwayTracking()
+  const elapsed = Math.max(1, elapsedMs())
   const syllables = round.syllableCount || 0
-  const sps = syllables ? syllables / elapsed : 0
+  const sps = syllables ? syllables / (elapsed / 1000) : 0
 
   // 너무 빠른 첫 시도는 경고 후 되돌린다 (두 번째 시도는 학생 의사를 존중해 진행)
   if (syllables && sps > MAX_PLAUSIBLE_SPS && !tooFastWarned.value) {
     tooFastWarned.value = true
-    timerRunning.value = false
     if (timerInterval) clearInterval(timerInterval)
-    stopAwayTracking()
     tooFastWarning.value = '너무 빨라요! 글을 끝까지 읽었는지 확인하고 다시 읽어줘 📖'
     timerSeconds.value = 0
     return
   }
 
   if (timerInterval) clearInterval(timerInterval)
-  timerRunning.value = false
-  stopAwayTracking()
   hasRead.value = true
   tooFastWarning.value = ''
-  silentSeconds.value = elapsed
+  readingTimeMs.value = elapsed
   await sendSilentReading()
 }
 
@@ -555,11 +559,13 @@ async function sendSilentReading() {
   busy.value = true; error.value = ''
   try {
     await api.post('/api/diagnosis/fluency/silent', {
-      session_id: sessionId.value, silent_reading_time: silentSeconds.value, round_id: round.roundId,
-      away_events: awayEvents.value,
+      session_id: sessionId.value, round_id: round.roundId,
+      reading_time_ms: readingTimeMs.value, away_events: awayEvents.value,
     })
     phase.value = 'questions'
   } catch (e: any) {
+    // 409 = 이 회차 읽기 시간이 이미 저장됐다(응답을 못 받고 다시 보낸 경우).
+    if (e?.response?.status === 409) { phase.value = 'questions'; return }
     failWithRetry(e, sendSilentReading)
   } finally { busy.value = false }
 }
@@ -638,9 +644,24 @@ async function submitAnswers() {
       await finalize()
     }
   } catch (e: any) {
+    // 409 = 이 회차는 이미 완료됐다(응답을 못 받고 다시 보낸 경우). 서버는 이미
+    // 다음 회차를 만들었거나 세션을 끝냈다 — 그 지점을 찾아간다.
+    if (e?.response?.status === 409) { await recoverCompletedRound(); return }
     // 답안은 이미 서버에 있다. 처음부터 다시 시킬 이유가 없으므로 재시도를 건다.
     failWithRetry(e, submitAnswers)
   } finally { busy.value = false }
+}
+
+async function recoverCompletedRound() {
+  try {
+    const d = (await api.post(`/api/diagnosis/session/${sessionId.value}/resume`)).data
+    roundNumber.value = d.round_number
+    await loadRound(d.round.id)
+  } catch (e: any) {
+    // 이어할 회차가 없다 = 세션이 이미 끝났다 → 판정으로
+    if (e?.response?.status === 409) { await finalize(); return }
+    failWithRetry(e, recoverCompletedRound)
+  }
 }
 
 async function finalize() {

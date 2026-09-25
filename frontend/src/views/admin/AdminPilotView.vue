@@ -140,8 +140,8 @@
                   <td>{{ it.session_id }}</td>
                   <td>{{ it.round_number ?? '—' }}</td>
                   <td class="mono dim">{{ it.text_code ?? '—' }}</td>
-                  <td class="num">{{ it.silent_reading_time?.toFixed(1) ?? '—' }}</td>
-                  <td class="num">{{ it.total_syllables ?? '—' }}</td>
+                  <td class="num">{{ it.reading_time_ms != null ? (it.reading_time_ms / 1000).toFixed(1) : '—' }}</td>
+                  <td class="num">{{ it.text_syllable_count ?? '—' }}</td>
                   <td class="num strong">{{ it.a4 }}</td>
                   <td>
                     <span class="reason" :class="it.reason">

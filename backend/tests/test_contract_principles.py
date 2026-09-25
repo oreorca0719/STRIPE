@@ -136,8 +136,6 @@ ALLOWED_UNTYPED = {
     "content/item_quality.py::analyze": "콘텐츠 경로에서 정리 예정",
     "content/item_quality.py::as_dict": "콘텐츠 경로에서 정리 예정",
     "content/readability.py::as_dict": "콘텐츠 경로에서 정리 예정",
-    "diagnosis/attention.py::normalize": "측정 경로에서 정리 예정",
-    "diagnosis/attention.py::summarize": "측정 경로에서 정리 예정",
     "diagnosis/book_recommend.py::to_dict": "도서 경로에서 정리 예정",
     "diagnosis/environment.py::judge_environment": "percentiles 는 설정표(데이터 라인 아님)",
     "stt/adapter.py::STTResult.words": "음독 경로에서 정리 예정",

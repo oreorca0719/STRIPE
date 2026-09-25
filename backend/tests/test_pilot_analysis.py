@@ -23,6 +23,7 @@ from app.api.deps import require_admin                         # noqa: E402
 from app.api.endpoints import pilot                            # noqa: E402
 from app.core.database import AsyncSessionLocal, engine        # noqa: E402
 from app.contracts.judgment import CellResponse, Disclaimers   # noqa: E402
+from app.contracts.measurement import AwayEvents                # noqa: E402
 from app.services.diagnosis.judgment import matrix_lookup, weakness_profile  # noqa: E402
 from app.models.core import (                                  # noqa: E402
     ComprehensionResult, DiagnosisRound, DiagnosisSession, DiagSessionStatus,
@@ -113,8 +114,8 @@ async def _seed():
 
             db.add(FluencyResult(
                 session_id=sess.id, round_id=rd.id, type=FluencyType.silent,
-                silent_reading_time=t.syllable_count / a4,
-                total_syllables=t.syllable_count, a4_syllable_per_sec=a4,
+                reading_time_ms=round(t.syllable_count / a4 * 1000),
+                a4_syllable_per_sec=a4, away_events=AwayEvents(events=[]),
             ))
 
             if abandoned:

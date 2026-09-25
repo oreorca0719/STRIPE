@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_admin
 from app.core.database import get_db
 from app.models.core import (
+    FluencyType,
     BettsLevel, ComprehensionResult, DiagnosisRound, DiagnosisSession, DiagSessionStatus,
     FluencyResult, JudgmentResult, QuestionResponse,
     StudentProfile, TargetArea, TextContent,
@@ -144,7 +145,9 @@ async def export_csv(
             .join(DiagnosisSession, DiagnosisSession.id == DiagnosisRound.diagnosis_session_id)
             .join(User, User.id == DiagnosisSession.student_id)
             .outerjoin(ComprehensionResult, ComprehensionResult.round_id == DiagnosisRound.id)
-            .outerjoin(FluencyResult, FluencyResult.round_id == DiagnosisRound.id)
+            # 묵독 기록만 붙인다. 음독 기록까지 붙으면 한 회차가 두 줄이 된다.
+            .outerjoin(FluencyResult, (FluencyResult.round_id == DiagnosisRound.id)
+                       & (FluencyResult.type == FluencyType.silent))
             .outerjoin(TextContent, TextContent.id == DiagnosisRound.text_id)
             .where(_student_sessions() if students_only else sa_true())
             .order_by(DiagnosisRound.diagnosis_session_id, DiagnosisRound.round_number)
@@ -153,7 +156,7 @@ async def export_csv(
         writer.writerow([
             "round_id", "session_id", "student", "round_number",
             "text_code", "genre", "difficulty",
-            "silent_reading_time", "total_syllables", "a4_syllable_per_sec",
+            "reading_time_ms", "text_syllable_count", "a4_syllable_per_sec",
             "total_questions", "correct_count", "round_accuracy", "betts_level",
             "a5_factual", "a6_inferential", "a7_critical",
             "started_at", "completed_at",
@@ -165,8 +168,10 @@ async def export_csv(
                 r.round_number,
                 t.text_code if t else None,
                 r.genre.value, r.difficulty_level.value,
-                f.silent_reading_time if f else None,
-                f.total_syllables if f else None,
+                f.reading_time_ms if f else None,
+                # 음절 수는 지문의 사실이다 — 지문 테이블에서 읽는다(원칙 5).
+                # 예전에는 묵독이 쓰지 않는 fluency_results.total_syllables 를 읽어 늘 비었다.
+                t.syllable_count if t else None,
                 f.a4_syllable_per_sec if f else None,
                 c.total_questions if c else None,
                 c.correct_count if c else None,
@@ -319,8 +324,8 @@ async def get_outliers(db: AsyncSession = Depends(get_db)):
                 "student": u.username,
                 "round_number": r.round_number if r else None,
                 "text_code": t.text_code if t else None,
-                "silent_reading_time": f.silent_reading_time,
-                "total_syllables": f.total_syllables,
+                "reading_time_ms": f.reading_time_ms,
+                "text_syllable_count": t.syllable_count if t else None,
                 "a4": f.a4_syllable_per_sec,
                 "reason": "too_slow" if f.a4_syllable_per_sec < A4_PLAUSIBLE_MIN else "too_fast",
             }
@@ -513,10 +518,11 @@ async def get_duration(db: AsyncSession = Depends(get_db)):
     task_rows = (await db.execute(
         select(
             DiagnosisSession.id,
-            func.coalesce(func.sum(FluencyResult.silent_reading_time), 0.0),
+            func.coalesce(func.sum(FluencyResult.reading_time_ms), 0) / 1000.0,
         )
         .join(DiagnosisRound, DiagnosisRound.diagnosis_session_id == DiagnosisSession.id)
-        .outerjoin(FluencyResult, FluencyResult.round_id == DiagnosisRound.id)
+        .outerjoin(FluencyResult, (FluencyResult.round_id == DiagnosisRound.id)
+                   & (FluencyResult.type == FluencyType.silent))
         .where(DiagnosisSession.status.in_(DONE), _student_sessions())
         .group_by(DiagnosisSession.id)
     )).all()

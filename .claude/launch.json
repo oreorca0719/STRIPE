@@ -12,6 +12,13 @@
         "FLOW_TRACE": "true",
         "DATABASE_URL": "postgresql+asyncpg://stripe:stripe@localhost:5432/stripe"
       }
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "frontend",
+      "port": 5173
     }
   ]
 }

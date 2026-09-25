@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from app.contracts.judgment import Disclaimers, WeaknessProfileView
 from app.contracts.prescription import RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent
+from app.contracts.measurement import AdaptiveDecision, RoundAggregateView
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -144,29 +145,23 @@ class OralFluencySubmit(BaseModel):
     raw_data: Optional[dict] = None
 
 
-class SilentFluencySubmit(BaseModel):
-    session_id: int
-    silent_reading_time: float
-    round_id: Optional[int] = None              # 주어지면 A4(음절/초) 산출
-    comprehension_check_score: Optional[float] = None
-    # 읽는 동안의 화면 이탈·복귀 (STR-79). [{"type":"hidden"|"visible","at_ms":n}]
-    # 이탈 시간이 읽기 시간에 섞이는데, 나중에 빼내려면 이 기록이 있어야 한다.
-    # 미리 남기지 않으면 만들 수 없어 지금부터 받는다.
-    away_events: Optional[List[dict]] = None
+# 묵독 제출 형식은 contracts.measurement.SilentReadingSubmit 이다.
 
 
 class FluencyResultResponse(BaseModel):
     id: int
     session_id: int
+    round_id: int
     type: FluencyType
-    automaticity_score: Optional[float]
-    accuracy_score: Optional[float]
-    silent_reading_time: Optional[float]
+    reading_time_ms: int                          # 두 버튼 사이 실제 시각 차이
+    a4_syllable_per_sec: Optional[float] = None   # 묵독 자동성. 음독이면 null
+    # ── 음독 전용 (음독 경로에서 정리) ──
+    automaticity_score: Optional[float] = None
+    accuracy_score: Optional[float] = None
     # 음독 B안에서 감독자가 '몇 음절 중 몇 개'를 확인할 수 있어야 한다.
     # 분모를 서버가 셌으므로 그 값을 돌려주어 눈으로 대조하게 한다.
     total_syllables: Optional[int] = None
     error_count: Optional[int] = None
-    reading_time_seconds: Optional[float] = None
     created_at: datetime
 
     class Config:
@@ -174,11 +169,7 @@ class FluencyResultResponse(BaseModel):
 
 
 # ---- 독해 문항 응답 (규칙 채점, AI-05) ------------------------------------
-class QuestionResponseSubmit(BaseModel):
-    round_id: int
-    question_id: int
-    student_answer: int                    # 1-based
-    response_time_ms: Optional[int] = None
+# 문항 응답 제출 형식은 contracts.measurement.AnswerSubmit 이다.
 
 
 class QuestionResponseResult(BaseModel):
@@ -195,28 +186,10 @@ class QuestionResponseResult(BaseModel):
 
 
 # ---- 회차 집계 + 적응형 판단 (Phase B 엔진) -------------------------------
-class RoundAggregateOut(BaseModel):
-    total_questions: int
-    correct_count: int
-    round_accuracy: Optional[float]
-    betts_level: Optional[BettsLevel]
-    a5_factual_accuracy: Optional[float]
-    a6_inferential_accuracy: Optional[float]
-    a7_critical_accuracy: Optional[float]
-
-
-class AdaptiveDecisionOut(BaseModel):
-    action: str                                   # 'continue' | 'stop'
-    status: DiagSessionStatus
-    anchor_difficulty: Optional[Difficulty] = None
-    reliability_flag: Optional[ReliabilityFlag] = None
-    next_difficulty: Optional[Difficulty] = None
-    next_genre: Optional[TextGenre] = None
-
-
+# 형식: contracts.measurement.RoundAggregateView · AdaptiveDecision
 class RoundCompleteResponse(BaseModel):
-    comprehension: RoundAggregateOut
-    decision: AdaptiveDecisionOut
+    comprehension: RoundAggregateView
+    decision: AdaptiveDecision
     next_round: Optional[RoundResponse] = None
     text_shortage: bool = False
     session: SessionResponse

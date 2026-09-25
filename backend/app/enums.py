@@ -203,3 +203,15 @@ class EnvironmentSkipReason(str, enum.Enum):
     """가정환경 판정을 건너뛴 이유. 환경 수준이 null 일 때 왜 null 인지 남긴다."""
     no_score = "no_score"               # 보호자 미응답 또는 B-3~B-6 부분 응답
     no_thresholds = "no_thresholds"     # 학년군 경계값(P33/P67) 미확정
+
+
+class AwayEventType(str, enum.Enum):
+    """읽는 동안 화면이 가려졌다·돌아왔다 (visibilitychange)."""
+    hidden = "hidden"
+    visible = "visible"
+
+
+class AdaptiveAction(str, enum.Enum):
+    """적응형 판단 — 다음 회차로 가는가, 여기서 끝내는가."""
+    continue_ = "continue"
+    stop = "stop"

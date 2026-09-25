@@ -134,7 +134,7 @@ async def _run(predicted_correct: int | None = 7):
 
         # 묵독 (A4 = 120/40 = 3.0)
         r = await ac.post("/api/diagnosis/fluency/silent",
-                          json={"session_id": sid, "silent_reading_time": 40, "round_id": round1})
+                          json={"session_id": sid, "round_id": round1, "reading_time_ms": 40_000, "away_events": []})
         assert r.status_code == 201, r.text
 
         # 1회차 독해: 전부 정답 → independent
@@ -157,7 +157,7 @@ async def _run(predicted_correct: int | None = 7):
 
         # 2회차 묵독 (A4 = 120/30 = 4.0)
         await ac.post("/api/diagnosis/fluency/silent",
-                      json={"session_id": sid, "silent_reading_time": 30, "round_id": round2})
+                      json={"session_id": sid, "round_id": round2, "reading_time_ms": 30_000, "away_events": []})
         # 2회차 독해: 2/3 정답 → frustration
         for c, ans in [("Q4", 1), ("Q5", 2), ("Q6", 1)]:
             await ac.post("/api/diagnosis/comprehension",
@@ -266,7 +266,7 @@ async def _run_resume():
 
         # --- 묵독 측정 후 문항 일부만 응답하고 이탈 -----------------------------
         await ac.post("/api/diagnosis/fluency/silent",
-                      json={"session_id": sid, "silent_reading_time": 40, "round_id": round1})
+                      json={"session_id": sid, "round_id": round1, "reading_time_ms": 40_000, "away_events": []})
         await ac.post("/api/diagnosis/comprehension",
                       json={"round_id": round1, "question_id": qids["Q1"], "student_answer": 1})
 
@@ -288,8 +288,8 @@ async def _run_resume():
 
         r = await ac.post(f"/api/diagnosis/round/{round1}/complete")
         comp = r.json()["comprehension"]
-        assert comp["total_questions"] == 3, f"중복 응답이 분모를 늘렸다: {comp}"
-        print(f"PASS 응답 업서트: 재전송 후에도 문항수={comp['total_questions']}")
+        assert comp["question_count"] == 3, f"중복 응답이 분모를 늘렸다: {comp}"
+        print(f"PASS 응답 업서트: 재전송 후에도 문항수={comp['question_count']}")
 
         # --- 새로 시작(포기) ---------------------------------------------------
         r = await ac.post("/api/diagnosis/session", json={"profile_id": pid, "silent_mode": True})
@@ -355,21 +355,20 @@ async def _run_no_repeat():
         async with AsyncSessionLocal() as db:
             from app.models.core import DiagnosisRound as DR
             row = (await db.execute(
-                sql_text("SELECT text_id, changed_variables FROM diagnosis_rounds WHERE id=:i"),
+                sql_text("SELECT text_id, text_repeated FROM diagnosis_rounds WHERE id=:i"),
                 {"i": round2["id"]},
             )).first()
-        text_id2, cv = row[0], row[1]
+        text_id2, repeated = row[0], row[1]
 
         if text_id2 == first_text:
             # 풀 소진 → 중복 허용하되 반드시 표시돼야 한다
-            assert cv and cv.get("text_repeated") is True, \
-                f"중복 지문인데 text_repeated 표시가 없다: {cv}"
+            assert repeated is True, "중복 지문인데 text_repeated 표시가 없다"
             print(f"PASS 풀 소진 시 중복 허용 + 표시 (text_id={text_id2})")
 
             # --- 판정에 신뢰도 저하와 사유가 반영되는지 ---------------------
             await ac.post("/api/diagnosis/fluency/silent",
-                          json={"session_id": sid2, "silent_reading_time": 40,
-                                "round_id": round2["id"]})
+                          json={"session_id": sid2, "round_id": round2["id"],
+                                "reading_time_ms": 40_000, "away_events": []})
             for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
                 await ac.post("/api/diagnosis/comprehension",
                               json={"round_id": round2["id"], "question_id": qids[c],
@@ -438,7 +437,7 @@ async def _run_difficulty_validity():
         r = await ac.post(f"/api/diagnosis/session/{sid}/start")
         rid = r.json()["id"]
         await ac.post("/api/diagnosis/fluency/silent",
-                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+                      json={"session_id": sid, "round_id": rid, "reading_time_ms": 40_000, "away_events": []})
         for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
             await ac.post("/api/diagnosis/comprehension",
                           json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
@@ -515,7 +514,7 @@ async def _run_analysis_scope():
             r = await ac.post(f"/api/diagnosis/session/{sid}/start")
             rid = r.json()["id"]
             await ac.post("/api/diagnosis/fluency/silent",
-                          json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+                          json={"session_id": sid, "round_id": rid, "reading_time_ms": 40_000, "away_events": []})
             for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
                 await ac.post("/api/diagnosis/comprehension",
                               json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
@@ -617,7 +616,7 @@ async def _run_disposal():
         r = await ac.post(f"/api/diagnosis/session/{sid}/start")
         rid = r.json()["id"]
         await ac.post("/api/diagnosis/fluency/silent",
-                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+                      json={"session_id": sid, "round_id": rid, "reading_time_ms": 40_000, "away_events": []})
         for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
             await ac.post("/api/diagnosis/comprehension",
                           json={"round_id": rid, "question_id": qids[c], "student_answer": ans})
@@ -866,7 +865,7 @@ async def _run_book_recommend():
         r = await ac.post(f"/api/diagnosis/session/{sid}/start")
         rid = r.json()["id"]
         await ac.post("/api/diagnosis/fluency/silent",
-                      json={"session_id": sid, "silent_reading_time": 40, "round_id": rid})
+                      json={"session_id": sid, "round_id": rid, "reading_time_ms": 40_000, "away_events": []})
         for c, ans in [("Q1", 1), ("Q2", 2), ("Q3", 3)]:
             await ac.post("/api/diagnosis/comprehension",
                           json={"round_id": rid, "question_id": qids[c], "student_answer": ans})

@@ -148,17 +148,22 @@ EDGES: List[Edge] = [
 
     # 배정 → 측정
     Edge("diagnosis.text_selection", "diagnosis.scoring",
-         "지문 + 문항 6개", "fixed"),
+         "지문 + 문항 → 고른 답", "fixed",
+         "그 회차 지문의 문항만, 선지 번호 1~선지 수. 회차·문항당 응답 하나",
+         contract="measurement.AnswerSubmit"),
     Edge("diagnosis.text_selection", "diagnosis.attention",
-         "지문 음절 수 (A4 분모)", "fixed"),
+         "읽기 시간(ms) + 이탈 이벤트 원본", "fixed",
+         "읽기 시간은 두 버튼 사이 실제 시각 차이. 회차당 한 번(중복 409)",
+         contract="measurement.SilentReadingSubmit"),
     Edge("stt.adapter", "stt.analyzer", "전사 텍스트", "fixed"),
     Edge("stt.vad", "stt.analyzer", "발화 구간 (참고용)", "fixed",
          "채점 시간으로 쓰지 않는다 — 계약 금지 사항"),
 
     # 측정 내부
     Edge("diagnosis.scoring", "diagnosis.adaptive",
-         "BettsLevel 이력", "fixed",
-         "2연속 instructional/frustration 으로 종료 판단"),
+         "회차 집계 → Betts 이력", "fixed",
+         "2연속 instructional/frustration 으로 종료 판단. 회차당 집계 하나(중복 완료 409)",
+         contract="measurement.RoundAggregate → AdaptiveDecision"),
 
     # 측정 → 판정
     Edge("diagnosis.scoring", "diagnosis.judgment",
@@ -166,7 +171,9 @@ EDGES: List[Edge] = [
          contract="judgment.CellResponse"),
     Edge("diagnosis.attention", "diagnosis.judgment",
          "A4 (음절/초)", "fixed",
-         "이탈 시간을 빼지 않은 원본 시간으로 산출"),
+         "A4 는 묵독 제출 API 가 지문 음절 수 ÷ 읽기 시간으로 계산해 저장한다. "
+         "이탈 원본은 판정에 쓰지 않는다(보정 방식 미정)",
+         contract="fluency_results.a4_syllable_per_sec"),
     Edge("stt.analyzer", "diagnosis.judgment",
          "A1 (음절/분) · A2", "undefined",
          "현재 음독은 판정에 도달하지 않는다. D-1 활성 시 연결될 경로"),
