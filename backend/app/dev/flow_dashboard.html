@@ -2,14 +2,17 @@
 <!--
   STRIPE 모듈 흐름 대시보드 — 로컬 개발 전용
 
-  설계 의도
-  · 모듈을 진행 순서대로 왼→오른쪽 열에 배치하고 **화살표로 잇는다.**
-    블록만 나열하면 무엇이 무엇에 연결되는지 알 수 없다.
-  · 화살표에 **무엇이 오가는지** 적는다. 그리고 그 형식이 확정됐는지를
-    색으로 구분한다 — 흐름을 보면서 "어디가 아직 미정인가" 를 같이 읽는다.
-  · 기능 버튼을 누르면 그 기능이 쓰는 모듈·연결선만 밝아진다.
-  · 실제 요청이 들어오면 호출된 모듈이 켜지고 아래에 오간 형태가 쌓인다.
-  · 값은 표시되지 않는다. 타입·개수·키·enum 까지만.
+  [1차 설계의 실패와 교훈]
+  처음에는 연결선 23개의 라벨을 전부 선 위에 그렸다. 재보니 라벨 평균 너비가
+  104px 인데 열 간격이 56px 이라, **라벨 23개 중 22개가 노드 위에 얹혔고**
+  라벨끼리도 4쌍이 겹쳤다. 동시에 다 보여주는 것은 산수가 안 맞는다.
+
+  [지금 설계]
+  · 흐름도는 **구조**를 본다. 선은 색으로 상태만 말하고 글자는 얹지 않는다.
+  · 무엇이 오가는지는 **마우스를 올린 것만** 선 위에 뜬다.
+  · 노드를 누르면 그 모듈의 입력·출력만 남기고 나머지를 덮는다.
+  · **전체를 읽는 것은 아래 표**가 맡는다. 23줄을 눈으로 훑는 데는 표가 맞다.
+  · 값은 기록·표시되지 않는다. 타입·개수·키·enum 까지만.
 -->
 <html lang="ko">
 <head>
@@ -23,94 +26,102 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);
        font:14px/1.5 "Segoe UI",system-ui,sans-serif}
-  header{display:flex;align-items:center;gap:.8rem;padding:.8rem 1.1rem;
+  header{display:flex;align-items:center;gap:.7rem;padding:.75rem 1.1rem;
          border-bottom:1px solid var(--line)}
-  header h1{margin:0;font-size:1.02rem}
-  .live{font-size:.73rem;padding:.14rem .5rem;border-radius:99px;
+  header h1{margin:0;font-size:1rem}
+  .live{font-size:.72rem;padding:.13rem .48rem;border-radius:99px;
         background:#23283a;color:var(--dim)}
   .live.on{background:rgba(78,205,196,.15);color:var(--mint)}
-  button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);
-               border-radius:6px;padding:.2rem .55rem;font:inherit;font-size:.74rem;
-               cursor:pointer}
-  button.ghost:hover{color:var(--txt)}
-  main{display:grid;grid-template-columns:210px 1fr;gap:.9rem;padding:.9rem 1.1rem;
+  .btn{background:transparent;border:1px solid var(--line);color:var(--dim);
+       border-radius:6px;padding:.2rem .55rem;font:inherit;font-size:.74rem;cursor:pointer}
+  .btn:hover{color:var(--txt)} .btn.on{border-color:var(--mint);color:var(--mint)}
+  main{display:grid;grid-template-columns:196px 1fr;gap:.85rem;padding:.85rem 1.1rem;
        align-items:start}
   @media (max-width:980px){main{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-        padding:.7rem}
-  .card h2{margin:.05rem 0 .5rem;font-size:.77rem;color:var(--dim);
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.7rem}
+  .card h2{margin:.05rem 0 .5rem;font-size:.76rem;color:var(--dim);
            letter-spacing:.7px;text-transform:uppercase}
 
   .feat{display:block;width:100%;text-align:left;background:transparent;
         border:1px solid transparent;color:var(--txt);border-radius:7px;
-        padding:.42rem .5rem;margin-bottom:.14rem;cursor:pointer;font:inherit}
+        padding:.4rem .5rem;margin-bottom:.12rem;cursor:pointer;font:inherit;font-size:.86rem}
   .feat:hover{background:#23283a}
   .feat.sel{background:rgba(78,205,196,.12);border-color:var(--mint);color:var(--mint)}
-  .feat small{display:block;color:var(--dim);font-size:.7rem}
+  .feat small{display:block;color:var(--dim);font-size:.69rem}
   .feat.sel small{color:#79b8b2}
 
-  /* 흐름도 */
-  #canvas{position:relative;overflow:auto}
+  /* ── 흐름도 ─────────────────────────────────────────────── */
+  #canvas{position:relative;overflow-x:auto;overflow-y:hidden;padding-bottom:.2rem}
   #wire{position:absolute;inset:0;pointer-events:none;overflow:visible}
-  .colgrid{position:relative;display:flex;gap:56px;align-items:flex-start;
-           padding:.3rem 0 .6rem}
-  .col{display:flex;flex-direction:column;gap:10px;min-width:168px}
-  .coltitle{font-size:.68rem;color:var(--dim);letter-spacing:.8px;
-            text-transform:uppercase;margin-bottom:.1rem}
-  .node{position:relative;border:2px solid #262a38;background:#141822;
-        border-radius:8px;padding:.42rem .5rem;transition:border-color .15s,
-        background .15s,box-shadow .15s,opacity .15s}
-  .node .nm{font-size:.81rem;line-height:1.25}
-  .node .sub{font-size:.66rem;color:var(--dim);margin-top:.1rem;
-             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .node.dim{opacity:.3}
+  .colgrid{position:relative;display:flex;gap:112px;align-items:flex-start;padding:.2rem 0 .5rem}
+  .col{display:flex;flex-direction:column;gap:9px;width:156px;flex:0 0 156px}
+  .coltitle{font-size:.66rem;color:#6d7288;letter-spacing:.9px;text-transform:uppercase;
+            padding-bottom:.25rem;border-bottom:1px solid var(--line);margin-bottom:.15rem}
+  .node{position:relative;border:1.5px solid #2b3040;background:#141822;border-radius:7px;
+         padding:.4rem .45rem;cursor:pointer;
+         transition:border-color .12s,background .12s,opacity .12s,box-shadow .12s}
+  .node:hover{border-color:#4b5169}
+  .node .nm{font-size:.79rem;line-height:1.25}
+  .node.dim{opacity:.22}
   .node.inscope{border-color:var(--mint);background:rgba(78,205,196,.07)}
-  .node.fired{border-color:var(--yellow);background:rgba(255,230,109,.11);
-              box-shadow:0 0 0 3px rgba(255,230,109,.1)}
-  .node .cnt{position:absolute;top:-8px;right:-6px;background:var(--yellow);
-             color:#20242e;font-size:.63rem;font-weight:800;border-radius:99px;
-             padding:.02rem .34rem}
-  .purity{display:inline-block;width:6px;height:6px;border-radius:99px;
+  .node.fired{border-color:var(--yellow);background:rgba(255,230,109,.1)}
+  .node.pinned{box-shadow:0 0 0 2px var(--mint)}
+  .node .cnt{position:absolute;top:-7px;right:-5px;background:var(--yellow);color:#20242e;
+             font-size:.62rem;font-weight:800;border-radius:99px;padding:.01rem .32rem}
+  .purity{display:inline-block;width:5px;height:5px;border-radius:99px;
           margin-right:5px;vertical-align:1px}
   .purity.pure{background:var(--mint)} .purity.mixed{background:var(--yellow)}
   .purity.db{background:var(--coral)}
 
-  /* 연결선 */
-  .ln{stroke-width:1.6;fill:none}
-  .ln.fixed{stroke:#3c4256}
-  .ln.undefined{stroke:var(--violet);stroke-dasharray:5 4}
-  .ln.mismatch{stroke:var(--coral);stroke-dasharray:3 3}
-  .ln.hot{stroke:var(--yellow);stroke-width:2.6}
-  .ln.faded{opacity:.14}
-  .lnlab{font-size:9.5px;fill:#9aa0b4;paint-order:stroke;stroke:#0f1117;
-         stroke-width:3px;stroke-linejoin:round}
-  .lnlab.undefined{fill:#b3a7ff} .lnlab.mismatch{fill:#ff9b9b}
-  .lnlab.faded{opacity:.14}
+  .ln{stroke-width:1.4;fill:none}
+  .ln.fixed{stroke:#394054}
+  .ln.undefined{stroke:#6f63b8;stroke-dasharray:5 4}
+  .ln.mismatch{stroke:#b55;stroke-dasharray:3 3}
+  .ln.hot{stroke:var(--yellow);stroke-width:2.4}
+  .ln.on{stroke-width:2.4} .ln.on.fixed{stroke:var(--mint)}
+  .ln.on.undefined{stroke:var(--violet)} .ln.on.mismatch{stroke:var(--coral)}
+  .ln.faded{opacity:.08}
+  /* 라벨은 기본으로 그리지 않는다. 올린 것만 뜬다. */
+  .lnlab{font-size:10.5px;fill:#cfd4e4;paint-order:stroke;stroke:#0b0d13;
+         stroke-width:4px;stroke-linejoin:round;pointer-events:none}
 
-  .legend{display:flex;gap:.9rem;flex-wrap:wrap;font-size:.71rem;color:var(--dim);
-          margin-top:.2rem}
-  .legend i{display:inline-block;width:16px;height:0;border-top-width:2px;
+  .legend{display:flex;gap:.85rem;flex-wrap:wrap;font-size:.7rem;color:var(--dim);
+          margin-top:.35rem;padding-top:.45rem;border-top:1px solid var(--line)}
+  .legend i{display:inline-block;width:15px;height:0;border-top-width:2px;
             border-top-style:solid;margin-right:4px;vertical-align:3px}
 
-  /* 흐름 패널 */
-  .traces{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.6rem}
-  .tchip{font-size:.71rem;padding:.2rem .52rem;border-radius:99px;cursor:pointer;
+  /* ── 연결 목록 ───────────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:.79rem}
+  th{text-align:left;font-weight:600;color:var(--dim);font-size:.71rem;
+     padding:.3rem .45rem;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:.32rem .45rem;border-bottom:1px solid #20242f;vertical-align:top}
+  tr.row{cursor:pointer} tr.row:hover td{background:#20242f}
+  tr.row.faded{opacity:.3}
+  tr.row.lit td{background:rgba(78,205,196,.09)}
+  .arrow{color:#5a6178;padding:0 .2rem}
+  .pay{font-family:ui-monospace,Consolas,monospace;font-size:.74rem}
+  .st{font-size:.68rem;padding:.06rem .4rem;border-radius:99px;white-space:nowrap}
+  .st.fixed{background:#242a38;color:#8b90a3}
+  .st.undefined{background:rgba(155,140,255,.16);color:#b3a7ff}
+  .st.mismatch{background:rgba(255,107,107,.16);color:#ff9b9b}
+  .note{font-size:.71rem;color:var(--dim)}
+
+  /* ── 흐름 기록 ───────────────────────────────────────────── */
+  .traces{display:flex;gap:.32rem;flex-wrap:wrap;margin-bottom:.55rem}
+  .tchip{font-size:.71rem;padding:.18rem .5rem;border-radius:99px;cursor:pointer;
          border:1px solid var(--line);background:#141822;color:var(--dim)}
   .tchip.sel{border-color:var(--mint);color:var(--mint)}
-  .tchip.nil{opacity:.45}
-  .ev{border-left:2px solid var(--line);padding:.26rem 0 .26rem .65rem}
-  .ev-h{font-family:ui-monospace,Consolas,monospace;font-size:.77rem}
-  .ev-h .m{color:var(--mint)} .ev-h .ms{color:var(--dim);font-size:.71rem}
+  .tchip.nil{opacity:.4}
+  .ev{border-left:2px solid var(--line);padding:.24rem 0 .24rem .6rem}
+  .ev-h{font-family:ui-monospace,Consolas,monospace;font-size:.76rem}
+  .ev-h .m{color:var(--mint)} .ev-h .ms{color:#6d7288;font-size:.7rem}
   .ev-h .err{color:var(--coral)}
   .io{font-family:ui-monospace,Consolas,monospace;font-size:.71rem;color:var(--dim);
       word-break:break-all}
   .io b{color:#b9c0d4}
-  .empty{color:var(--dim);font-size:.79rem;padding:.4rem 0}
-  .sub2{font-size:.73rem;color:var(--dim);margin-bottom:.5rem}
-  #tip{position:fixed;display:none;max-width:320px;background:#0b0d13;
-       border:1px solid var(--line);border-radius:7px;padding:.45rem .6rem;
-       font-size:.74rem;z-index:20;box-shadow:0 6px 20px rgba(0,0,0,.5)}
-  #tip b{color:var(--txt)} #tip .st{font-size:.68rem;color:var(--dim)}
+  .empty{color:var(--dim);font-size:.78rem;padding:.4rem 0}
+  .sub2{font-size:.72rem;color:var(--dim);margin-bottom:.45rem}
+  .hintbar{font-size:.72rem;color:#6d7288;margin-bottom:.4rem}
 </style>
 </head>
 <body>
@@ -118,8 +129,9 @@
   <h1>STRIPE 모듈 흐름</h1>
   <span id="live" class="live">연결 중…</span>
   <span style="flex:1"></span>
-  <button class="ghost" onclick="pickFeature(null)">전체 보기</button>
-  <button class="ghost" onclick="clearTraces()">기록 비우기</button>
+  <button class="btn" id="btnOral" onclick="toggleOral()">음독 숨김</button>
+  <button class="btn" onclick="reset()">전체 보기</button>
+  <button class="btn" onclick="clearTraces()">기록 비우기</button>
 </header>
 
 <main>
@@ -131,194 +143,285 @@
   <div>
     <div class="card">
       <h2 id="maptitle">전체 흐름</h2>
-      <div id="canvas">
-        <svg id="wire"></svg>
-        <div id="cols" class="colgrid"></div>
-      </div>
+      <div class="hintbar" id="hint">모듈에 마우스를 올리면 오가는 데이터가 뜹니다. 누르면 고정됩니다.</div>
+      <div id="canvas"><svg id="wire"></svg><div id="cols" class="colgrid"></div></div>
       <div class="legend">
         <span><span class="purity pure"></span>순수 변환</span>
         <span><span class="purity mixed"></span>혼재</span>
         <span><span class="purity db"></span>DB 전담</span>
-        <span><i style="border-color:#3c4256"></i>형식 확정</span>
-        <span><i style="border-color:#9b8cff;border-top-style:dashed"></i>형식 미정</span>
-        <span><i style="border-color:#FF6B6B;border-top-style:dashed"></i>두 곳이 다름</span>
+        <span><i style="border-color:#394054"></i>형식 확정</span>
+        <span><i style="border-color:#6f63b8;border-top-style:dashed"></i>형식 미정</span>
+        <span><i style="border-color:#b55;border-top-style:dashed"></i>두 곳이 다름</span>
         <span><i style="border-color:#FFE66D"></i>방금 실행됨</span>
       </div>
     </div>
 
-    <div class="card" style="margin-top:.9rem">
-      <h2>주고받은 데이터</h2>
+    <div class="card" style="margin-top:.85rem">
+      <h2>연결 목록 <span id="edgecount" style="color:#6d7288"></span></h2>
+      <table><thead><tr>
+        <th>보내는 쪽</th><th></th><th>받는 쪽</th><th>오가는 것</th><th>형식</th><th>비고</th>
+      </tr></thead><tbody id="edgerows"></tbody></table>
+    </div>
+
+    <div class="card" style="margin-top:.85rem">
+      <h2>실행 기록</h2>
       <div class="sub2">값은 기록하지 않습니다 — 타입·개수·키·enum 까지만.<span id="tmeta"></span></div>
       <div id="traces" class="traces"></div>
       <div id="events"><div class="empty">아직 요청이 없습니다. 로컬에서 진단을 실행하면 흐름이 쌓입니다.</div></div>
     </div>
   </div>
 </main>
-<div id="tip"></div>
 
 <script>
 let REG=null, TRACES=[], selFeature=null, selTrace=null;
+let hoverMod=null, pinMod=null, hoverEdge=null, hideOral=true;
 const $=(id)=>document.getElementById(id);
 const esc=(s)=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const ORAL=new Set(['stt.adapter','stt.clova','stt.mock','stt.vad','stt.analyzer']);
 
 async function boot(){
-  REG = await (await fetch('registry')).json();
-  drawFeatures(); drawNodes(); requestAnimationFrame(drawWires); connect();
-  addEventListener('resize', ()=>requestAnimationFrame(drawWires));
-  $('canvas').addEventListener('scroll', ()=>requestAnimationFrame(drawWires));
+  REG=await (await fetch('registry')).json();
+  drawFeatures(); render(); connect();
+  addEventListener('resize',()=>requestAnimationFrame(drawWires));
+  $('canvas').addEventListener('scroll',()=>requestAnimationFrame(drawWires));
+}
+function render(){ drawNodes(); drawEdgeTable(); requestAnimationFrame(drawWires); }
+
+/* ── 상태 ─────────────────────────────────────────────────── */
+const shown=(k)=> !(hideOral && ORAL.has(k));
+const featSet=()=>{ const f=REG.features.find(x=>x.key===selFeature);
+                    return f?new Set(f.modules):null; };
+function activeTrace(){
+  if(selTrace) return TRACES.find(x=>x.id===selTrace);
+  return TRACES.find(t=>t.events.length)||TRACES[0];
+}
+function firedMap(){
+  const t=activeTrace(), m=new Map();
+  if(t) for(const e of t.events) m.set(e.module,(m.get(e.module)||0)+1);
+  return m;
+}
+/** 지금 강조할 모듈 — 고정한 것이 있으면 그것, 없으면 마우스 올린 것 */
+const focusMod=()=>pinMod||hoverMod;
+/** 강조 대상과 직접 연결된 모듈 (그 모듈의 입력·출력) */
+function neighborSet(){
+  const k=focusMod(); if(!k) return null;
+  const s=new Set([k]);
+  for(const e of REG.edges){ if(e.src===k) s.add(e.dst); if(e.dst===k) s.add(e.src); }
+  return s;
 }
 
+/* ── 노드 ─────────────────────────────────────────────────── */
+function drawNodes(){
+  const feat=featSet(), fired=firedMap(), nb=neighborSet(), fk=focusMod();
+  $('cols').innerHTML=REG.cols.map(c=>{
+    const mods=REG.modules.filter(m=>m.col===c && shown(m.key));
+    if(!mods.length) return '';
+    return `<div class="col"><div class="coltitle">${REG.col_names[c]||('col '+c)}</div>`
+     + mods.map(m=>{
+        const cls=['node'];
+        if(nb){ if(!nb.has(m.key)) cls.push('dim'); }
+        else if(feat && !feat.has(m.key)) cls.push('dim');
+        if(feat && feat.has(m.key)) cls.push('inscope');
+        if(fired.has(m.key)) cls.push('fired');
+        if(m.key===pinMod) cls.push('pinned');
+        const n=fired.get(m.key);
+        return `<div class="${cls.join(' ')}" id="n-${cid(m.key)}"
+          onmouseenter="setHover('${m.key}')" onmouseleave="setHover(null)"
+          onclick="togglePin('${m.key}')" title="${m.key}">
+          ${n?`<span class="cnt">${n}</span>`:''}
+          <div class="nm"><span class="purity ${m.purity}"></span>${m.label}</div></div>`;
+      }).join('')+`</div>`;
+  }).join('');
+}
+const cid=(k)=>k.replace(/\./g,'_');
+function setHover(k){ if(pinMod) return; hoverMod=k; drawNodes(); drawEdgeTable();
+                      requestAnimationFrame(drawWires); }
+function togglePin(k){
+  pinMod=(pinMod===k)?null:k; hoverMod=null;
+  $('hint').textContent = pinMod
+    ? `${label(pinMod)} 의 입력·출력만 표시합니다. 다시 누르면 해제됩니다.`
+    : '모듈에 마우스를 올리면 오가는 데이터가 뜹니다. 누르면 고정됩니다.';
+  render();
+}
+const label=(k)=>(REG.modules.find(m=>m.key===k)||{}).label||k;
+
+/* ── 연결선 ───────────────────────────────────────────────── */
+function drawWires(){
+  const svg=$('wire'), cv=$('canvas'), box=cv.getBoundingClientRect();
+  svg.setAttribute('width',$('cols').scrollWidth);
+  svg.setAttribute('height',$('cols').scrollHeight);
+  const feat=featSet(), fired=firedMap(), fk=focusMod();
+  const out=[`<defs>
+    <marker id="a" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
+      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#4b5169"/></marker>
+    <marker id="ao" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
+      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#4ECDC4"/></marker>
+    <marker id="ah" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
+      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#FFE66D"/></marker></defs>`];
+  const labels=[];
+  // 열과 열 사이의 '빈 틈' 중심 좌표. 라벨은 여기에만 놓는다 — 노드 위에
+  // 글자가 얹히면 둘 다 안 읽힌다.
+  const colBoxes=[...document.querySelectorAll('.col')].map(c=>{
+    const r=c.getBoundingClientRect();
+    return {l:r.left-box.left+cv.scrollLeft, r:r.right-box.left+cv.scrollLeft};
+  }).sort((a,b)=>a.l-b.l);
+  const gapCenters=[], gapW=[];
+  for(let i=0;i<colBoxes.length-1;i++){
+    gapCenters.push((colBoxes[i].r+colBoxes[i+1].l)/2);
+    gapW.push(colBoxes[i+1].l-colBoxes[i].r);
+  }
+  const snapX=(x)=>gapCenters.length
+    ? gapCenters.reduce((best,g)=>Math.abs(g-x)<Math.abs(best-x)?g:best, gapCenters[0])
+    : x;
+  const gapWidthAt=(x)=>{
+    if(!gapCenters.length) return 9999;
+    let bi=0; for(let i=1;i<gapCenters.length;i++)
+      if(Math.abs(gapCenters[i]-x)<Math.abs(gapCenters[bi]-x)) bi=i;
+    return gapW[bi];
+  };
+  /** 선 위 라벨은 틈 안에 들어가야 한다 — 넘치면 노드 위에 글자가 얹힌다.
+   *  전체 내용은 아래 '연결 목록' 표에서 읽는다(같은 줄이 함께 강조된다). */
+  const fit=(text,limit)=>{
+    const w=(ch)=>ch.charCodeAt(0)>0x2000?10.2:5.8;   // 한글/기호 vs ASCII
+    let acc=0,out='';
+    for(const ch of text){
+      if(acc+w(ch)>limit-12){ return out+'…'; }
+      out+=ch; acc+=w(ch);
+    }
+    return out;
+  };
+
+  for(const e of REG.edges){
+    if(!shown(e.src)||!shown(e.dst)) continue;
+    const a=$('n-'+cid(e.src)), b=$('n-'+cid(e.dst));
+    if(!a||!b) continue;
+    const ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
+    const sl=cv.scrollLeft, st=cv.scrollTop;
+    const back=ra.left>rb.left;                       // 되돌아가는 선
+    const sx=(back?ra.left:ra.right)-box.left+sl, sy=ra.top-box.top+ra.height/2+st;
+    const ex=(back?rb.right:rb.left)-box.left+sl,  ey=rb.top-box.top+rb.height/2+st;
+    const dx=Math.max(34,Math.abs(ex-sx)*0.45)*(back?-1:1);
+
+    // 이 선을 강조할지: 고정/호버한 모듈에 붙은 선이거나, 표에서 올린 선
+    const touches = fk && (e.src===fk||e.dst===fk);
+    const eh = hoverEdge===e.src+'>'+e.dst;
+    const on = touches||eh;
+    const hot = fired.has(e.src)&&fired.has(e.dst);
+    const off = (fk && !touches) || (!fk && feat && !(feat.has(e.src)&&feat.has(e.dst)));
+    const cls=['ln',e.status,on?'on':'',hot&&!on?'hot':'',off?'faded':''].filter(Boolean).join(' ');
+    const mk = on?'ao':(hot?'ah':'a');
+    out.push(`<path class="${cls}" marker-end="url(#${mk})"
+      d="M${sx},${sy} C${sx+dx},${sy} ${ex-dx},${ey} ${ex},${ey}"></path>`);
+
+    // 라벨은 강조된 선에만 — 겹칠 일이 없다
+    if(on){
+      const lx=snapX((sx+ex)/2);
+      // 곡선 위의 그 x 지점 높이에 맞춰 얹는다(3차 베지어 근사).
+      const tt=Math.max(0,Math.min(1,(lx-sx)/((ex-sx)||1)));
+      const ly=(1-tt)**3*sy + 3*(1-tt)**2*tt*sy + 3*(1-tt)*tt**2*ey + tt**3*ey;
+      labels.push({x:lx, y:ly-7, t:fit(e.payload, gapWidthAt(lx))});
+    }
+  }
+  // 같은 틈에 여러 개가 몰리면 세로로 벌려 겹치지 않게 한다.
+  const byX=new Map();
+  for(const l of labels){
+    const k=Math.round(l.x);
+    const arr=byX.get(k)||[]; arr.push(l); byX.set(k,arr);
+  }
+  for(const arr of byX.values()){
+    arr.sort((a,b)=>a.y-b.y);
+    for(let i=0;i<arr.length;i++){
+      if(i>0 && arr[i].y-arr[i-1].y<15) arr[i].y=arr[i-1].y+15;
+      out.push(`<text class="lnlab" x="${arr[i].x}" y="${arr[i].y}"
+        text-anchor="middle">${esc(arr[i].t)}</text>`);
+    }
+  }
+  svg.innerHTML=out.join('');
+}
+
+/* ── 연결 목록 표 ─────────────────────────────────────────── */
+const STATUS_KO={fixed:'확정', undefined:'미정', mismatch:'불일치'};
+function drawEdgeTable(){
+  const feat=featSet(), fk=focusMod();
+  const rows=REG.edges.filter(e=>shown(e.src)&&shown(e.dst));
+  const bad=rows.filter(e=>e.status!=='fixed').length;
+  $('edgecount').textContent=`— ${rows.length}개 중 확정 ${rows.length-bad} · 확인 필요 ${bad}`;
+  $('edgerows').innerHTML=rows.map(e=>{
+    const off=(fk && e.src!==fk && e.dst!==fk)
+           || (!fk && feat && !(feat.has(e.src)&&feat.has(e.dst)));
+    const lit=fk && (e.src===fk||e.dst===fk);
+    return `<tr class="row ${off?'faded':''} ${lit?'lit':''}"
+      onmouseenter="hoverEdge='${e.src}>${e.dst}';requestAnimationFrame(drawWires)"
+      onmouseleave="hoverEdge=null;requestAnimationFrame(drawWires)"
+      onclick="togglePin('${e.src}')">
+      <td>${esc(label(e.src))}</td><td class="arrow">→</td><td>${esc(label(e.dst))}</td>
+      <td class="pay">${esc(e.payload)}</td>
+      <td><span class="st ${e.status}">${STATUS_KO[e.status]}</span></td>
+      <td class="note">${esc(e.note||'')}</td></tr>`;
+  }).join('');
+}
+
+/* ── 기능 ─────────────────────────────────────────────────── */
 function drawFeatures(){
-  $('featlist').innerHTML = REG.features.map(f=>`
+  $('featlist').innerHTML=REG.features.map(f=>`
     <button class="feat" data-k="${f.key}" onclick="pickFeature('${f.key}')">
       ${f.label}<small>${f.modules.length}개 모듈</small></button>`).join('');
 }
 function pickFeature(k){
-  selFeature = (k && k!==selFeature) ? k : null;
-  document.querySelectorAll('.feat').forEach(b=>
-    b.classList.toggle('sel', b.dataset.k===selFeature));
-  const f = REG.features.find(x=>x.key===selFeature);
-  $('maptitle').textContent = f ? `전체 흐름 — ${f.label}` : '전체 흐름';
-  drawNodes(); requestAnimationFrame(drawWires);
-}
-
-const scopeSet=()=>{
+  selFeature=(k&&k!==selFeature)?k:null; pinMod=null; hoverMod=null;
+  document.querySelectorAll('.feat').forEach(b=>b.classList.toggle('sel',b.dataset.k===selFeature));
   const f=REG.features.find(x=>x.key===selFeature);
-  return f ? new Set(f.modules) : null;         // null = 전체 보기
-};
-/** 지금 볼 추적. 고른 게 없으면 **모듈을 실제로 거친** 가장 최근 것.
- *
- *  헬스체크처럼 서비스 모듈을 안 거치는 요청이 마지막이면 지도가 통째로
- *  비어 보인다. 그걸 '동작 안 함'으로 읽게 되므로, 흐름이 있는 것을 고른다. */
-function activeTrace(){
-  if(selTrace) return TRACES.find(x=>x.id===selTrace);
-  return TRACES.find(t=>t.events.length) || TRACES[0];
+  $('maptitle').textContent=f?`전체 흐름 — ${f.label}`:'전체 흐름';
+  // 기능이 음독을 쓰면 자동으로 펼친다
+  if(f && f.modules.some(m=>ORAL.has(m))) { hideOral=false; syncOralBtn(); }
+  render();
 }
-function firedMap(){
-  const t=activeTrace();
-  const m=new Map();
-  if(t) for(const e of t.events) m.set(e.module,(m.get(e.module)||0)+1);
-  return m;
+function reset(){ selFeature=null; pinMod=null; hoverMod=null; selTrace=null;
+  document.querySelectorAll('.feat').forEach(b=>b.classList.remove('sel'));
+  $('maptitle').textContent='전체 흐름'; render(); drawTraces(); drawEvents(); }
+function toggleOral(){ hideOral=!hideOral; syncOralBtn(); render(); }
+function syncOralBtn(){
+  const b=$('btnOral');
+  b.textContent=hideOral?'음독 숨김':'음독 표시';
+  b.classList.toggle('on',!hideOral);
 }
 
-function drawNodes(){
-  const scope=scopeSet(), fired=firedMap();
-  $('cols').innerHTML = REG.cols.map(c=>{
-    const mods=REG.modules.filter(m=>m.col===c);
-    return `<div class="col"><div class="coltitle">${REG.col_names[c]||('col '+c)}</div>`
-      + mods.map(m=>{
-        const cls=['node'];
-        if(scope && !scope.has(m.key)) cls.push('dim');
-        if(scope && scope.has(m.key)) cls.push('inscope');
-        if(fired.has(m.key)) cls.push('fired');
-        const n=fired.get(m.key);
-        return `<div class="${cls.join(' ')}" id="n-${cssid(m.key)}" data-k="${m.key}">
-          ${n?`<span class="cnt">${n}</span>`:''}
-          <div class="nm"><span class="purity ${m.purity}"></span>${m.label}</div>
-          <div class="sub">${m.outputs.length?m.outputs[0]:m.key}</div></div>`;
-      }).join('') + `</div>`;
-  }).join('');
-}
-const cssid=(k)=>k.replace(/\./g,'_');
-
-/** 노드 사이를 곡선으로 잇고, 선 위에 오가는 것을 적는다. */
-function drawWires(){
-  const svg=$('wire'), box=$('canvas').getBoundingClientRect();
-  svg.setAttribute('width', $('cols').scrollWidth);
-  svg.setAttribute('height', $('cols').scrollHeight);
-  const scope=scopeSet(), fired=firedMap();
-  const parts=[`<defs>
-    <marker id="a" markerWidth="7" markerHeight="7" refX="6" refY="3.2"
-            orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#4b5169"/></marker>
-    <marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.2"
-            orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#FFE66D"/></marker>
-  </defs>`];
-
-  for(const e of REG.edges){
-    const a=$('n-'+cssid(e.src)), b=$('n-'+cssid(e.dst));
-    if(!a||!b) continue;
-    const ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
-    const sx=ra.right-box.left+$('canvas').scrollLeft,
-          sy=ra.top-box.top+ra.height/2+$('canvas').scrollTop,
-          ex=rb.left-box.left+$('canvas').scrollLeft,
-          ey=rb.top-box.top+rb.height/2+$('canvas').scrollTop;
-    const mx=(sx+ex)/2;
-    const hot = fired.has(e.src) && fired.has(e.dst);
-    const off = scope && !(scope.has(e.src) && scope.has(e.dst));
-    const cls=[ 'ln', e.status, hot?'hot':'', off?'faded':'' ].filter(Boolean).join(' ');
-    parts.push(`<path class="${cls}" d="M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}"
-                 marker-end="url(#${hot?'ah':'a'})"></path>`);
-    // 선 위 라벨 — 길면 자르고 전체는 마우스를 올리면 보인다
-    const short = e.payload.length>30 ? e.payload.slice(0,29)+'…' : e.payload;
-    parts.push(`<text class="lnlab ${e.status} ${off?'faded':''}"
-      x="${mx}" y="${(sy+ey)/2-4}" text-anchor="middle"
-      onmousemove="tip(evt, this)" onmouseleave="untip()"
-      data-p="${esc(e.payload)}" data-s="${e.status}" data-n="${esc(e.note||'')}"
-      style="pointer-events:auto;cursor:help">${esc(short)}</text>`);
-  }
-  svg.innerHTML=parts.join('');
-}
-
-const STATUS_KO={fixed:'형식 확정', undefined:'형식이 적힌 곳이 없다',
-                 mismatch:'두 곳에서 다르게 정의돼 있다'};
-function tip(evt, el){
-  const t=$('tip');
-  t.innerHTML=`<b>${el.dataset.p}</b><div class="st">${STATUS_KO[el.dataset.s]}</div>`
-    + (el.dataset.n?`<div class="st" style="margin-top:.3rem">${el.dataset.n}</div>`:'');
-  t.style.display='block';
-  t.style.left=Math.min(evt.clientX+12, innerWidth-340)+'px';
-  t.style.top=(evt.clientY+14)+'px';
-}
-const untip=()=>$('tip').style.display='none';
-
+/* ── 실행 기록 ────────────────────────────────────────────── */
 function drawTraces(){
   const cur=(activeTrace()||{}).id;
-  $('traces').innerHTML = TRACES.slice(0,12).map(t=>`
+  $('traces').innerHTML=TRACES.slice(0,12).map(t=>`
     <span class="tchip ${t.id===cur?'sel':''} ${t.events.length?'':'nil'}"
-          onclick="pickTrace('${t.id}')">
-      ${esc(t.label)} · ${t.events.length}건${t.done?'':' …'}</span>`).join('')
-    || '<span class="empty">기록 없음</span>';
+      onclick="pickTrace('${t.id}')">${esc(t.label)} · ${t.events.length}건${t.done?'':' …'}</span>`
+  ).join('')||'<span class="empty">기록 없음</span>';
 }
-function pickTrace(id){ selTrace=id; drawTraces(); drawEvents(); drawNodes();
-                        requestAnimationFrame(drawWires); }
-
+function pickTrace(id){ selTrace=id; drawTraces(); drawEvents(); render(); }
 function drawEvents(){
-  const t=activeTrace();
-  if(!t){ return; }
-  $('tmeta').textContent = ` · ${t.label} (${t.ms}ms, 모듈 ${t.modules.length}개`
-    + (t.session_id?`, 세션 ${t.session_id}`:'') + ')';
+  const t=activeTrace(); if(!t) return;
+  $('tmeta').textContent=` · ${t.label} (${t.ms}ms, 모듈 ${t.modules.length}개`
+    +(t.session_id?`, 세션 ${t.session_id}`:'')+')';
   if(!t.events.length){
     $('events').innerHTML='<div class="empty">이 요청은 서비스 모듈을 거치지 않았습니다.</div>';
     return;
   }
-  $('events').innerHTML = t.events.map(e=>{
+  $('events').innerHTML=t.events.map(e=>{
     const ins=Object.entries(e.args).map(([k,v])=>
       `<div class="io"><b>IN</b> ${esc(k)} = ${esc(v)}</div>`).join('');
-    const out=e.error
-      ? `<div class="io"><b class="err">ERR</b> ${esc(e.error)}</div>`
-      : `<div class="io"><b>OUT</b> ${esc(e.ret??'-')}</div>`;
+    const out=e.error?`<div class="io"><b class="err">ERR</b> ${esc(e.error)}</div>`
+                     :`<div class="io"><b>OUT</b> ${esc(e.ret??'-')}</div>`;
     return `<div class="ev" style="margin-left:${e.depth*14}px">
       <div class="ev-h"><span class="m">${esc(e.module.split('.').pop())}</span>.${esc(e.fn)}
       <span class="ms">${e.ms}ms</span></div>${ins}${out}</div>`;
   }).join('');
 }
-
-function apply(d){
-  TRACES=d.traces||[];
-  drawTraces(); drawEvents(); drawNodes(); requestAnimationFrame(drawWires);
-}
+function apply(d){ TRACES=d.traces||[]; drawTraces(); drawEvents(); render(); }
 function connect(){
   const es=new EventSource('stream');
   es.onopen=()=>{ $('live').textContent='실시간'; $('live').className='live on'; };
   es.onmessage=(m)=>apply(JSON.parse(m.data));
-  es.onerror=()=>{
-    $('live').textContent='끊김 — 폴링'; $('live').className='live'; es.close();
-    setInterval(async()=>apply(await (await fetch('traces')).json()), 2000);
-  };
+  es.onerror=()=>{ $('live').textContent='끊김 — 폴링'; $('live').className='live'; es.close();
+    setInterval(async()=>apply(await (await fetch('traces')).json()),2000); };
 }
-async function clearTraces(){
-  await fetch('traces',{method:'DELETE'}); selTrace=null; apply({traces:[]});
-}
+async function clearTraces(){ await fetch('traces',{method:'DELETE'}); selTrace=null; apply({traces:[]}); }
 boot();
 </script>
 </body>
