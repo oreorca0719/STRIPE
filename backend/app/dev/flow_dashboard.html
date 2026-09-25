@@ -2,17 +2,22 @@
 <!--
   STRIPE 모듈 흐름 대시보드 — 로컬 개발 전용
 
-  [1차 설계의 실패와 교훈]
-  처음에는 연결선 23개의 라벨을 전부 선 위에 그렸다. 재보니 라벨 평균 너비가
-  104px 인데 열 간격이 56px 이라, **라벨 23개 중 22개가 노드 위에 얹혔고**
-  라벨끼리도 4쌍이 겹쳤다. 동시에 다 보여주는 것은 산수가 안 맞는다.
+  [설계 이력 — 두 번 고쳤다]
+  1차: 연결선 23개의 라벨을 전부 선 위에 그렸다. 라벨 평균 104px 인데 열
+       간격이 56px 이라 22개가 노드 위에 얹혔다. 산수가 안 맞았다.
+  2차: 세로 열 배치. 간격을 넓혔으나 선이 노드 한 점으로 모여 끝에서 겹쳤다.
+  3차(지금): **인프라 구성도 형태.** 기능 묶음을 테두리로 싸고, 선은 박스
+       사이의 통로와 상·하단 레인으로만 지난다. 박스를 관통하지 않는다.
 
-  [지금 설계]
-  · 흐름도는 **구조**를 본다. 선은 색으로 상태만 말하고 글자는 얹지 않는다.
-  · 무엇이 오가는지는 **마우스를 올린 것만** 선 위에 뜬다.
-  · 노드를 누르면 그 모듈의 입력·출력만 남기고 나머지를 덮는다.
-  · **전체를 읽는 것은 아래 표**가 맡는다. 23줄을 눈으로 훑는 데는 표가 맞다.
-  · 값은 기록·표시되지 않는다. 타입·개수·키·enum 까지만.
+  [배선 규칙 — 선이 지날 수 있는 곳은 세 군데뿐이다]
+  · 이웃 묶음 사이의 세로 통로
+  · 맨 위 레인 — 한 칸 이상 건너뛰는 연결(중간 박스를 뚫지 않으려고)
+  · 아래 레인 — 되돌아가는 연결
+  같은 묶음 안의 연결은 박스 밖으로 나가지 않는다.
+  같은 통로·레인을 여러 선이 쓰면 서로 어긋나게 둔다.
+
+  선은 박스보다 **위에** 그린다 — 뒤로 숨으면 어디로 가는지 알 수 없다.
+  값은 기록·표시되지 않는다. 타입·개수·키·enum 까지만.
 -->
 <html lang="ko">
 <head>
@@ -29,78 +34,73 @@
   header{display:flex;align-items:center;gap:.7rem;padding:.75rem 1.1rem;
          border-bottom:1px solid var(--line)}
   header h1{margin:0;font-size:1rem}
-  .live{font-size:.72rem;padding:.13rem .48rem;border-radius:99px;
-        background:#23283a;color:var(--dim)}
+  .live{font-size:.72rem;padding:.13rem .48rem;border-radius:99px;background:#23283a;color:var(--dim)}
   .live.on{background:rgba(78,205,196,.15);color:var(--mint)}
-  .btn{background:transparent;border:1px solid var(--line);color:var(--dim);
-       border-radius:6px;padding:.2rem .55rem;font:inherit;font-size:.74rem;cursor:pointer}
+  .btn{background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:6px;
+       padding:.2rem .55rem;font:inherit;font-size:.74rem;cursor:pointer}
   .btn:hover{color:var(--txt)} .btn.on{border-color:var(--mint);color:var(--mint)}
-  main{display:grid;grid-template-columns:196px 1fr;gap:.85rem;padding:.85rem 1.1rem;
-       align-items:start}
+  main{display:grid;grid-template-columns:196px 1fr;gap:.85rem;padding:.85rem 1.1rem;align-items:start}
   @media (max-width:980px){main{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.7rem}
-  .card h2{margin:.05rem 0 .5rem;font-size:.76rem;color:var(--dim);
-           letter-spacing:.7px;text-transform:uppercase}
+  .card h2{margin:.05rem 0 .5rem;font-size:.76rem;color:var(--dim);letter-spacing:.7px;text-transform:uppercase}
 
-  .feat{display:block;width:100%;text-align:left;background:transparent;
-        border:1px solid transparent;color:var(--txt);border-radius:7px;
-        padding:.4rem .5rem;margin-bottom:.12rem;cursor:pointer;font:inherit;font-size:.86rem}
+  .feat{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+        color:var(--txt);border-radius:7px;padding:.4rem .5rem;margin-bottom:.12rem;cursor:pointer;
+        font:inherit;font-size:.86rem}
   .feat:hover{background:#23283a}
   .feat.sel{background:rgba(78,205,196,.12);border-color:var(--mint);color:var(--mint)}
   .feat small{display:block;color:var(--dim);font-size:.69rem}
   .feat.sel small{color:#79b8b2}
 
-  /* ── 흐름도 ─────────────────────────────────────────────── */
-  #canvas{position:relative;overflow-x:auto;overflow-y:visible;padding-bottom:.3rem}
-  #wire{position:absolute;inset:0;pointer-events:none;overflow:visible}
-  .colgrid{position:relative;display:flex;gap:112px;align-items:stretch;padding:.2rem 0 .6rem}
-  .col{display:flex;flex-direction:column;width:156px;flex:0 0 156px}
-  /* 블록 사이를 넉넉히 벌린다 — 선이 서로 붙으면 어느 것이 어느 것인지 안 보인다.
-     노드는 세로 가운데에 모아, 열마다 개수가 달라도 흐름이 가운데로 이어지게 한다. */
-  .colnodes{display:flex;flex-direction:column;gap:36px;flex:1;justify-content:center}
-  .coltitle{font-size:.66rem;color:#6d7288;letter-spacing:.9px;text-transform:uppercase;
-            padding-bottom:.25rem;border-bottom:1px solid var(--line);margin-bottom:.15rem}
-  .node{position:relative;border:1.5px solid #2b3040;background:#141822;border-radius:7px;
-         padding:.85rem .5rem;cursor:pointer;
-         transition:border-color .12s,background .12s,opacity .12s,box-shadow .12s}
+  /* ── 구성도 ─────────────────────────────────────────────── */
+  #canvas{position:relative;overflow-x:auto;overflow-y:visible}
+  #wire{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:5}
+  #board{position:relative;display:grid;gap:78px 96px;
+         padding:56px 6px 34px;              /* 위: 우회 레인 자리 */
+         grid-template-columns:repeat(6,max-content);justify-content:start}
+  .gbox{position:relative;border:1px solid #333a4d;border-radius:11px;background:#12151d;
+        padding:.8rem .6rem .6rem;min-width:134px}
+  .gbox .glabel{position:absolute;top:-9px;left:11px;background:#12151d;padding:0 .35rem;
+                font-size:.67rem;letter-spacing:.9px;color:#7d8399;text-transform:uppercase}
+  .gnodes{display:flex;flex-wrap:wrap;gap:8px;max-width:288px}
+  .gbox.dim{opacity:.32}
+
+  .node{position:relative;border:1.5px solid #2b3040;background:#181d28;border-radius:7px;
+        padding:.5rem;cursor:pointer;min-width:120px;
+        transition:border-color .12s,background .12s,opacity .12s,box-shadow .12s}
   .node:hover{border-color:#4b5169}
-  .node .nm{font-size:.79rem;line-height:1.25}
-  .node.dim{opacity:.22}
-  .node.inscope{border-color:var(--mint);background:rgba(78,205,196,.07)}
-  .node.fired{border-color:var(--yellow);background:rgba(255,230,109,.1)}
+  .node .nm{font-size:.78rem;line-height:1.25}
+  .node.dim{opacity:.25}
+  .node.inscope{border-color:var(--mint);background:rgba(78,205,196,.08)}
+  .node.fired{border-color:var(--yellow);background:rgba(255,230,109,.11)}
   .node.pinned{box-shadow:0 0 0 2px var(--mint)}
   .node .cnt{position:absolute;top:-7px;right:-5px;background:var(--yellow);color:#20242e;
              font-size:.62rem;font-weight:800;border-radius:99px;padding:.01rem .32rem}
-  .purity{display:inline-block;width:5px;height:5px;border-radius:99px;
-          margin-right:5px;vertical-align:1px}
-  .purity.pure{background:var(--mint)} .purity.mixed{background:var(--yellow)}
-  .purity.db{background:var(--coral)}
+  .purity{display:inline-block;width:5px;height:5px;border-radius:99px;margin-right:5px;vertical-align:1px}
+  .purity.pure{background:var(--mint)} .purity.mixed{background:var(--yellow)} .purity.db{background:var(--coral)}
 
-  .ln{stroke-width:1.4;fill:none}
-  .ln.fixed{stroke:#394054}
-  .ln.undefined{stroke:#6f63b8;stroke-dasharray:5 4}
-  .ln.mismatch{stroke:#b55;stroke-dasharray:3 3}
-  .ln.hot{stroke:var(--yellow);stroke-width:2.4}
-  .ln.on{stroke-width:2.4} .ln.on.fixed{stroke:var(--mint)}
+  .ln{fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+  .ln.fixed{stroke:#4a5473}
+  .ln.undefined{stroke:#7a6dc4;stroke-dasharray:6 4}
+  .ln.mismatch{stroke:#c15f5f;stroke-dasharray:4 3}
+  .ln.hot{stroke:var(--yellow);stroke-width:2.6}
+  .ln.on{stroke-width:2.6} .ln.on.fixed{stroke:var(--mint)}
   .ln.on.undefined{stroke:var(--violet)} .ln.on.mismatch{stroke:var(--coral)}
-  .ln.faded{opacity:.08}
-  /* 라벨은 기본으로 그리지 않는다. 올린 것만 뜬다. */
-  .lnlab{font-size:10.5px;fill:#cfd4e4;paint-order:stroke;stroke:#0b0d13;
-         stroke-width:4px;stroke-linejoin:round;pointer-events:none}
+  .ln.faded{opacity:.09}
+  .lnlab{font-size:10.5px;fill:#dbe0ef;paint-order:stroke;stroke:#0b0d13;stroke-width:4.5px;
+         stroke-linejoin:round;pointer-events:none}
 
   .legend{display:flex;gap:.85rem;flex-wrap:wrap;font-size:.7rem;color:var(--dim);
-          margin-top:.35rem;padding-top:.45rem;border-top:1px solid var(--line)}
-  .legend i{display:inline-block;width:15px;height:0;border-top-width:2px;
-            border-top-style:solid;margin-right:4px;vertical-align:3px}
+          margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--line)}
+  .legend i{display:inline-block;width:15px;height:0;border-top-width:2px;border-top-style:solid;
+            margin-right:4px;vertical-align:3px}
 
-  /* ── 연결 목록 ───────────────────────────────────────────── */
   table{width:100%;border-collapse:collapse;font-size:.79rem}
-  th{text-align:left;font-weight:600;color:var(--dim);font-size:.71rem;
-     padding:.3rem .45rem;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{text-align:left;font-weight:600;color:var(--dim);font-size:.71rem;padding:.3rem .45rem;
+     border-bottom:1px solid var(--line);white-space:nowrap}
   td{padding:.32rem .45rem;border-bottom:1px solid #20242f;vertical-align:top}
   tr.row{cursor:pointer} tr.row:hover td{background:#20242f}
-  tr.row.faded{opacity:.3}
-  tr.row.lit td{background:rgba(78,205,196,.09)}
+  tr.row.faded{opacity:.3} tr.row.lit td{background:rgba(78,205,196,.09)}
   .arrow{color:#5a6178;padding:0 .2rem}
   .pay{font-family:ui-monospace,Consolas,monospace;font-size:.74rem}
   .st{font-size:.68rem;padding:.06rem .4rem;border-radius:99px;white-space:nowrap}
@@ -109,22 +109,18 @@
   .st.mismatch{background:rgba(255,107,107,.16);color:#ff9b9b}
   .note{font-size:.71rem;color:var(--dim)}
 
-  /* ── 흐름 기록 ───────────────────────────────────────────── */
   .traces{display:flex;gap:.32rem;flex-wrap:wrap;margin-bottom:.55rem}
   .tchip{font-size:.71rem;padding:.18rem .5rem;border-radius:99px;cursor:pointer;
          border:1px solid var(--line);background:#141822;color:var(--dim)}
-  .tchip.sel{border-color:var(--mint);color:var(--mint)}
-  .tchip.nil{opacity:.4}
+  .tchip.sel{border-color:var(--mint);color:var(--mint)} .tchip.nil{opacity:.4}
   .ev{border-left:2px solid var(--line);padding:.24rem 0 .24rem .6rem}
   .ev-h{font-family:ui-monospace,Consolas,monospace;font-size:.76rem}
-  .ev-h .m{color:var(--mint)} .ev-h .ms{color:#6d7288;font-size:.7rem}
-  .ev-h .err{color:var(--coral)}
-  .io{font-family:ui-monospace,Consolas,monospace;font-size:.71rem;color:var(--dim);
-      word-break:break-all}
+  .ev-h .m{color:var(--mint)} .ev-h .ms{color:#6d7288;font-size:.7rem} .ev-h .err{color:var(--coral)}
+  .io{font-family:ui-monospace,Consolas,monospace;font-size:.71rem;color:var(--dim);word-break:break-all}
   .io b{color:#b9c0d4}
   .empty{color:var(--dim);font-size:.78rem;padding:.4rem 0}
   .sub2{font-size:.72rem;color:var(--dim);margin-bottom:.45rem}
-  .hintbar{font-size:.72rem;color:#6d7288;margin-bottom:.4rem}
+  .hintbar{font-size:.72rem;color:#6d7288;margin-bottom:.3rem}
 </style>
 </head>
 <body>
@@ -138,23 +134,20 @@
 </header>
 
 <main>
-  <div class="card">
-    <h2>기능</h2>
-    <div id="featlist"></div>
-  </div>
+  <div class="card"><h2>기능</h2><div id="featlist"></div></div>
 
   <div>
     <div class="card">
       <h2 id="maptitle">전체 흐름</h2>
       <div class="hintbar" id="hint">모듈에 마우스를 올리면 오가는 데이터가 뜹니다. 누르면 고정됩니다.</div>
-      <div id="canvas"><svg id="wire"></svg><div id="cols" class="colgrid"></div></div>
+      <div id="canvas"><svg id="wire"></svg><div id="board"></div></div>
       <div class="legend">
         <span><span class="purity pure"></span>순수 변환</span>
         <span><span class="purity mixed"></span>혼재</span>
         <span><span class="purity db"></span>DB 전담</span>
-        <span><i style="border-color:#394054"></i>형식 확정</span>
-        <span><i style="border-color:#6f63b8;border-top-style:dashed"></i>형식 미정</span>
-        <span><i style="border-color:#b55;border-top-style:dashed"></i>두 곳이 다름</span>
+        <span><i style="border-color:#4a5473"></i>형식 확정</span>
+        <span><i style="border-color:#7a6dc4;border-top-style:dashed"></i>형식 미정</span>
+        <span><i style="border-color:#c15f5f;border-top-style:dashed"></i>두 곳이 다름</span>
         <span><i style="border-color:#FFE66D"></i>방금 실행됨</span>
       </div>
     </div>
@@ -179,65 +172,68 @@
 let REG=null, TRACES=[], selFeature=null, selTrace=null;
 let hoverMod=null, pinMod=null, hoverEdge=null, hideOral=true;
 const $=(id)=>document.getElementById(id);
-/** 연결선 다시 그리기 예약.
- *  requestAnimationFrame 은 **탭이 가려져 있으면 발화하지 않는다.** 그 상태로
- *  갱신이 들어오면 선이 사라진 채 남는다(실제로 그랬다). 타이머를 함께 걸어
- *  어느 쪽이든 한 번은 그려지게 하고, 중복 실행은 플래그로 막는다. */
-let _wirePending=false;
-function scheduleWires(){
-  if(_wirePending) return;
-  _wirePending=true;
-  const run=()=>{ if(!_wirePending) return; _wirePending=false; drawWires(); };
-  requestAnimationFrame(run);
-  setTimeout(run, 60);
-}
 const esc=(s)=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 const ORAL=new Set(['stt.adapter','stt.clova','stt.mock','stt.vad','stt.analyzer']);
+
+/* 묶음 배치 — [행, 열]. 진단 진행 방향이 왼→오른쪽이 되게 놓고,
+   본류가 아닌 콘텐츠·운영은 아랫줄에 둔다. */
+const POS={ '입력':[1,1], '배정':[1,2], '측정':[1,3], '판정':[1,4],
+            '처방':[1,5], '산출물':[1,6], '콘텐츠':[2,1], '운영':[2,6] };
+
+/** rAF 는 탭이 가려져 있으면 발화하지 않아 선이 사라진 채 남는다.
+    타이머를 함께 걸어 어느 쪽이든 한 번은 그려지게 한다. */
+let _pending=false;
+function scheduleWires(){
+  if(_pending) return; _pending=true;
+  const run=()=>{ if(!_pending) return; _pending=false; drawWires(); };
+  requestAnimationFrame(run); setTimeout(run,60);
+}
 
 async function boot(){
   REG=await (await fetch('registry')).json();
   drawFeatures(); render(); connect();
-  addEventListener('resize',()=>scheduleWires());
-  $('canvas').addEventListener('scroll',()=>scheduleWires());
+  addEventListener('resize',scheduleWires);
+  $('canvas').addEventListener('scroll',scheduleWires);
 }
-function render(){ drawNodes(); drawEdgeTable(); scheduleWires(); }
+function render(){ drawBoard(); drawEdgeTable(); scheduleWires(); }
 
 /* ── 상태 ─────────────────────────────────────────────────── */
-const shown=(k)=> !(hideOral && ORAL.has(k));
-const featSet=()=>{ const f=REG.features.find(x=>x.key===selFeature);
-                    return f?new Set(f.modules):null; };
-function activeTrace(){
-  if(selTrace) return TRACES.find(x=>x.id===selTrace);
-  return TRACES.find(t=>t.events.length)||TRACES[0];
-}
-function firedMap(){
-  const t=activeTrace(), m=new Map();
-  if(t) for(const e of t.events) m.set(e.module,(m.get(e.module)||0)+1);
-  return m;
-}
-/** 지금 강조할 모듈 — 고정한 것이 있으면 그것, 없으면 마우스 올린 것 */
+const shown=(k)=>!(hideOral&&ORAL.has(k));
+const featSet=()=>{ const f=REG.features.find(x=>x.key===selFeature); return f?new Set(f.modules):null; };
+const activeTrace=()=> selTrace?TRACES.find(x=>x.id===selTrace)
+                              :(TRACES.find(t=>t.events.length)||TRACES[0]);
+function firedMap(){ const t=activeTrace(), m=new Map();
+  if(t) for(const e of t.events) m.set(e.module,(m.get(e.module)||0)+1); return m; }
 const focusMod=()=>pinMod||hoverMod;
-/** 강조 대상과 직접 연결된 모듈 (그 모듈의 입력·출력) */
-function neighborSet(){
-  const k=focusMod(); if(!k) return null;
+function neighborSet(){ const k=focusMod(); if(!k) return null;
   const s=new Set([k]);
   for(const e of REG.edges){ if(e.src===k) s.add(e.dst); if(e.dst===k) s.add(e.src); }
-  return s;
-}
+  return s; }
+const label=(k)=>(REG.modules.find(m=>m.key===k)||{}).label||k;
+const groupOf=(k)=>(REG.modules.find(m=>m.key===k)||{}).group;
+/* DOM id 로 쓸 안전한 문자열.
+   한글을 정규식으로 지우면 '입력'·'콘텐츠'가 둘 다 '_' 뭉치가 되어 **id 가
+   충돌한다**. 실제로 그래서 박스 좌표를 엉뚱하게 잡고 있었다.
+   문자 코드로 바꿔 충돌을 원천 차단한다. */
+const cid=(k)=>String(k).split('').map(c=>
+  /[A-Za-z0-9]/.test(c) ? c : 'x'+c.charCodeAt(0).toString(36)).join('');
 
-/* ── 노드 ─────────────────────────────────────────────────── */
-function drawNodes(){
-  const feat=featSet(), fired=firedMap(), nb=neighborSet(), fk=focusMod();
-  $('cols').innerHTML=REG.cols.map(c=>{
-    const mods=REG.modules.filter(m=>m.col===c && shown(m.key));
-    if(!mods.length) return '';
-    return `<div class="col"><div class="coltitle">${REG.col_names[c]||('col '+c)}</div>`
-     + `<div class="colnodes">`
-     + mods.map(m=>{
+/* ── 묶음 박스 ───────────────────────────────────────────── */
+function drawBoard(){
+  const feat=featSet(), fired=firedMap(), nb=neighborSet();
+  const groups=[...new Set(REG.modules.map(m=>m.group))]
+    .filter(g=>REG.modules.some(m=>m.group===g&&shown(m.key)));
+  $('board').innerHTML=groups.map(g=>{
+    const mods=REG.modules.filter(m=>m.group===g&&shown(m.key));
+    const [r,c]=POS[g]||[3,1];
+    const anyIn=mods.some(m=>!feat||feat.has(m.key));
+    return `<div class="gbox ${feat&&!anyIn?'dim':''}" id="g-${cid(g)}"
+              style="grid-row:${r};grid-column:${c}">
+      <div class="glabel">${esc(g)}</div><div class="gnodes">` + mods.map(m=>{
         const cls=['node'];
         if(nb){ if(!nb.has(m.key)) cls.push('dim'); }
-        else if(feat && !feat.has(m.key)) cls.push('dim');
-        if(feat && feat.has(m.key)) cls.push('inscope');
+        else if(feat&&!feat.has(m.key)) cls.push('dim');
+        if(feat&&feat.has(m.key)) cls.push('inscope');
         if(fired.has(m.key)) cls.push('fired');
         if(m.key===pinMod) cls.push('pinned');
         const n=fired.get(m.key);
@@ -246,138 +242,124 @@ function drawNodes(){
           onclick="togglePin('${m.key}')" title="${m.key}">
           ${n?`<span class="cnt">${n}</span>`:''}
           <div class="nm"><span class="purity ${m.purity}"></span>${m.label}</div></div>`;
-      }).join('')+`</div></div>`;
+      }).join('') + `</div></div>`;
   }).join('');
 }
-const cid=(k)=>k.replace(/\./g,'_');
-function setHover(k){ if(pinMod) return; hoverMod=k; drawNodes(); drawEdgeTable();
-                      scheduleWires(); }
+function setHover(k){ if(pinMod) return; hoverMod=k; drawBoard(); drawEdgeTable(); scheduleWires(); }
 function togglePin(k){
   pinMod=(pinMod===k)?null:k; hoverMod=null;
-  $('hint').textContent = pinMod
-    ? `${label(pinMod)} 의 입력·출력만 표시합니다. 다시 누르면 해제됩니다.`
-    : '모듈에 마우스를 올리면 오가는 데이터가 뜹니다. 누르면 고정됩니다.';
+  $('hint').textContent=pinMod?`${label(pinMod)} 의 입력·출력만 표시합니다. 다시 누르면 해제됩니다.`
+                              :'모듈에 마우스를 올리면 오가는 데이터가 뜹니다. 누르면 고정됩니다.';
   render();
 }
-const label=(k)=>(REG.modules.find(m=>m.key===k)||{}).label||k;
 
-/* ── 연결선 ───────────────────────────────────────────────── */
+/* ── 배선 ─────────────────────────────────────────────────── */
 function drawWires(){
-  const svg=$('wire'), cv=$('canvas'), box=cv.getBoundingClientRect();
-  svg.setAttribute('width',$('cols').scrollWidth);
-  svg.setAttribute('height',$('cols').scrollHeight);
+  const svg=$('wire'), board=$('board');
+  if(!REG||!board.firstChild) return;
+  const bb=board.getBoundingClientRect();
+  svg.setAttribute('width',board.scrollWidth);
+  svg.setAttribute('height',board.scrollHeight);
+  const rel=(r)=>({l:r.left-bb.left, r:r.right-bb.left, t:r.top-bb.top, b:r.bottom-bb.top,
+                   cx:(r.left+r.right)/2-bb.left, cy:(r.top+r.bottom)/2-bb.top});
+
   const feat=featSet(), fired=firedMap(), fk=focusMod();
-  const out=[`<defs>
-    <marker id="a" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
-      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#4b5169"/></marker>
-    <marker id="ao" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
-      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#4ECDC4"/></marker>
-    <marker id="ah" markerWidth="6" markerHeight="6" refX="5.2" refY="2.7" orient="auto">
-      <path d="M0,0 L6,2.7 L0,5.4 z" fill="#FFE66D"/></marker></defs>`];
+  const vis=REG.edges.filter(e=>shown(e.src)&&shown(e.dst));
+
+  const G={};
+  for(const g of new Set(REG.modules.map(m=>m.group))){
+    const el=$('g-'+cid(g)); if(el) G[g]=rel(el.getBoundingClientRect());
+  }
+  if(!Object.keys(G).length) return;
+
+  // 열별 x 범위 → 열 사이 통로 중심
+  const colX={};
+  for(const g in G){ const c=(POS[g]||[3,1])[1];
+    colX[c]=colX[c]?{l:Math.min(colX[c].l,G[g].l), r:Math.max(colX[c].r,G[g].r)}:{l:G[g].l,r:G[g].r}; }
+  const cols=Object.keys(colX).map(Number).sort((a,b)=>a-b);
+  const gut={};
+  for(let i=0;i<cols.length-1;i++) gut[cols[i]]=(colX[cols[i]].r+colX[cols[i+1]].l)/2;
+
+  const r1=Object.entries(G).filter(([g])=>(POS[g]||[3])[0]===1).map(([,x])=>x);
+  const r2=Object.entries(G).filter(([g])=>(POS[g]||[3])[0]===2).map(([,x])=>x);
+  const top1=r1.length?Math.min(...r1.map(x=>x.t)):0;
+  const bot1=r1.length?Math.max(...r1.map(x=>x.b)):0;
+  const top2=r2.length?Math.min(...r2.map(x=>x.t)):bot1+70;
+  const TOP=top1-32;                 // 위 우회 레인
+  const BOT=(bot1+top2)/2;           // 아래 우회 레인
+
+  const mk=(id,c)=>`<marker id="${id}" markerWidth="7" markerHeight="7" refX="6" refY="3"
+    orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="${c}"/></marker>`;
+  const out=[`<defs>${mk('a','#5b6480')}${mk('ao','#4ECDC4')}${mk('ah','#FFE66D')}</defs>`];
+
+  const useV={}, useTop={}, useBot={}, usePair={}, useSelf={};
+  const bump=(m,k)=>{ m[k]=(m[k]||0)+1; return m[k]-1; };
   const labels=[];
 
-  /* 선이 붙는 자리를 노드 높이에 나눠 배분한다.
-     전부 세로 중앙에 붙이면 한 노드로 들어오는 선 여러 개가 끝에서 겹쳐,
-     어느 선이 어디서 왔는지 구분되지 않는다(실측 최소 간격 4.2px 였다).
-     나가는 선은 오른쪽 변에, 들어오는 선은 왼쪽 변에 순서대로 나눠 단다. */
-  const visible=REG.edges.filter(e=>shown(e.src)&&shown(e.dst));
-  const outIdx=new Map(), inIdx=new Map(), outN=new Map(), inN=new Map();
-  for(const e of visible){
-    outN.set(e.src,(outN.get(e.src)||0)+1);
-    inN.set(e.dst,(inN.get(e.dst)||0)+1);
-  }
-  const seenOut=new Map(), seenIn=new Map();
-  for(const e of visible){
-    const k=e.src+'>'+e.dst;
-    const so=(seenOut.get(e.src)||0); seenOut.set(e.src,so+1); outIdx.set(k,so);
-    const si=(seenIn.get(e.dst)||0);  seenIn.set(e.dst,si+1);  inIdx.set(k,si);
-  }
-  /** 노드 변 위에서 i번째(전체 n개) 부착점의 세로 위치 */
-  const anchorY=(rect,i,n)=>rect.top + rect.height*(i+1)/(n+1);
-  // 열과 열 사이의 '빈 틈' 중심 좌표. 라벨은 여기에만 놓는다 — 노드 위에
-  // 글자가 얹히면 둘 다 안 읽힌다.
-  const colBoxes=[...document.querySelectorAll('.col')].map(c=>{
-    const r=c.getBoundingClientRect();
-    return {l:r.left-box.left+cv.scrollLeft, r:r.right-box.left+cv.scrollLeft};
-  }).sort((a,b)=>a.l-b.l);
-  const gapCenters=[], gapW=[];
-  for(let i=0;i<colBoxes.length-1;i++){
-    gapCenters.push((colBoxes[i].r+colBoxes[i+1].l)/2);
-    gapW.push(colBoxes[i+1].l-colBoxes[i].r);
-  }
-  const snapX=(x)=>gapCenters.length
-    ? gapCenters.reduce((best,g)=>Math.abs(g-x)<Math.abs(best-x)?g:best, gapCenters[0])
-    : x;
-  const gapWidthAt=(x)=>{
-    if(!gapCenters.length) return 9999;
-    let bi=0; for(let i=1;i<gapCenters.length;i++)
-      if(Math.abs(gapCenters[i]-x)<Math.abs(gapCenters[bi]-x)) bi=i;
-    return gapW[bi];
-  };
-  /** 선 위 라벨은 틈 안에 들어가야 한다 — 넘치면 노드 위에 글자가 얹힌다.
-   *  전체 내용은 아래 '연결 목록' 표에서 읽는다(같은 줄이 함께 강조된다). */
-  const fit=(text,limit)=>{
-    const w=(ch)=>ch.charCodeAt(0)>0x2000?10.2:5.8;   // 한글/기호 vs ASCII
-    let acc=0,out='';
-    for(const ch of text){
-      if(acc+w(ch)>limit-12){ return out+'…'; }
-      out+=ch; acc+=w(ch);
-    }
-    return out;
-  };
+  for(const e of vis){
+    const sn=$('n-'+cid(e.src)), tn=$('n-'+cid(e.dst));
+    if(!sn||!tn) continue;
+    const S=rel(sn.getBoundingClientRect()), T=rel(tn.getBoundingClientRect());
+    const sg=groupOf(e.src), tg=groupOf(e.dst);
+    const A=G[sg], B=G[tg]; if(!A||!B) continue;
 
-  for(const e of REG.edges){
-    if(!shown(e.src)||!shown(e.dst)) continue;
-    const a=$('n-'+cid(e.src)), b=$('n-'+cid(e.dst));
-    if(!a||!b) continue;
-    const ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
-    const sl=cv.scrollLeft, st=cv.scrollTop;
-    const back=ra.left>rb.left;                       // 되돌아가는 선
-    const k=e.src+'>'+e.dst;
-    const sx=(back?ra.left:ra.right)-box.left+sl;
-    const sy=anchorY(ra, outIdx.get(k), outN.get(e.src))-box.top+st;
-    const ex=(back?rb.right:rb.left)-box.left+sl;
-    const ey=anchorY(rb, inIdx.get(k), inN.get(e.dst))-box.top+st;
-    const dx=Math.max(34,Math.abs(ex-sx)*0.45)*(back?-1:1);
-
-    // 이 선을 강조할지: 고정/호버한 모듈에 붙은 선이거나, 표에서 올린 선
-    const touches = fk && (e.src===fk||e.dst===fk);
-    const eh = hoverEdge===e.src+'>'+e.dst;
-    const on = touches||eh;
-    const hot = fired.has(e.src)&&fired.has(e.dst);
-    const off = (fk && !touches) || (!fk && feat && !(feat.has(e.src)&&feat.has(e.dst)));
+    const touches=fk&&(e.src===fk||e.dst===fk);
+    const on=touches||hoverEdge===e.src+'>'+e.dst;
+    const hot=fired.has(e.src)&&fired.has(e.dst);
+    const off=(fk&&!touches)||(!fk&&feat&&!(feat.has(e.src)&&feat.has(e.dst)));
     const cls=['ln',e.status,on?'on':'',hot&&!on?'hot':'',off?'faded':''].filter(Boolean).join(' ');
-    const mk = on?'ao':(hot?'ah':'a');
-    out.push(`<path class="${cls}" marker-end="url(#${mk})"
-      d="M${sx},${sy} C${sx+dx},${sy} ${ex-dx},${ey} ${ex},${ey}"></path>`);
+    const marker=on?'ao':(hot?'ah':'a');
 
-    // 라벨은 강조된 선에만 — 겹칠 일이 없다
-    if(on){
-      const lx=snapX((sx+ex)/2);
-      // 곡선 위의 그 x 지점 높이에 맞춰 얹는다(3차 베지어 근사).
-      const tt=Math.max(0,Math.min(1,(lx-sx)/((ex-sx)||1)));
-      const ly=(1-tt)**3*sy + 3*(1-tt)**2*tt*sy + 3*(1-tt)*tt**2*ey + tt**3*ey;
-      labels.push({x:lx, y:ly-7, t:fit(e.payload, gapWidthAt(lx))});
+    let pts, lab;
+    if(sg===tg){
+      // 같은 묶음 — 박스 안에서만 잇는다
+      const k=bump(useSelf,sg), y=A.b-10-k*7;
+      pts=[[S.cx,S.b],[S.cx,y],[T.cx,y],[T.cx,T.b]];
+      lab={x:(S.cx+T.cx)/2, y:y-5};
+    } else {
+      const [sr,sc]=POS[sg]||[3,1], [tr,tc]=POS[tg]||[3,1];
+      if(sr!==tr){
+        const gx=gut[Math.min(sc,tc)] ?? (A.r+B.l)/2;
+        const x=gx+bump(useV,'v'+Math.min(sc,tc))*9;
+        pts=[[A.r,S.cy],[x,S.cy],[x,T.cy],[B.l,T.cy]];
+        lab={x, y:(S.cy+T.cy)/2-6};
+      } else if(tc===sc+1){
+        const x=(gut[sc] ?? (A.r+B.l)/2) + (bump(usePair,sg+'>'+tg)-0.5)*11;
+        pts=[[A.r,S.cy],[x,S.cy],[x,T.cy],[B.l,T.cy]];
+        lab={x, y:(S.cy+T.cy)/2-6};
+      } else if(tc>sc){
+        const y=TOP-bump(useTop,'t')*12;          // 건너뛴다 → 위 레인
+        pts=[[A.cx,A.t],[A.cx,y],[B.cx,y],[B.cx,B.t]];
+        lab={x:(A.cx+B.cx)/2, y:y-5};
+      } else {
+        const y=BOT+bump(useBot,'b')*12;          // 되돌아간다 → 아래 레인
+        pts=[[A.cx,A.b],[A.cx,y],[B.cx,y],[B.cx,B.b]];
+        lab={x:(A.cx+B.cx)/2, y:y+13};
+      }
     }
+    out.push(`<path class="${cls}" marker-end="url(#${marker})" d="${path(pts)}"></path>`);
+    if(on) labels.push({...lab, t:e.payload});
   }
-  // 같은 틈에 여러 개가 몰리면 세로로 벌려 겹치지 않게 한다.
-  const byX=new Map();
-  for(const l of labels){
-    const k=Math.round(l.x);
-    const arr=byX.get(k)||[]; arr.push(l); byX.set(k,arr);
-  }
-  for(const arr of byX.values()){
-    arr.sort((a,b)=>a.y-b.y);
-    for(let i=0;i<arr.length;i++){
-      if(i>0 && arr[i].y-arr[i-1].y<15) arr[i].y=arr[i-1].y+15;
-      out.push(`<text class="lnlab" x="${arr[i].x}" y="${arr[i].y}"
-        text-anchor="middle">${esc(arr[i].t)}</text>`);
-    }
-  }
+  for(const l of labels)
+    out.push(`<text class="lnlab" x="${l.x}" y="${l.y}" text-anchor="middle">${esc(l.t)}</text>`);
   svg.innerHTML=out.join('');
 }
 
-/* ── 연결 목록 표 ─────────────────────────────────────────── */
+/** 꺾인 점들을 모서리만 둥글게 이어 준다 */
+function path(pts,r=9){
+  let d=`M${pts[0][0]},${pts[0][1]}`;
+  for(let i=1;i<pts.length-1;i++){
+    const [px,py]=pts[i-1],[cx,cy]=pts[i],[nx,ny]=pts[i+1];
+    const d1=Math.hypot(cx-px,cy-py)||1, d2=Math.hypot(nx-cx,ny-cy)||1;
+    const rr=Math.min(r,d1/2,d2/2);
+    d+=` L${cx+(px-cx)/d1*rr},${cy+(py-cy)/d1*rr}`
+     + ` Q${cx},${cy} ${cx+(nx-cx)/d2*rr},${cy+(ny-cy)/d2*rr}`;
+  }
+  const e=pts[pts.length-1];
+  return d+` L${e[0]},${e[1]}`;
+}
+
+/* ── 연결 목록 ───────────────────────────────────────────── */
 const STATUS_KO={fixed:'확정', undefined:'미정', mismatch:'불일치'};
 function drawEdgeTable(){
   const feat=featSet(), fk=focusMod();
@@ -385,9 +367,8 @@ function drawEdgeTable(){
   const bad=rows.filter(e=>e.status!=='fixed').length;
   $('edgecount').textContent=`— ${rows.length}개 중 확정 ${rows.length-bad} · 확인 필요 ${bad}`;
   $('edgerows').innerHTML=rows.map(e=>{
-    const off=(fk && e.src!==fk && e.dst!==fk)
-           || (!fk && feat && !(feat.has(e.src)&&feat.has(e.dst)));
-    const lit=fk && (e.src===fk||e.dst===fk);
+    const off=(fk&&e.src!==fk&&e.dst!==fk)||(!fk&&feat&&!(feat.has(e.src)&&feat.has(e.dst)));
+    const lit=fk&&(e.src===fk||e.dst===fk);
     return `<tr class="row ${off?'faded':''} ${lit?'lit':''}"
       onmouseenter="hoverEdge='${e.src}>${e.dst}';scheduleWires()"
       onmouseleave="hoverEdge=null;scheduleWires()"
@@ -410,19 +391,15 @@ function pickFeature(k){
   document.querySelectorAll('.feat').forEach(b=>b.classList.toggle('sel',b.dataset.k===selFeature));
   const f=REG.features.find(x=>x.key===selFeature);
   $('maptitle').textContent=f?`전체 흐름 — ${f.label}`:'전체 흐름';
-  // 기능이 음독을 쓰면 자동으로 펼친다
-  if(f && f.modules.some(m=>ORAL.has(m))) { hideOral=false; syncOralBtn(); }
+  if(f&&f.modules.some(m=>ORAL.has(m))){ hideOral=false; syncOral(); }
   render();
 }
 function reset(){ selFeature=null; pinMod=null; hoverMod=null; selTrace=null;
   document.querySelectorAll('.feat').forEach(b=>b.classList.remove('sel'));
   $('maptitle').textContent='전체 흐름'; render(); drawTraces(); drawEvents(); }
-function toggleOral(){ hideOral=!hideOral; syncOralBtn(); render(); }
-function syncOralBtn(){
-  const b=$('btnOral');
-  b.textContent=hideOral?'음독 숨김':'음독 표시';
-  b.classList.toggle('on',!hideOral);
-}
+function toggleOral(){ hideOral=!hideOral; syncOral(); render(); }
+function syncOral(){ const b=$('btnOral');
+  b.textContent=hideOral?'음독 숨김':'음독 표시'; b.classList.toggle('on',!hideOral); }
 
 /* ── 실행 기록 ────────────────────────────────────────────── */
 function drawTraces(){
@@ -438,9 +415,7 @@ function drawEvents(){
   $('tmeta').textContent=` · ${t.label} (${t.ms}ms, 모듈 ${t.modules.length}개`
     +(t.session_id?`, 세션 ${t.session_id}`:'')+')';
   if(!t.events.length){
-    $('events').innerHTML='<div class="empty">이 요청은 서비스 모듈을 거치지 않았습니다.</div>';
-    return;
-  }
+    $('events').innerHTML='<div class="empty">이 요청은 서비스 모듈을 거치지 않았습니다.</div>'; return; }
   $('events').innerHTML=t.events.map(e=>{
     const ins=Object.entries(e.args).map(([k,v])=>
       `<div class="io"><b>IN</b> ${esc(k)} = ${esc(v)}</div>`).join('');
