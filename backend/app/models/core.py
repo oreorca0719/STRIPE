@@ -15,6 +15,7 @@ from app.contracts.measurement import AwayEvents
 from app.contracts.privacy import ConsentSnapshot, DeletedCounts
 from app.contracts.review import Checklist
 from app.contracts.content import Choices, ReadabilityMetrics
+from app.contracts.oral import OralReadingAnalysis
 from app.contracts.survey import (
     BookImages, GenrePreferences, LifeReadingGraph, NonReadingReasons, TopicCodes,
 )
@@ -315,12 +316,12 @@ class FluencyResult(Base):
     a4_syllable_per_sec = Column(Float, nullable=True)   # 묵독 자동성 (음절/초, §1-13)
     # 묵독 중 화면 이탈 원본. 집계는 attention.summarize 로 계산한다(원칙 4).
     away_events = Column(ContractJSONB(AwayEvents), nullable=True)
-    # ── 음독 전용 — 음독 경로에서 정리한다 ──
-    total_syllables = Column(Integer, nullable=True)
-    error_count = Column(Integer, nullable=True)
-    automaticity_score = Column(Float, nullable=True)
-    accuracy_score = Column(Float, nullable=True)
-    raw_data = Column(JSONB, nullable=True)
+    # ── 음독 전용 ──
+    # 감독자가 센 오류 수(B안)가 원본이고, 자동 채점은 그 옆의 계산값이다(원칙 4).
+    # 예전에는 A1·A2 가 automaticity_score·accuracy_score 칸과 raw_data 안에 두 번
+    # 들어갔고(원칙 5), 지문 음절 수도 texts 와 여기 두 곳에 있었다.
+    supervisor_error_count = Column(Integer, nullable=True)
+    oral_analysis = Column(ContractJSONB(OralReadingAnalysis), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # 회차·측정 종류당 하나. 재전송으로 두 줄이 생기면 A4 중앙값이 틀어진다.
     __table_args__ = (UniqueConstraint('round_id', 'type', name='uq_fluency_round_type'),)

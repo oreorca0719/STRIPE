@@ -1,6 +1,7 @@
 import httpx
 import uuid
-from app.services.stt.adapter import STTAdapter, STTResult
+from app.contracts.oral import SttTranscript
+from app.services.stt.adapter import STTAdapter
 from app.core.config import settings
 
 
@@ -19,11 +20,10 @@ class ClovaSTTAdapter(STTAdapter):
             "Content-Type": "application/octet-stream",
         }
 
-    async def transcribe(self, audio_bytes: bytes, sample_rate: int = 16000) -> STTResult:
+    async def transcribe(self, audio_bytes: bytes, sample_rate: int = 16000) -> SttTranscript:
         if not self.api_key:
-            return STTResult(
+            return SttTranscript(
                 transcript="",
-                confidence=0.0,
                 error="CLOVA_API_KEY가 설정되지 않았습니다. MockSTTAdapter를 사용하세요."
             )
 
@@ -43,16 +43,16 @@ class ClovaSTTAdapter(STTAdapter):
                 response.raise_for_status()
                 data = response.json()
 
-                return STTResult(
-                    transcript=data.get("text", ""),
-                    confidence=data.get("confidence", 0.0),
-                    words=data.get("words", []),
-                    duration_seconds=data.get("duration", 0.0) / 1000,
-                )
+                # 짧은 음성 인식(CSR)은 전사 문장(text)만 준다. 예전에는 없는
+                # confidence·duration 을 0.0 으로 채웠다 — '신뢰도 0'과 '모름'이 섞였다.
+                text = data.get("text")
+                if not isinstance(text, str):
+                    return SttTranscript(transcript="", error="Clova 응답에 text 가 없습니다.")
+                return SttTranscript(transcript=text)
         except httpx.HTTPStatusError as e:
-            return STTResult(transcript="", confidence=0.0, error=f"Clova API 오류: {e.response.status_code}")
+            return SttTranscript(transcript="", error=f"Clova API 오류: {e.response.status_code}")
         except Exception as e:
-            return STTResult(transcript="", confidence=0.0, error=str(e))
+            return SttTranscript(transcript="", error=str(e))
 
     async def health_check(self) -> bool:
         return bool(self.api_key)

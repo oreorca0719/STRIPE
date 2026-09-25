@@ -114,10 +114,10 @@ def test_채점_불가는_0_이_아니라_null():
         assert r.a2_target_syllable_accuracy is None
 
 
-def test_시간이_0이면_A1_을_내지_않는다():
-    r = analyze("학교에갔다", "학교에갔다", 0)
-    assert r.a1_correct_syllables_per_minute is None
-    assert r.a2_target_syllable_accuracy == 1.0        # A2 는 시간과 무관
+def test_시간이_0이면_채점하지_않는다():
+    """0 초 녹음은 없다. 예전에는 A1 만 비우고 채점을 이어갔다 — 형식이 막는다."""
+    with pytest.raises(ValueError):
+        analyze("학교에갔다", "학교에갔다", 0)
 
 
 # ── quality_gate: 채점 가능성만 판정 ──────────────────────────────────────
@@ -142,7 +142,8 @@ def test_위치_배열만_주고_유형을_단정하지_않는다():
     """계약: alignment_deviations 는 계산 가능성만 제공.
     자동 7유형·반복·자기교정 분류는 미지원(신설 금지)."""
     r = analyze("가나다라마", "가너다라", MIN)
-    assert set(r.alignment_deviations) == {"S", "D", "I"}
+    d = r.alignment_deviations
+    assert (d.substitution_positions, d.deletion_positions, d.insertion_positions) == ([1], [], [])   # 60초 회차라 뒤는 생략이 아니다
     assert not hasattr(r, "repetitions")
     assert not hasattr(r, "self_corrections")
 

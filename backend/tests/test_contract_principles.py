@@ -133,9 +133,6 @@ def test_원칙_검사가_어긴_형식을_실제로_잡는다():
 # 아직 정리하지 않은 곳. 정리하면 지운다. 목록에 있는데 코드에서 사라져도 실패한다
 # (목록이 낡지 않도록).
 ALLOWED_UNTYPED = {
-    "stt/adapter.py::STTResult.words": "음독 경로에서 정리 예정",
-    "stt/analyzer.py::OralReadingAnalysis.alignment_deviations": "음독 경로에서 정리 예정",
-    "stt/vad.py::to_dict": "음독 경로에서 정리 예정",
 }
 
 # 칸 타입이 드러나지 않는 것만 잡는다: 맨 dict·Dict, Any. Dict[str, str] 처럼 키·값

@@ -45,8 +45,12 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import List, Optional
+
+from app.contracts.oral import (
+    AlignmentDeviations, AlignmentMode, OralReadingAnalysis, OralScoreStatus,
+    OralUnscorableReason, QualityGate,
+)
 
 # 채점 규칙 판본. 산식·게이트가 바뀌면 올린다 — 과거 레코드가 어느 규칙으로
 # 계산됐는지 남아야 파일럿 데이터를 나중에 재해석할 수 있다(계약: lineage).
@@ -55,8 +59,8 @@ SCORING_RULE_VERSION = "oral-2026.09.24"
 # 읽기는 60초에 끊긴다. 그때는 지문을 끝까지 읽지 못한 것이므로 전사를
 # 지문 전체가 아니라 접두부에 맞춘다(계약 ⑤, 변경 금지).
 ORAL_TIMEOUT_MS = 60000
-MODE_GLOBAL = "global"
-MODE_PREFIX = "prefix_global"
+MODE_GLOBAL = AlignmentMode.global_
+MODE_PREFIX = AlignmentMode.prefix_global
 
 # 전사 길이가 원문 대비 이 범위를 벗어나면 판정에 쓰지 않는다.
 # 묵독 A4 타당성 게이트(STR-62)와 같은 취지 — 미독·중단·오인식을 걸러낸다.
@@ -81,53 +85,7 @@ def eojeols(text: str) -> List[str]:
                                 for ch in text)).split() if w]
 
 
-@dataclass
-class OralReadingAnalysis:
-    """계약 필드명을 그대로 쓴다 — 스키마·리포트와 이름이 갈리면 대조가 어렵다."""
-
-    # 채점 성립 여부. unscorable 이면 A1/A2 는 None 이다(0 아님).
-    score_status: str                       # scored | unscorable
-    score_unavailable_reason: Optional[str] = None
-
-    # 산출값 — 계약 산식
-    a1_correct_syllables_per_minute: Optional[float] = None   # M ÷ (ms/60000)
-    a2_target_syllable_accuracy: Optional[float] = None       # M ÷ (M+S+D)
-
-    # 정렬 카운트. attempted = M+S+D = 학생이 읽어내야 했던 원문 구간
-    scored_m: Optional[int] = None
-    scored_s: Optional[int] = None
-    scored_d: Optional[int] = None
-    scored_i: Optional[int] = None
-    oral_syllable_count: Optional[int] = None    # attempted. 정렬 전이면 None
-
-    # 위치 배열 — 계산 가능성만 제공. 오독 유형 자동 단정 금지.
-    alignment_deviations: dict = field(default_factory=dict)
-
-    # 묵독 이어읽기 시작점. 정렬이 소비한 접두부 끝.
-    continuation_source_offset: Optional[int] = None
-
-    # global | prefix_global. 60초에 걸린 회차만 prefix_global 이다.
-    alignment_mode: Optional[str] = None
-
-    scored_time_ms: Optional[int] = None     # recording_start~end (버튼 기준)
-    text_syllable_count: int = 0
-
-    # 품질 게이트 — "이 STT 결과를 채점에 쓸 수 있는가"만 판정한다.
-    # 학생이 잘 읽었는가와는 다른 축이다.
-    quality_gate: str = "usable"             # usable | retry | unusable
-    transcript_length_ratio: float = 0.0
-
-    # 감독자가 직접 센 오류 수(B안). 자동 산출값과 나란히 보존해 대조한다.
-    supervisor_error_count: Optional[int] = None
-
-    notes: List[str] = field(default_factory=list)
-
-    @property
-    def usable(self) -> bool:
-        return self.score_status == "scored"
-
-
-def _quality(ratio: float, mode: str = MODE_GLOBAL) -> str:
+def _quality(ratio: float, mode: AlignmentMode = MODE_GLOBAL) -> QualityGate:
     """전사를 채점에 쓸 수 있는지만 본다.
 
     ★ 임계값은 잠정이다. 계약이 quality_gate 의 구체 임계값·신호를 기술
@@ -142,13 +100,13 @@ def _quality(ratio: float, mode: str = MODE_GLOBAL) -> str:
     """
     lower_applies = mode != MODE_PREFIX
     if ratio > LENGTH_RATIO_FAIL_HIGH or (lower_applies and ratio < LENGTH_RATIO_FAIL_LOW):
-        return "unusable"
+        return QualityGate.unusable
     if ratio > LENGTH_RATIO_LOW_HIGH or (lower_applies and ratio < LENGTH_RATIO_LOW_LOW):
-        return "retry"
-    return "usable"
+        return QualityGate.retry
+    return QualityGate.usable
 
 
-def _align(ref: List[str], hyp: List[str], mode: str = MODE_GLOBAL) -> dict:
+def _align(ref: List[str], hyp: List[str], mode: AlignmentMode = MODE_GLOBAL) -> dict:
     """음절 편집거리 정렬 → M/S/D/I 카운트와 위치, 소비한 접두부 끝.
 
     계약의 editDistanceAlign 이다. 대치·생략·첨가에 같은 비용 1 을 주고
@@ -201,7 +159,9 @@ def _align(ref: List[str], hyp: List[str], mode: str = MODE_GLOBAL) -> dict:
     pos_s.reverse(); pos_d.reverse(); pos_i.reverse()
 
     return {"m": m, "s": sub, "d": dele, "i": ins, "end": end,
-            "deviations": {"S": pos_s, "D": pos_d, "I": pos_i}}
+            "deviations": AlignmentDeviations(substitution_positions=pos_s,
+                                              deletion_positions=pos_d,
+                                              insertion_positions=pos_i)}
 
 
 def analyze_oral_reading(
@@ -218,7 +178,11 @@ def analyze_oral_reading(
 
     supervisor_error_count 는 감독자가 직접 센 오류 수(B안)다. 자동 산출을
     덮어쓰지 않고 나란히 보존한다. 그 대조가 A안 타당성의 근거가 된다.
+
+    scored_time_ms 는 1 이상이어야 한다 — 형식이 막는다(0 초 녹음은 없다).
     """
+    if scored_time_ms < 1:
+        raise ValueError("scored_time_ms 는 1 이상이어야 한다 — 0 초 녹음은 없다")
     ref = syllables(original_text)
     hyp = syllables(transcript)
     total = len(ref)
@@ -230,14 +194,15 @@ def analyze_oral_reading(
     ratio = (len(hyp) / total) if total else 0.0
     gate = _quality(ratio, mode)
 
-    def _unscorable(reason: str) -> OralReadingAnalysis:
+    def _unscorable(reason: OralUnscorableReason) -> OralReadingAnalysis:
         """채점 불가. A1/A2 는 None 이다 — 0 이나 clamp 로 바꾸지 않는다.
 
         정렬 전에 빠져나가므로 scored_M/S/D 는 미정의이고, 따라서
         oral_syllable_count 도 None 이다(계약 F1 가드).
         """
         return OralReadingAnalysis(
-            score_status="unscorable",
+            scoring_rule_version=SCORING_RULE_VERSION,
+            score_status=OralScoreStatus.unscorable,
             score_unavailable_reason=reason,
             text_syllable_count=total,
             scored_time_ms=scored_time_ms,
@@ -252,16 +217,16 @@ def analyze_oral_reading(
     #    "인식 품질이 나빴다"와 "아무것도 안 들어왔다"는 후속 처리가 다르다.
     if not hyp:
         notes.append("전사가 비어 있음")
-        return _unscorable("empty_transcript_unresolved")
+        return _unscorable(OralUnscorableReason.empty_transcript_unresolved)
 
     if total == 0:
         notes.append("지문에 한글 음절이 없음")
-        return _unscorable("empty_transcript_unresolved")
+        return _unscorable(OralUnscorableReason.empty_transcript_unresolved)
 
     # ③ 품질 게이트 — 채점에 쓸 수 있는가. 학생이 잘 읽었는가와 다른 축이다.
-    if gate == "unusable":
+    if gate == QualityGate.unusable:
         notes.append(f"전사 길이비 {ratio:.2f} — 채점 불가")
-        return _unscorable("stt_unusable")
+        return _unscorable(OralUnscorableReason.stt_unusable)
 
     # ⑤ 정렬
     al = _align(ref, hyp, mode)
@@ -272,26 +237,27 @@ def analyze_oral_reading(
     if not attempted:
         # 전사가 지문의 어느 구간도 설명하지 못했다. A2 의 분모가 없다.
         notes.append("전사가 지문의 어느 구간과도 정렬되지 않음")
-        return _unscorable("stt_unusable")
+        return _unscorable(OralUnscorableReason.stt_unusable)
 
     # 불변식 — 위반은 버그다. 정렬이 깨진 채 점수가 나가는 것을 막는다.
     assert attempted == al["end"], "정렬 소비 접두부가 채점 음절 수와 다르다"
     assert m + sub + ins == len(hyp), "전사 음절 수가 정렬과 맞지 않다"
 
-    a1 = m / (scored_time_ms / 60000) if scored_time_ms > 0 else None
+    a1 = m / (scored_time_ms / 60000)
     a2 = m / attempted
 
     if mode == MODE_PREFIX:
         notes.append(f"60초 종료 — 접두부 {al['end']}/{total} 음절까지 정렬")
-    if gate == "retry":
+    if gate == QualityGate.retry:
         notes.append(f"전사 길이비 {ratio:.2f} — 신뢰도 낮음")
     if supervisor_error_count is not None:
         notes.append(f"감독자 입력 {supervisor_error_count} (자동 S+D+I {sub+dele+ins})")
 
     return OralReadingAnalysis(
-        score_status="scored",
-        a1_correct_syllables_per_minute=round(a1, 2) if a1 is not None else None,
-        a2_target_syllable_accuracy=round(a2, 4) if a2 is not None else None,
+        scoring_rule_version=SCORING_RULE_VERSION,
+        score_status=OralScoreStatus.scored,
+        a1_correct_syllables_per_minute=round(a1, 2),
+        a2_target_syllable_accuracy=round(a2, 4),
         scored_m=m, scored_s=sub, scored_d=dele, scored_i=ins,
         oral_syllable_count=attempted,
         alignment_deviations=al["deviations"],

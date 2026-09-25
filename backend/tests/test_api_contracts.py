@@ -11,9 +11,6 @@ from main import app
 
 # 아직 형식을 달지 않은 곳. 사유가 있어야 하고, 정리하면 지운다.
 ALLOWED_UNTYPED = {
-    ("POST", "/api/audio/oral"): "음독 경로에서 정한다",
-    ("POST", "/api/audio/timing"): "음독 경로에서 정한다",
-    ("GET", "/api/audio/health"): "음독 경로에서 정한다",
     ("GET", "/api/admin/pilot/export.csv"): "JSON 이 아니라 CSV 파일이다",
 }
 DOCS = {"/api/docs", "/api/redoc", "/api/openapi.json", "/api/docs/oauth2-redirect"}

@@ -66,16 +66,16 @@ def test_실발화_시간은_휴지를_뺀다():
 def test_휴지를_구간_사이에서_잡는다():
     r = _result((1.0, 3.0), (4.5, 6.0), (8.0, 9.0))
     assert r.pauses == [(3.0, 4.5), (6.0, 8.0)]
-    d = r.to_dict()
-    assert d["pause_count"] == 2
-    assert d["pause_total"] == pytest.approx(3.5, abs=0.001)
-    assert d["longest_pause"] == pytest.approx(2.0, abs=0.001)
+    t = r.timing()
+    assert t.pause_count == 2
+    assert t.pause_total_ms == 3500
+    assert t.longest_pause_ms == 2000
 
 
 def test_구간이_하나면_휴지가_없다():
     r = _result((1.0, 8.0))
     assert r.pauses == []
-    assert r.to_dict()["longest_pause"] == 0.0
+    assert r.timing().longest_pause_ms == 0
 
 
 def test_앞뒤_무음이_소요시간에서_빠진다():
@@ -87,14 +87,19 @@ def test_앞뒤_무음이_소요시간에서_빠진다():
     assert r.speech_span / r.audio_duration == pytest.approx(0.6, abs=0.001)
 
 
-def test_출력_형식이_고정돼_있다():
-    """화면·저장이 이 키를 참조한다."""
-    d = _result((1.0, 4.0), (5.0, 7.0)).to_dict()
-    assert set(d) == {
-        "speech_start", "speech_end", "speech_span", "voiced_duration",
-        "audio_duration", "segment_count", "pause_count", "pause_total",
-        "longest_pause",
-    }
+def test_밖으로는_ms_단위_형식으로_낸다():
+    """내부는 초, 밖으로는 ms — 묵독·음독 읽기 시간과 같은 단위(원칙 1)."""
+    t = _result((1.0, 4.0), (5.0, 7.0)).timing()
+    assert t.vad_status.value == "detected"
+    assert (t.speech_start_ms, t.speech_end_ms, t.speech_span_ms, t.voiced_ms) == (1000, 7000, 6000, 5000)
+
+
+def test_발화가_없으면_시간은_null_이다():
+    """0 초가 아니다 — 잴 것이 없었다."""
+    t = _result(total=3.0).timing()
+    assert t.vad_status.value == "no_speech"
+    assert t.speech_span_ms is None and t.pause_count is None
+    assert t.audio_duration_ms == 3000
 
 
 # ── 실제 모델 (있을 때만) ────────────────────────────────────────────────

@@ -69,6 +69,19 @@ export interface AdminUserCreate {
   must_change_password?: boolean;
 }
 
+/** 정렬에서 어긋난 원문 위치. 계산 가능성만 제공한다 — 오독 유형을 단정하지 않는다. */
+export interface AlignmentDeviations {
+  /** 대치(S) */
+  substitution_positions: number[];
+  /** 생략(D) */
+  deletion_positions: number[];
+  /** 첨가(I) — 이 원문 위치 앞에 끼어들었다 */
+  insertion_positions: number[];
+}
+
+/** 60초에 걸린 회차만 접두부 정렬이다(계약 ⑤, 변경 금지). */
+export type AlignmentMode = "global" | "prefix_global"
+
 /** 문항 하나에 고른 답. 선지 수 이내인지·그 회차 지문의 문항인지는 서버가 DB 로 확인한다. */
 export interface AnswerSubmit {
   /** diagnosis_rounds.id */
@@ -150,8 +163,8 @@ export interface Body_transcribe_oral_reading_api_audio_oral_post {
   audio: string;
   /** 원본 지문 텍스트 */
   original_text: string;
-  /** 실제 낭독 소요 시간(초) */
-  reading_time_seconds: number;
+  /** 녹음 시작~끝(ms) — 묵독·음독 저장과 같은 단위 */
+  reading_time_ms: number;
 }
 
 /** 무엇을 근거로 골랐나 — 가장 최근 판정. */
@@ -561,7 +574,6 @@ export interface DiagnosisResultResponse {
   rounds: RoundResponse[];
   fluency_results: FluencyResultResponse[];
   question_responses: QuestionResponseResult[];
-  total_fluency_score: number | null;
 }
 
 export type Difficulty = "easy" | "normal" | "hard"
@@ -715,10 +727,8 @@ export interface FluencyResultResponse {
   type: FluencyType;
   reading_time_ms: number;
   a4_syllable_per_sec: number | null;
-  automaticity_score: number | null;
-  accuracy_score: number | null;
-  total_syllables: number | null;
-  error_count: number | null;
+  supervisor_error_count: number | null;
+  oral_analysis: OralReadingAnalysis | null;
   created_at: string;
 }
 
@@ -987,20 +997,72 @@ export interface Option {
 }
 
 /**
- * 음독 유창성 제출 (B안 — 타이머 자동 + 오류 수 감독자 입력).
+ * 음독 한 회차 (B안 — 시간 자동 + 오류 수 감독자 입력).
  *
- * total_syllables 를 받지 않는다. 지문의 음절 수는 서버가 알고 있고,
- * 클라이언트가 보낸 값을 그대로 믿으면 분모를 조작해 정확도를 올릴 수 있다.
- * round_id 로 지문을 찾아 서버가 센다.
+ * 지문 음절 수는 받지 않는다 — 서버가 원문에서 센다. 보낸 값을 믿으면 분모를
+ * 조작해 정확도를 올릴 수 있다.
  */
 export interface OralFluencySubmit {
   session_id: number;
+  /** 어느 지문을 읽었는지 */
   round_id: number;
-  reading_time_seconds: number;
-  error_count: number;
+  /** 녹음 시작~끝, 묵독과 같은 단위 */
+  reading_time_ms: number;
+  /** 감독자가 센 총 오류 수. B안의 정본 */
+  supervisor_error_count: number;
   transcript?: string | null;
-  raw_data?: Record<string, unknown> | null;
 }
+
+/**
+ * 음독 채점 한 건 (계약 패키지 #1 L3).
+ *
+ * A1 = scored_m ÷ (scored_time_ms / 60000)       음절/분
+ * A2 = scored_m ÷ (scored_m + scored_s + scored_d)  첨가 제외
+ */
+export interface OralReadingAnalysis {
+  scoring_rule_version: string;
+  score_status: OralScoreStatus;
+  score_unavailable_reason: OralUnscorableReason | null;
+  a1_correct_syllables_per_minute: number | null;
+  a2_target_syllable_accuracy: number | null;
+  /** 일치 */
+  scored_m: number | null;
+  /** 대치 */
+  scored_s: number | null;
+  /** 생략 */
+  scored_d: number | null;
+  /** 첨가 */
+  scored_i: number | null;
+  /** 시도한 원문 음절 = M+S+D. 정렬 전이면 null */
+  oral_syllable_count: number | null;
+  alignment_deviations: AlignmentDeviations | null;
+  /** 정렬이 소비한 접두부 끝 — 묵독 이어읽기 시작점 */
+  continuation_source_offset: number | null;
+  alignment_mode: AlignmentMode | null;
+  /** 녹음 시작~끝(버튼·타임아웃 기준). VAD 로 대체하지 않는다 */
+  scored_time_ms: number;
+  text_syllable_count: number;
+  quality_gate: QualityGate;
+  /** 전사 음절 / 원문 음절. 1 을 넘을 수 있다(첨가·오인식) */
+  transcript_length_ratio: number;
+  /** 감독자가 직접 센 오류 수(B안) */
+  supervisor_error_count: number | null;
+  notes: string[];
+}
+
+/** 채점이 성립했는가. 사람이 센 회차의 자리는 기획 확인 대기(확정필요 1-4). */
+export type OralScoreStatus = "scored" | "unscorable"
+
+/** 전사와 대조 결과. 참고용이다 — 판정에 넣으려면 /fluency/oral 로 저장한다. */
+export interface OralTranscription {
+  stt_adapter: SttAdapterName;
+  transcript: string;
+  confidence_ratio: number | null;
+  audio_duration_ms: number | null;
+  analysis: OralReadingAnalysis;
+}
+
+export type OralUnscorableReason = "empty_transcript_unresolved" | "stt_unusable"
 
 export interface OutlierItem {
   fluency_id: number;
@@ -1162,6 +1224,9 @@ export interface ProfileResponse {
   type_1: ReaderType1 | null;
   interest_topics: TopicCode[] | null;
 }
+
+/** 전사를 채점에 쓸 수 있는가 — 학생이 잘 읽었는가와 다른 축이다. */
+export type QualityGate = "usable" | "retry" | "unusable"
 
 /** 관리자용 문항 — 정답·근거·해설 포함. */
 export interface QuestionDetail {
@@ -1545,6 +1610,22 @@ export interface SilentReadingSubmit {
   away_events: AwayEvent[];
 }
 
+/** 발화 구간 요약. detected 가 아니면 시간 칸은 전부 null 이다. */
+export interface SpeechTiming {
+  vad_status: VadStatus;
+  speech_start_ms: number | null;
+  speech_end_ms: number | null;
+  /** 첫 발화 시작~마지막 발화 끝. 도메인 절차의 소요시간 */
+  speech_span_ms: number | null;
+  /** 실제 소리 낸 시간의 합 — 휴지 제외 */
+  voiced_ms: number | null;
+  audio_duration_ms: number | null;
+  segment_count: number | null;
+  pause_count: number | null;
+  pause_total_ms: number | null;
+  longest_pause_ms: number | null;
+}
+
 export interface Stats {
   /** Label5 정의 순서, 5칸 전부 */
   label_distribution: LabelCount[];
@@ -1563,6 +1644,14 @@ export interface StatusCount {
 export interface StatusLabel {
   code: ReviewStatus;
   label: string;
+}
+
+export type SttAdapterName = "mock" | "clova"
+
+/** STT 연결 상태 — 관리자 시스템 점검용. */
+export interface SttHealth {
+  stt_available: boolean;
+  adapter: SttAdapterName;
 }
 
 export interface StudentBrief {
@@ -1724,6 +1813,8 @@ export interface UserResponse {
 
 export type UserRole = "student" | "parent" | "teacher" | "admin"
 
+export type VadStatus = "unavailable" | "no_speech" | "detected"
+
 export interface ValidationError {
   loc: (string | number)[];
   msg: string;
@@ -1786,6 +1877,9 @@ export interface ApiResponses {
   "GET /api/admin/texts/{text_id}": TextDetail;
   "GET /api/admin/users": UserResponse[];
   "GET /api/admin/users/count": UserCounts;
+  "GET /api/audio/health": SttHealth;
+  "POST /api/audio/oral": OralTranscription;
+  "POST /api/audio/timing": SpeechTiming;
   "POST /api/auth/admin/users": IssuedCredential;
   "POST /api/auth/admin/users/bulk": BulkIssued;
   "PATCH /api/auth/admin/users/{user_id}/active": UserResponse;

@@ -20,7 +20,7 @@ from app.core.config import settings
 from app.schemas.diagnosis import (
     SessionCreate, SessionResponse,
     RoundCreate, RoundResponse,
-    OralFluencySubmit, FluencyResultResponse,
+    FluencyResultResponse,
     QuestionResponseResult,
     RoundCompleteResponse,
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
@@ -33,6 +33,7 @@ from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
 from app.services.stt import analyzer as oral_analyzer
+from app.contracts.oral import OralFluencySubmit
 from app.contracts.survey import SurveyQuestions
 from app.services.survey import definition as D
 from app.services.survey import reader_type as RT
@@ -592,50 +593,23 @@ async def submit_oral_fluency(
         raise HTTPException(status_code=409, detail="이 회차의 음독 결과는 이미 저장되었습니다.")
 
     # 계약(패키지 #1 L3)의 scored_time_ms 는 recording_start~end 다.
-    # 이 엔드포인트는 초 단위를 받으므로 ms 로 환산해 넘긴다.
+    # 전사는 채점에만 쓰고 저장하지 않는다(아동 발화의 원문).
     a = oral_analyzer.analyze_oral_reading(
         original_text=text.content,
         transcript=data.transcript or "",
-        scored_time_ms=int(round(data.reading_time_seconds * 1000)),
-        supervisor_error_count=data.error_count,
+        scored_time_ms=data.reading_time_ms,
+        supervisor_error_count=data.supervisor_error_count,
     )
 
-    raw = dict(data.raw_data or {})
-    raw.update({
-        "input_mode": "supervisor",          # B안 경로임을 남긴다
-        "score_status": a.score_status,
-        "score_unavailable_reason": a.score_unavailable_reason,
-        "quality_gate": a.quality_gate,
-        "transcript_length_ratio": a.transcript_length_ratio,
-        "scored_time_ms": a.scored_time_ms,
-        "scoring_rule_version": oral_analyzer.SCORING_RULE_VERSION,
-    })
-    if a.score_status == "scored":
-        # 사람이 센 값과 자동 산출값의 대조 — A안 타당성의 근거가 된다.
-        # 계약 필드명을 그대로 쓴다(스키마 신설 시 그대로 옮겨진다).
-        raw["auto"] = {
-            "A1_correct_syllables_per_minute": a.a1_correct_syllables_per_minute,
-            "A2_target_syllable_accuracy": a.a2_target_syllable_accuracy,
-            "scored_M": a.scored_m, "scored_S": a.scored_s,
-            "scored_D": a.scored_d, "scored_I": a.scored_i,
-            "oral_syllable_count": a.oral_syllable_count,
-            "continuation_source_offset": a.continuation_source_offset,
-            "alignment_mode": a.alignment_mode,   # 60초에 걸렸으면 prefix_global
-            "alignment_deviations": a.alignment_deviations,
-        }
-
-    # 감독자가 센 오류 수가 정본이다(B안). 자동 산출은 raw 에 나란히 둔다.
-    # unscorable 이면 A1/A2 는 null 로 남긴다 — 0 으로 채우지 않는다.
+    # 감독자가 센 오류 수가 정본이다(B안). 자동 채점은 나란히 둔다 — 이 대조가
+    # A안 타당성의 근거가 된다. 채점 불가면 A1·A2 는 null 이다(0 아님).
     result = FluencyResult(
         session_id=data.session_id,
         round_id=round_.id,
         type=FluencyType.oral,
-        reading_time_ms=int(round(data.reading_time_seconds * 1000)),
-        total_syllables=a.text_syllable_count,
-        error_count=data.error_count,
-        automaticity_score=a.a1_correct_syllables_per_minute,
-        accuracy_score=a.a2_target_syllable_accuracy,
-        raw_data=raw,
+        reading_time_ms=data.reading_time_ms,
+        supervisor_error_count=data.supervisor_error_count,
+        oral_analysis=a,
     )
     db.add(result)
     await db.commit()
@@ -1076,13 +1050,9 @@ async def get_result(
         )
         responses = resp_q.scalars().all()
 
-    fluency_scores = [r.automaticity_score for r in fluency_results if r.automaticity_score is not None]
-    total_fluency = round(sum(fluency_scores) / len(fluency_scores), 2) if fluency_scores else None
-
     return DiagnosisResultResponse(
         session=session,
         rounds=rounds,
         fluency_results=fluency_results,
         question_responses=responses,
-        total_fluency_score=total_fluency,
     )

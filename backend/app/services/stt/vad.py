@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from app.contracts.oral import SpeechTiming, VadStatus
+
 SAMPLE_RATE = 16000
 WINDOW = 512          # silero v5 는 16kHz 에서 512 샘플 고정
 _CTX = 64
@@ -76,21 +78,33 @@ class VadResult:
         return [(self.segments[i].end, self.segments[i + 1].start)
                 for i in range(len(self.segments) - 1)]
 
-    def to_dict(self) -> dict:
+    def timing(self) -> SpeechTiming:
+        """밖으로 내보내는 요약. 초 단위 내부 값을 ms 로 바꾼다(묵독·음독 시간과 같은 단위).
+
+        발화가 없으면 no_speech 이고 시간 칸은 전부 null 이다 — 0 초가 아니다.
+        """
+        if not self.segments:
+            return SpeechTiming(vad_status=VadStatus.no_speech,
+                                audio_duration_ms=_ms(self.audio_duration))
         pauses = self.pauses
-        return {
-            "speech_start": self.speech_start,
-            "speech_end": self.speech_end,
-            "speech_span": self.speech_span,
-            "voiced_duration": self.voiced_duration,
-            "audio_duration": round(self.audio_duration, 3),
-            "segment_count": len(self.segments),
+        return SpeechTiming(
+            vad_status=VadStatus.detected,
+            speech_start_ms=_ms(self.speech_start),
+            speech_end_ms=_ms(self.speech_end),
+            speech_span_ms=_ms(self.speech_span),
+            voiced_ms=_ms(self.voiced_duration),
+            audio_duration_ms=_ms(self.audio_duration),
+            segment_count=len(self.segments),
             # 휴지는 그 자체로 진단적이다 — 문장 부호에서 쉬는 것과 낱말
             # 중간에서 막히는 것은 다른 읽기다.
-            "pause_count": len(pauses),
-            "pause_total": round(sum(e - s for s, e in pauses), 3),
-            "longest_pause": round(max((e - s for s, e in pauses), default=0.0), 3),
-        }
+            pause_count=len(pauses),
+            pause_total_ms=_ms(sum(e - s for s, e in pauses)),
+            longest_pause_ms=_ms(max((e - s for s, e in pauses), default=0.0)),
+        )
+
+
+def _ms(seconds: float) -> int:
+    return int(round(seconds * 1000))
 
 
 def available() -> bool:

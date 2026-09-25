@@ -16,9 +16,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.models.user import User
+from app.contracts.oral import (
+    OralTranscription, SpeechTiming, SttAdapterName, SttHealth, VadStatus,
+)
 from app.services.stt import ClovaSTTAdapter, MockSTTAdapter
 from app.services.stt import vad as vad_svc
-from app.services.stt.analyzer import analyze_oral_reading, SCORING_RULE_VERSION
+from app.services.stt.analyzer import analyze_oral_reading
 
 # 라우터 전체에 인증을 건다. 개별 엔드포인트에서 빠뜨릴 여지를 없앤다.
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -34,15 +37,15 @@ def get_stt_adapter():
     return MockSTTAdapter()
 
 
-def adapter_name() -> str:
-    return "clova" if settings.CLOVA_API_KEY else "mock"
+def adapter_name() -> SttAdapterName:
+    return SttAdapterName.clova if settings.CLOVA_API_KEY else SttAdapterName.mock
 
 
-@router.post("/oral")
+@router.post("/oral", response_model=OralTranscription)
 async def transcribe_oral_reading(
     audio: UploadFile = File(..., description="음성 파일 (WAV, PCM)"),
     original_text: str = Form(..., description="원본 지문 텍스트"),
-    reading_time_seconds: float = Form(..., description="실제 낭독 소요 시간(초)"),
+    reading_time_ms: int = Form(..., gt=0, description="녹음 시작~끝(ms) — 묵독·음독 저장과 같은 단위"),
     user: User = Depends(get_current_user),
 ):
     """음독 음성을 전사하고 원문과 대조한다.
@@ -53,10 +56,6 @@ async def transcribe_oral_reading(
     if not (audio.content_type or "").startswith(ALLOWED_PREFIXES):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="오디오 파일만 업로드할 수 있습니다.")
-    if reading_time_seconds <= 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="낭독 소요 시간이 0보다 커야 합니다.")
-
     audio_bytes = await audio.read()
     if len(audio_bytes) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
@@ -69,50 +68,26 @@ async def transcribe_oral_reading(
 
     # 계약의 scored_time_ms 는 recording_start~end(버튼·타임아웃 기준)다.
     # VAD 로 잰 발화 구간으로 대체하지 않는다 — 계약이 금지한다.
-    a = analyze_oral_reading(
-        original_text, stt.transcript,
-        scored_time_ms=int(round(reading_time_seconds * 1000)),
+    a = analyze_oral_reading(original_text, stt.transcript, scored_time_ms=reading_time_ms)
+
+    # unscorable 이면 A1/A2 는 null 이며 0 으로 채우지 않는다 —
+    # "측정 못 함"과 "0점"은 다른 의미다.
+    return OralTranscription(
+        stt_adapter=adapter_name(),
+        transcript=stt.transcript,
+        confidence_ratio=stt.confidence_ratio,
+        audio_duration_ms=stt.audio_duration_ms,
+        analysis=a,
     )
 
-    # 계약 필드명을 그대로 낸다. unscorable 이면 A1/A2 는 null 이며
-    # 0 으로 채우지 않는다 — "측정 못 함"과 "0점"은 다른 의미다.
-    return {
-        "transcript": stt.transcript,
-        "confidence": stt.confidence,
-        "duration_seconds": stt.duration_seconds,
-        "score_status": a.score_status,
-        "score_unavailable_reason": a.score_unavailable_reason,
-        "scoring_rule_version": SCORING_RULE_VERSION,
-        "analysis": {
-            "A1_correct_syllables_per_minute": a.a1_correct_syllables_per_minute,
-            "A2_target_syllable_accuracy": a.a2_target_syllable_accuracy,
-            "scored_M": a.scored_m, "scored_S": a.scored_s,
-            "scored_D": a.scored_d, "scored_I": a.scored_i,
-            "oral_syllable_count": a.oral_syllable_count,       # attempted = M+S+D
-            "text_syllable_count": a.text_syllable_count,
-            "scored_time_ms": a.scored_time_ms,
-            "continuation_source_offset": a.continuation_source_offset,
-            "alignment_mode": a.alignment_mode,   # 60초에 걸렸으면 prefix_global
-            # 위치 배열은 계산 가능성만 제공한다. 오독 유형을 단정하지 않는다.
-            "alignment_deviations": a.alignment_deviations,
-        },
-        "quality": {
-            "quality_gate": a.quality_gate,                     # usable|retry|unusable
-            "transcript_length_ratio": a.transcript_length_ratio,
-            "notes": a.notes,
-        },
-        "stt_adapter": adapter_name(),
-    }
 
-
-@router.get("/health")
+@router.get("/health", response_model=SttHealth)
 async def stt_health():
     """STT 연결 상태. 관리자 화면의 시스템 점검용."""
-    healthy = await get_stt_adapter().health_check()
-    return {"status": "ok" if healthy else "unavailable", "adapter": adapter_name()}
+    return SttHealth(stt_available=await get_stt_adapter().health_check(), adapter=adapter_name())
 
 
-@router.post("/timing")
+@router.post("/timing", response_model=SpeechTiming)
 async def measure_reading_time(
     audio: UploadFile = File(..., description="녹음 파일 (WAV/WebM)"),
     user: User = Depends(get_current_user),
@@ -130,7 +105,7 @@ async def measure_reading_time(
     별도 동의와 방침 갱신이 선행되어야 한다(STR-86).
 
     [VAD 가 없으면]
-    ML 런타임이 없는 환경에서는 available=false 로 돌려준다. 그때는 화면이
+    ML 런타임이 없는 환경에서는 vad_status=unavailable 로 돌려준다. 그때는 화면이
     측정한 버튼 간격을 쓰게 되고, 그 사실이 결과에 남는다.
     """
     if not (audio.content_type or "").startswith(ALLOWED_PREFIXES + ("video/webm",)):
@@ -143,8 +118,7 @@ async def measure_reading_time(
                             detail="파일 크기는 10MB 이하여야 합니다.")
 
     if not vad_svc.available():
-        return {"available": False,
-                "reason": "VAD 런타임 또는 모델이 없습니다. 화면 측정 시간을 사용하세요."}
+        return SpeechTiming(vad_status=VadStatus.unavailable)
 
     try:
         result = vad_svc.detect(raw)
@@ -152,9 +126,7 @@ async def measure_reading_time(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"오디오를 읽지 못했습니다: {e}")
 
-    if result is None or not result.segments:
-        # 녹음은 됐는데 발화가 없다. 마이크가 안 잡혔거나 아이가 읽지 않았다.
-        return {"available": True, "speech_detected": False,
-                "reason": "발화가 감지되지 않았습니다. 다시 녹음해 주세요."}
-
-    return {"available": True, "speech_detected": True, **result.to_dict()}
+    if result is None:
+        return SpeechTiming(vad_status=VadStatus.unavailable)
+    # 발화가 없으면 no_speech — 마이크가 안 잡혔거나 아이가 읽지 않았다.
+    return result.timing()

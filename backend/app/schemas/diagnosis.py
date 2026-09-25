@@ -8,6 +8,7 @@ from app.contracts.report import ReportContent
 from app.contracts.measurement import AdaptiveDecision, RoundAggregateView
 from app.contracts.base import Bool, Contract, Count, Int
 from app.contracts.survey import ProfileCreate, ReaderTypeProbe, TopicCodes  # noqa: F401
+from app.contracts.oral import OralFluencySubmit, OralReadingAnalysis  # noqa: F401
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -96,23 +97,7 @@ class RoundResponse(ResponseModel):
 
 
 # ---- 유창성 (기존 유지) ---------------------------------------------------
-class OralFluencySubmit(ResponseModel):
-    """음독 유창성 제출 (B안 — 타이머 자동 + 오류 수 감독자 입력).
-
-    total_syllables 를 받지 않는다. 지문의 음절 수는 서버가 알고 있고,
-    클라이언트가 보낸 값을 그대로 믿으면 분모를 조작해 정확도를 올릴 수 있다.
-    round_id 로 지문을 찾아 서버가 센다.
-    """
-    session_id: int
-    round_id: int                                # 어느 지문을 읽었는지
-    reading_time_seconds: float = Field(gt=0)
-    # 감독자가 센 총 오류 수. 도메인 §2-1 의 두 공식은 이 값 하나만 요구한다
-    # (유형별 분해는 공식에 들어가지 않는다).
-    error_count: int = Field(ge=0)
-    transcript: Optional[str] = None             # STT 를 돌렸다면 함께 남긴다
-    raw_data: Optional[dict] = None
-
-
+# 음독 제출 형식은 contracts.oral.OralFluencySubmit 이다.
 # 묵독 제출 형식은 contracts.measurement.SilentReadingSubmit 이다.
 
 
@@ -123,13 +108,11 @@ class FluencyResultResponse(ResponseModel):
     type: FluencyType
     reading_time_ms: int                          # 두 버튼 사이 실제 시각 차이
     a4_syllable_per_sec: Optional[float] = None   # 묵독 자동성. 음독이면 null
-    # ── 음독 전용 (음독 경로에서 정리) ──
-    automaticity_score: Optional[float] = None
-    accuracy_score: Optional[float] = None
-    # 음독 B안에서 감독자가 '몇 음절 중 몇 개'를 확인할 수 있어야 한다.
-    # 분모를 서버가 셌으므로 그 값을 돌려주어 눈으로 대조하게 한다.
-    total_syllables: Optional[int] = None
-    error_count: Optional[int] = None
+    # ── 음독 전용 ── 묵독이면 둘 다 null
+    supervisor_error_count: Optional[int] = None
+    # 자동 채점. 지문 음절 수(text_syllable_count)도 여기 있다 — 감독자가
+    # '몇 음절 중 몇 개'를 눈으로 대조할 수 있게 서버가 센 분모를 돌려준다.
+    oral_analysis: Optional[OralReadingAnalysis] = None
     created_at: datetime
 
 
@@ -213,7 +196,6 @@ class DiagnosisResultResponse(ResponseModel):
     rounds: List[RoundResponse]
     fluency_results: List[FluencyResultResponse]
     question_responses: List[QuestionResponseResult]
-    total_fluency_score: Optional[float]
 
 
 # ---- 본인 진단 이력 (학생 홈·이력 화면) -----------------------------------
