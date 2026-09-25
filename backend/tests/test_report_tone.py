@@ -11,7 +11,10 @@
 import pytest
 
 from app.models.core import PrescriptionGroup, ToneCode
+from app.contracts.judgment import Disclaimers
+from app.contracts.prescription import RecommendedTexts, TrainingPlan
 from app.services.diagnosis import report as R
+from tests.factories import profile
 
 
 # ── 폴백 문구의 난도 중립성 ──────────────────────────────────────────────
@@ -48,7 +51,7 @@ class _J:
         from app.models.core import Label5, Level3, FluencyUnit, ReliabilityFlag
         self.label_5 = Label5.risk
         self.prescription_group = group
-        self.weakness_profile_12 = {"A5_expository": 0.9, "A6_narrative": 0.4}
+        self.weakness_profile_12 = profile(A5_expository=(9, 10), A6_narrative=(2, 5))
         self.fluency_level = Level3.low
         self.fluency_value = 2.0
         self.fluency_value_unit = FluencyUnit.SPS
@@ -57,27 +60,27 @@ class _J:
         self.overall_accuracy = 0.5
         self.metacognition = None
         self.reliability_flag = ReliabilityFlag.normal
-        self.disclaimer_flags = None
+        self.disclaimer_flags = Disclaimers.of([])
 
 
 class _P:
     def __init__(self, tone=ToneCode.challenge):
         self.type_tone = tone
-        self.recommended_texts = []
-        self.weakness_training_plan = {"cells": []}
+        self.recommended_texts = RecommendedTexts(text_ids=[])
+        self.weakness_training_plan = TrainingPlan(targets=[])
 
 
 def test_문구를_넘기면_그대로_들어간다():
     content, _ = R.build_student_report(_J(), _P(), "직접 넣은 문구")
-    assert content["layer1"]["encouragement"] == "직접 넣은 문구"
+    assert content.layer1.encouragement == "직접 넣은 문구"
 
 
 def test_문구를_넘기지_않으면_폴백을_쓴다():
     """조립 함수 단독 호출(테스트·배치)에서도 난도 중립이 유지되어야 한다."""
     content, _ = R.build_student_report(_J(), _P(ToneCode.challenge))
-    assert content["layer1"]["encouragement"] == R.FALLBACK_ENCOURAGEMENT[ToneCode.challenge]
+    assert content.layer1.encouragement == R.FALLBACK_ENCOURAGEMENT[ToneCode.challenge]
     for word in R._DIFFICULTY_WORDS:
-        assert word not in content["layer1"]["encouragement"]
+        assert word not in content.layer1.encouragement
 
 
 def test_조회_축이_세_개다():
@@ -121,7 +124,7 @@ def _polish_returning(text: str, monkeypatch):
     fake.Anthropic = lambda **kw: type("C", (), {"messages": _Client.messages})()
     monkeypatch.setitem(sys.modules, "anthropic", fake)
 
-    content = {"layer1": {"encouragement": "원래 문구"}}
+    content, _ = R.build_student_report(_J(), _P(), "원래 문구")
     return R._maybe_polish(content)
 
 
@@ -129,10 +132,10 @@ def test_다듬기가_난도_표현을_들여오면_원문을_지킨다(monkeypa
     """STR-96 이 LLM 손에서 조용히 되돌아가는 경로를 막는다."""
     content, polished = _polish_returning("더 어려운 책에도 도전해보자!", monkeypatch)
     assert polished is False
-    assert content["layer1"]["encouragement"] == "원래 문구"
+    assert content.layer1.encouragement == "원래 문구"
 
 
 def test_난도_표현이_없으면_다듬기를_받아들인다(monkeypatch):
     content, polished = _polish_returning("오늘도 한 쪽 더 읽어볼까?", monkeypatch)
     assert polished is True
-    assert content["layer1"]["encouragement"] == "오늘도 한 쪽 더 읽어볼까?"
+    assert content.layer1.encouragement == "오늘도 한 쪽 더 읽어볼까?"

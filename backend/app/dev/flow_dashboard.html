@@ -152,7 +152,7 @@
   <div class="card">
     <h2>연결 목록 <span id="edgecount" style="color:#6d7288"></span></h2>
     <table><thead><tr>
-      <th>보내는 쪽</th><th></th><th>받는 쪽</th><th>오가는 것</th><th>형식</th><th>비고</th>
+      <th>보내는 쪽</th><th></th><th>받는 쪽</th><th>오가는 것</th><th>형식</th><th>형식 정의</th><th>비고</th>
     </tr></thead><tbody id="edgerows"></tbody></table>
   </div>
 
@@ -536,6 +536,7 @@ function drawEdgeTable(){
       <td>${esc(label(e.src))}</td><td class="arrow">→</td><td>${esc(label(e.dst))}</td>
       <td class="pay">${esc(e.payload)}</td>
       <td><span class="st ${e.status}">${STATUS_KO[e.status]}</span></td>
+      <td class="pay">${esc(e.contract||'—')}</td>
       <td class="note">${esc(e.note||'')}</td></tr>`;
   }).join('');
 }

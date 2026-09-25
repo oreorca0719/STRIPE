@@ -1,6 +1,9 @@
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
+from app.contracts.judgment import Disclaimers, WeaknessProfileView
+from app.contracts.prescription import RecommendedTexts, TrainingPlan
+from app.contracts.report import ReportContent
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -232,7 +235,7 @@ class JudgmentResultResponse(BaseModel):
     overall_accuracy: Optional[float]
     total_correct: int
     total_questions: int
-    weakness_profile_12: dict
+    weakness_profile_12: WeaknessProfileView
     matrix_position: str
     label_5: Label5
     prescription_group: PrescriptionGroup
@@ -241,7 +244,7 @@ class JudgmentResultResponse(BaseModel):
     d2_gap: Optional[int]
     actual_10: Optional[int]
     reliability_flag: ReliabilityFlag
-    disclaimer_flags: Optional[list]
+    disclaimer_flags: Disclaimers
 
     class Config:
         from_attributes = True
@@ -251,8 +254,8 @@ class PrescriptionResultResponse(BaseModel):
     id: int
     judgment_id: int
     prescription_type: PrescriptionType
-    recommended_texts: list
-    weakness_training_plan: Optional[dict]
+    recommended_texts: RecommendedTexts
+    weakness_training_plan: Optional[TrainingPlan]
     type_tone: ToneCode
     next_session_difficulty: Optional[Difficulty]
 
@@ -269,8 +272,8 @@ class ReportResponse(BaseModel):
     id: int
     judgment_id: int
     report_type: str
-    report_content: dict
-    disclaimer_flags: Optional[list]
+    report_content: ReportContent
+    disclaimer_flags: Disclaimers
     llm_polished: bool
     review_status: str
 

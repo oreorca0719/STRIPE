@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional
 
+from app.contracts.judgment import WeaknessProfileView
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.user import User, UserRole
@@ -280,7 +281,9 @@ async def get_diagnosis_detail(session_id: int, db: AsyncSession = Depends(get_d
             "comprehension_level": judgment.comprehension_level.value,
             "overall_accuracy": judgment.overall_accuracy,
             "total_correct": judgment.total_correct, "total_questions": judgment.total_questions,
-            "weakness_profile_12": judgment.weakness_profile_12,
+            # 저장 형식은 정답 수·문항 수만 갖는다. 정답률을 붙인 보기 형식으로 내보낸다.
+            "weakness_profile_12": WeaknessProfileView.model_validate(
+                judgment.weakness_profile_12, from_attributes=True),
             "metacognition": judgment.metacognition.value if judgment.metacognition else None,
             "reliability_flag": judgment.reliability_flag.value,
             "disclaimer_flags": judgment.disclaimer_flags,

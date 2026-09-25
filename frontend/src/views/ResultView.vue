@@ -147,9 +147,11 @@ const donutStyle = computed(() => ({
 const levelInfo = computed(() => labelInfo(judgment.value?.label_5))
 const studentLabel = computed(() => report.value?.report_content?.layer1?.label || levelInfo.value.ko)
 const strengths = computed<string[]>(() => report.value?.report_content?.layer1?.strengths || [])
-const weaknessCells = computed<string[]>(() => report.value?.report_content?.layer2?.weakness_training || [])
-const recommended = computed<any[]>(() =>
-  prescription.value?.recommended_texts || report.value?.report_content?.layer1?.recommended_preview || [])
+// 리포트 문서가 학생에게 보여 줄 값을 갖고 있다. 처방은 지문 id 만 갖는다.
+const weaknessCells = computed<{ area: string; genre: string; activity: string }[]>(
+  () => report.value?.report_content?.layer2?.weakness_training || [])
+const recommended = computed<{ text_id: number; title: string }[]>(
+  () => report.value?.report_content?.layer1?.recommended_preview || [])
 
 function levelKo(l: string) { return ({ low: '낮음', mid: '보통', high: '높음' } as any)[l] || l }
 function metacogKo(m: string) {
@@ -157,17 +159,13 @@ function metacogKo(m: string) {
             overestimate: '실제보다 조금 높게 봤어요. 겸손하게 한 번 더 확인해봐요.',
             underestimate: '생각보다 훨씬 잘했어요! 자신감을 가져도 좋아요 ✨' } as any)[m] || m
 }
-function cellKo(cell: any) {
-  const area = typeof cell === 'string' ? cell.split('_')[0] : cell?.area
-  const genre = typeof cell === 'string' ? cell.split('_')[1] : cell?.genre
+function cellKo(cell: { area: string; genre: string }) {
+  const { area, genre } = cell
   const a = ({ A5: '사실 찾기', A6: '추론하기', A7: '비판적으로 읽기' } as any)[area] || area
   const g = ({ narrative: '이야기글', expository: '설명글' } as any)[genre] || genre
   return genre ? `${g} · ${a}` : a
 }
-function recTitle(t: any) {
-  if (typeof t === 'string') return t
-  return t?.title || t?.text_code || t?.id || '추천 글'
-}
+function recTitle(t: { title: string }) { return t.title }
 
 async function load() {
   const sid = route.query.session

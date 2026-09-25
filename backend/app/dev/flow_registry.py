@@ -116,6 +116,7 @@ class Edge:
     payload: str                      # 무엇이 오가는가
     status: str = "fixed"             # fixed | undefined | mismatch
     note: str = ""
+    contract: str = ""                # 이 라인의 형식 정의 (app/contracts 의 클래스)
 
     # status 의 뜻
     #   fixed      형식이 정해져 있고 양쪽이 같은 것을 쓴다
@@ -161,7 +162,8 @@ EDGES: List[Edge] = [
 
     # 측정 → 판정
     Edge("diagnosis.scoring", "diagnosis.judgment",
-         "CellResponse[] (영역×장르×정오)", "fixed"),
+         "CellResponse[] (영역×장르×정오)", "fixed",
+         contract="judgment.CellResponse"),
     Edge("diagnosis.attention", "diagnosis.judgment",
          "A4 (음절/초)", "fixed",
          "이탈 시간을 빼지 않은 원본 시간으로 산출"),
@@ -174,30 +176,36 @@ EDGES: List[Edge] = [
 
     # 판정 → 처방
     Edge("diagnosis.judgment", "diagnosis.pipeline",
-         "label_5 · G1~G6 · weakness_profile_12", "undefined",
-         "이름은 12셀인데 코드는 6칸(3영역×2장르)을 만든다"),
+         "유창성·독해 판정 · 9칸 배치 · 약점 프로필 6칸", "fixed",
+         "칸 이름은 명세대로 weakness_profile_12 지만 6칸이다 — 12 의 뜻은 기획 확인 대기",
+         contract="judgment.FluencyJudgment · ComprehensionJudgment · MatrixPlacement"),
     Edge("diagnosis.pipeline", "diagnosis.prescription",
-         "처방군 · 영점 난도 · 약점 프로파일", "fixed"),
+         "처방군 · 영점 난도 · 약점 프로필", "fixed",
+         contract="judgment.WeaknessProfile → prescription.TrainingPlan"),
     Edge("diagnosis.pipeline", "diagnosis.environment",
          "home_environment_score (보호자 B-3~B-6)", "fixed",
-         "경계값이 비어 항상 스킵된다"),
+         "경계값이 비어 항상 건너뛴다 (skipped_reason=no_thresholds)",
+         contract="prescription.EnvironmentResult"),
     Edge("diagnosis.prescription", "diagnosis.text_selection",
          "난도 범위 (difficulty_range)", "fixed",
          "주제·장르 필터는 호출되지 않는다 — STR-111"),
 
     # 처방 → 산출물
     Edge("diagnosis.prescription", "diagnosis.report",
-         "recommended_texts · weakness_training_plan · type_tone", "undefined",
-         "JSONB 항목 스키마가 적힌 곳이 없다"),
+         "추천 지문 id 목록 · 훈련 대상 · 톤", "fixed",
+         "처방은 지문을 id 로만 가리킨다. 제목은 리포트가 지문 테이블에서 읽는다",
+         contract="prescription.RecommendedTexts · TrainingPlan"),
     Edge("diagnosis.environment", "diagnosis.report",
          "environment_level · environment_adjustment", "undefined",
-         "syllable_limit 이 소비되는 곳이 없다"),
+         "형식은 정했으나 리포트가 읽지 않는다 — 저장만 된다. 소비처(보호자 리포트) 미정",
+         contract="prescription.EnvironmentResult"),
     Edge("diagnosis.prescription", "diagnosis.book_recommend",
          "난도 범위 · 관심 주제", "fixed",
          "books 테이블이 비어 결과는 빈 목록"),
     Edge("diagnosis.judgment", "diagnosis.report",
-         "판정 결과 + disclaimer_flags", "mismatch",
-         "면책 코드가 계약 6종과 다르다. 문안이 와도 붙지 않는다"),
+         "판정 결과 + 면책 코드 집합", "mismatch",
+         "우리 쪽은 7종 enum 으로 고정했다. 계약 6종과 여전히 다르다 — 문준석 확인 대기",
+         contract="judgment.Disclaimers → report.ReportContent"),
 ]
 
 
@@ -290,7 +298,7 @@ FEATURES: List[Feature] = [
     Feature(
         key="content_review", label="콘텐츠 검수 (관리자)",
         entry="관리자가 지문·문항을 승인",
-        api=["POST /api/review/text/{id}/approve"],
+        api=["POST /api/admin/reviews"],
         modules=["content.readability", "content.item_quality",
                  "content.topic_tags"],
         note="승인 3단 게이트를 통과해야 진단에 쓰인다",
@@ -318,7 +326,7 @@ def as_dict() -> dict:
                       4: "처방", 5: "산출물"},
         "edges": [
             {"src": e.src, "dst": e.dst, "payload": e.payload,
-             "status": e.status, "note": e.note}
+             "status": e.status, "note": e.note, "contract": e.contract}
             for e in EDGES
         ],
         "features": [

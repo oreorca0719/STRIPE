@@ -3,8 +3,9 @@
 처방A 3단계 필터의 *규칙 파라미터*(난도범위·매칭%·장르비) + 처방유형·톤(§5-3) +
 처방B 약점 훈련 방향(§5-2). 실제 후보 텍스트 조회는 wiring(C-2)에서 부착.
 """
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict
+from app.contracts.judgment import WeaknessProfile
+from app.contracts.prescription import TrainingPlan, TrainingTarget
 from app.models.core import (
     PrescriptionGroup as G, PrescriptionType, ToneCode, Difficulty,
     ReaderType1, ReaderType2, TargetArea, TextGenre,
@@ -123,43 +124,29 @@ _ACTIVITY = {
 }
 
 
-@dataclass
-class TrainingCell:
-    area: TargetArea
-    genre: TextGenre
-    accuracy: float
-    activity: str
-
-
-@dataclass
-class WeaknessPlan:
-    needed: bool
-    cells: List[TrainingCell] = field(default_factory=list)
-
-
-def _parse_cell(key: str) -> Tuple[TargetArea, TextGenre]:
-    area_s, genre_s = key.split("_", 1)
-    return TargetArea(area_s), TextGenre(genre_s)
+def activity(area: TargetArea) -> str:
+    """영역별 활동 안내 문장. 이 표가 유일한 출처다 — 처방 결과에 복사하지 않는다."""
+    return _ACTIVITY[area]
 
 
 def weakness_training_plan(
-    weakness_profile: Dict[str, Optional[float]],
+    profile: WeaknessProfile,
     type_1: ReaderType1,
     type_2: Optional[ReaderType2] = None,
     max_cells: int = 2,
-) -> WeaknessPlan:
-    """약점 셀(<0.70) 선정. 계층 A5→A6→A7, 같은 층위는 낮은 정답률, 동률은 설명글 우선.
+) -> TrainingPlan:
+    """약점 칸(<0.70) 선정. 계층 A5→A6→A7, 같은 층위는 낮은 정답률, 동률은 설명글 우선.
 
     유형별 시작점(§5-2): 고정형 A5 무조건 / 하락형 A5 양호 시 A6부터 / 애독자 A7 위주.
+    문항이 없는 칸(정답률 None)은 측정하지 않은 칸이라 약점으로 보지 않는다.
     """
-    weak = []
-    for key, acc in weakness_profile.items():
-        if acc is None or acc >= WEAKNESS_THRESHOLD:
-            continue
-        area, genre = _parse_cell(key)
-        weak.append((area, genre, acc))
+    weak = [
+        (c.area, c.genre, c.accuracy)
+        for c in profile.cells
+        if c.accuracy is not None and c.accuracy < WEAKNESS_THRESHOLD
+    ]
     if not weak:
-        return WeaknessPlan(needed=False)
+        return TrainingPlan(targets=[])
 
     def genre_rank(g: TextGenre) -> int:
         return 0 if g == TextGenre.expository else 1  # 설명글 우선
@@ -175,11 +162,8 @@ def weakness_training_plan(
         a5_ok = all(acc >= WEAKNESS_THRESHOLD or area != TargetArea.A5
                     for (area, _g, acc) in weak)
         if a5_ok:
-            weak = [c for c in weak if c[0] != TargetArea.A5] + \
-                   [c for c in weak if c[0] == TargetArea.A5]
+            weak = [c for c in weak if c[0] != TargetArea.A5] +                    [c for c in weak if c[0] == TargetArea.A5]
 
-    cells = [
-        TrainingCell(area=a, genre=g, accuracy=round(acc, 4), activity=_ACTIVITY[a])
-        for (a, g, acc) in weak[:max_cells]
-    ]
-    return WeaknessPlan(needed=True, cells=cells)
+    return TrainingPlan(targets=[
+        TrainingTarget(area=a, genre=g) for (a, g, _acc) in weak[:max_cells]
+    ])

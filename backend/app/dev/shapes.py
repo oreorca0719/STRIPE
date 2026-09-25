@@ -8,8 +8,8 @@
 그래서 이 모듈은 **타입·개수·키 이름**까지만 적는다.
 
     CellResponse[6]
-    ComprehensionJudgment{comprehension_level=high, overall_accuracy: float,
-                          weakness_profile_12: dict(12키, null 3)}
+    ComprehensionJudgment{comprehension_level: Level3.high,
+                          profile: WeaknessProfile{cells: WeaknessCell[6]}, …}
 
 [예외 둘 — 개인정보가 아니고, 없으면 흐름을 못 읽는다]
 · enum 값        GradeGroup.G4_G6 · betts_level=instructional
@@ -25,6 +25,8 @@ from __future__ import annotations
 import dataclasses
 from enum import Enum
 from typing import Any
+
+from pydantic import BaseModel
 
 MAX_KEYS = 14          # 키를 다 적으면 화면이 넘친다. 12셀이 최대라 여유만 둔다
 MAX_DEPTH = 3          # 중첩을 끝까지 파면 리포트 3층에서 끝이 없다
@@ -51,14 +53,19 @@ def describe(value: Any, depth: int = 0) -> str:
     if depth >= MAX_DEPTH:
         return type(value).__name__
 
-    # dataclass — 필드 이름과 각 필드의 형태
+    # dataclass·형식 객체(pydantic) — 칸 이름과 각 칸의 형태
+    names = None
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        names = [f.name for f in dataclasses.fields(value)]
+    elif isinstance(value, BaseModel):
+        names = list(type(value).model_fields)
+    if names is not None:
         parts = []
-        for f in dataclasses.fields(value):
+        for name in names:
             try:
-                parts.append(f"{f.name}: {describe(getattr(value, f.name), depth + 1)}")
+                parts.append(f"{name}: {describe(getattr(value, name), depth + 1)}")
             except Exception:
-                parts.append(f"{f.name}: ?")
+                parts.append(f"{name}: ?")
         inner = ", ".join(parts[:MAX_KEYS])
         if len(parts) > MAX_KEYS:
             inner += f", …+{len(parts) - MAX_KEYS}"

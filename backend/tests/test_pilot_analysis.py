@@ -22,6 +22,8 @@ from sqlalchemy import text as sql_text                        # noqa: E402
 from app.api.deps import require_admin                         # noqa: E402
 from app.api.endpoints import pilot                            # noqa: E402
 from app.core.database import AsyncSessionLocal, engine        # noqa: E402
+from app.contracts.judgment import CellResponse, Disclaimers   # noqa: E402
+from app.services.diagnosis.judgment import matrix_lookup, weakness_profile  # noqa: E402
 from app.models.core import (                                  # noqa: E402
     ComprehensionResult, DiagnosisRound, DiagnosisSession, DiagSessionStatus,
     Difficulty, FluencyResult, FluencySource, FluencyType, FluencyUnit,
@@ -127,14 +129,23 @@ async def _seed():
             db.add(ComprehensionResult(
                 round_id=rd.id, total_questions=3, correct_count=2, round_accuracy=2 / 3,
             ))
+            # 판정 결과는 실제 판정 함수로 만든다. 예전에는 약점 프로필에 {},
+            # 위치에 "F2C2" 를 넣었는데 둘 다 운영 코드가 만들 수 없는 모양이었다.
+            profile = weakness_profile([
+                CellResponse(target_area=area, genre=t.genre, is_correct=i < 2)
+                for i, (_q, area) in enumerate(qs)
+            ])
+            placement = matrix_lookup(Level3.mid, Level3.mid)
             db.add(JudgmentResult(
                 diagnosis_session_id=sess.id,
                 fluency_level=Level3.mid, fluency_source=FluencySource.silent,
                 fluency_valid=True, fluency_value=a4, fluency_value_unit=FluencyUnit.SPS,
-                comprehension_level=Level3.mid, overall_accuracy=2 / 3,
-                total_correct=2, total_questions=3, weakness_profile_12={},
-                matrix_position="F2C2", label_5=Label5.observe,
+                comprehension_level=Level3.mid, overall_accuracy=profile.overall_accuracy,
+                total_correct=profile.correct_count, total_questions=profile.question_count,
+                weakness_profile_12=profile,
+                matrix_position=placement.matrix_position, label_5=Label5.observe,
                 prescription_group=PrescriptionGroup.G3,
+                disclaimer_flags=Disclaimers.of([]),
             ))
 
         await db.commit()

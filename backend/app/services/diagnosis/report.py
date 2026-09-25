@@ -5,15 +5,21 @@
 선택적 2차(키 있을 때). 키 없으면 llm_polished=False로 그대로 동작.
 MVP1 런타임은 코드 템플릿 조립(report_templates DB 구동은 후속).
 """
-from typing import Optional, Tuple, List
+from typing import Optional, Sequence, Tuple, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.contracts.judgment import Disclaimers, WeaknessProfile
+from app.contracts.report import (
+    AreaView, ComprehensionView, FluencyView, RecommendedPreview, ReportContent,
+    ReportDetail, ReportSummary, TemplateIds, TrainingView,
+)
 from app.core.config import settings
 from app.models.core import (
     JudgmentResult, PrescriptionResult, PrescriptionGroup, Report, ReportRole,
-    ReportTemplate, ReviewStatus, Label5, ToneCode,
+    ReportTemplate, ReviewStatus, Label5, TextContent, ToneCode,
 )
+from app.services.diagnosis.prescription import activity
 
 # §2 SCR-13 학생 친화 라벨
 STUDENT_LABEL = {
@@ -54,14 +60,13 @@ _GENRE_NAME = {"narrative": "이야기글", "expository": "설명글"}
 STRENGTH_THRESHOLD = 0.80
 
 
-def _strengths(weakness_profile: dict, limit: int = 2) -> List[str]:
-    """정답률 ≥0.80 셀 → 강점 문구 (최대 limit개)."""
+def _strengths(profile: WeaknessProfile, limit: int = 2) -> List[str]:
+    """정답률 ≥0.80 칸 → 강점 문구 (최대 limit개). 측정 안 한 칸은 제외한다."""
     out = []
-    for key, acc in weakness_profile.items():
-        if acc is None or acc < STRENGTH_THRESHOLD:
+    for c in profile.cells:
+        if c.accuracy is None or c.accuracy < STRENGTH_THRESHOLD:
             continue
-        area, genre = key.split("_", 1)
-        out.append(f"{_GENRE_NAME.get(genre, genre)}에서 {_AREA_NAME.get(area, area)}")
+        out.append(f"{_GENRE_NAME[c.genre.value]}에서 {_AREA_NAME[c.area.value]}")
     return out[:limit]
 
 
@@ -110,52 +115,65 @@ def build_student_report(
     judgment: JudgmentResult,
     prescription: PrescriptionResult,
     encouragement: Optional[str] = None,
-) -> Tuple[dict, list]:
-    """판정+처방 → 학생용 3층 report_content + disclaimer_flags. (LLM 미사용, 결정적)
+    *,
+    preview_texts: Sequence[TextContent] = (),
+) -> Tuple[ReportContent, Disclaimers]:
+    """판정+처방 → 학생용 리포트 문서 + 면책 코드. (LLM 미사용, 결정적)
 
-    encouragement 를 넘기지 않으면 난도 중립 폴백을 쓴다. 템플릿 조회는 DB 를
-    타므로 이 함수 밖(resolve_encouragement)에 두어 조립 자체는 순수하게 유지한다.
+    preview_texts 는 추천 지문 중 앞 3편의 지문 행이다. 처방은 id 만 갖고 있고
+    제목은 지문 테이블에 있으므로, DB 를 읽는 쪽(generate_student_report)이
+    찾아서 넘긴다. 조립 자체는 DB 없이 순수하게 유지한다.
+
+    encouragement 를 넘기지 않으면 난도 중립 폴백을 쓴다.
     """
     label = judgment.label_5
     tone = prescription.type_tone
+    profile: WeaknessProfile = judgment.weakness_profile_12
     if encouragement is None:
         encouragement = FALLBACK_ENCOURAGEMENT.get(
             tone, FALLBACK_ENCOURAGEMENT[ToneCode.encourage])
-    content = {
-        "layer1": {  # 요약
-            "label": STUDENT_LABEL.get(label, label.value),
-            "label_code": label.value,
-            "strengths": _strengths(judgment.weakness_profile_12 or {}),
-            "encouragement": encouragement,
-            "recommended_preview": (prescription.recommended_texts or [])[:3],
-        },
-        "layer2": {  # 더 알아보기
-            "fluency": {
-                "level": judgment.fluency_level.value,
-                "value": judgment.fluency_value,
-                "unit": judgment.fluency_value_unit.value,
-                "valid": judgment.fluency_valid,
-            },
-            "comprehension": {
-                "level": judgment.comprehension_level.value,
-                "overall_accuracy": judgment.overall_accuracy,
-                "areas": judgment.weakness_profile_12,
-            },
-            "metacognition": judgment.metacognition.value if judgment.metacognition else None,
-            "weakness_training": (prescription.weakness_training_plan or {}).get("cells", []),
-        },
-    }
 
-    disclaimers = ["basic"]
-    for flag in (judgment.disclaimer_flags or []):
-        if flag not in disclaimers:
-            disclaimers.append(flag)
+    content = ReportContent(
+        layer1=ReportSummary(                      # 요약
+            label=STUDENT_LABEL[label],
+            label_code=label,
+            strengths=_strengths(profile),
+            encouragement=encouragement,
+            recommended_preview=[
+                RecommendedPreview(text_id=t.id, title=t.title,
+                                   genre=t.genre, difficulty=t.difficulty_level)
+                for t in list(preview_texts)[:3]
+            ],
+        ),
+        layer2=ReportDetail(                       # 더 알아보기
+            fluency=FluencyView(
+                level=judgment.fluency_level,
+                valid=judgment.fluency_valid,
+                value=judgment.fluency_value,
+                value_unit=judgment.fluency_value_unit,
+            ),
+            comprehension=ComprehensionView(
+                level=judgment.comprehension_level,
+                overall_accuracy=judgment.overall_accuracy,
+                areas=[AreaView(area=c.area, genre=c.genre, accuracy=c.accuracy)
+                       for c in profile.cells],
+            ),
+            metacognition=judgment.metacognition,
+            weakness_training=[
+                TrainingView(area=t.area, genre=t.genre, activity=activity(t.area))
+                for t in (prescription.weakness_training_plan.targets
+                          if prescription.weakness_training_plan else [])
+            ],
+        ),
+    )
+
+    codes = ["basic", *judgment.disclaimer_flags.codes]
     if judgment.reliability_flag and judgment.reliability_flag.value in ("low", "unstable"):
-        disclaimers.append(f"reliability_{judgment.reliability_flag.value}")
-    return content, disclaimers
+        codes.append(f"reliability_{judgment.reliability_flag.value}")
+    return content, Disclaimers.of(codes)
 
 
-def _maybe_polish(content: dict) -> Tuple[dict, bool]:
+def _maybe_polish(content: ReportContent) -> Tuple[ReportContent, bool]:
     """선택적 LLM 다듬기 (AI-07). 키 없거나 실패 시 원본 그대로(llm_polished=False).
 
     수치·등급은 건드리지 않고 응원 문구(narrative)만 다듬는다(§6 변조 금지). AI-08:
@@ -163,7 +181,7 @@ def _maybe_polish(content: dict) -> Tuple[dict, bool]:
     """
     if not settings.ANTHROPIC_API_KEY:
         return content, False
-    original = content["layer1"]["encouragement"]
+    original = content.layer1.encouragement
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -183,8 +201,11 @@ def _maybe_polish(content: dict) -> Tuple[dict, bool]:
         # 원문에 없던 '더 어려운 책' 이 LLM 손에서 붙을 수 있으므로 여기서 막는다.
         if any(w in polished for w in _DIFFICULTY_WORDS):
             return content, False
-        content["layer1"]["encouragement"] = polished
-        return content, True
+        # 형식 객체는 고칠 수 없다(frozen). 바꾼 사본을 새로 만든다.
+        # model_copy(update=) 는 검사를 건너뛰므로 쓰지 않는다.
+        layer1 = ReportSummary.model_validate(
+            {**content.layer1.model_dump(), "encouragement": polished})
+        return ReportContent(layer1=layer1, layer2=content.layer2), True
     except Exception:
         return content, False                  # SDK/모델/네트워크 문제 → 안전 폴백
 
@@ -208,7 +229,15 @@ async def generate_student_report(db: AsyncSession, session_id: int) -> Report:
 
     encouragement, template_id = await resolve_encouragement(
         db, judgment.prescription_group, prescription.type_tone)
-    content, disclaimers = build_student_report(judgment, prescription, encouragement)
+
+    # 추천 미리보기 3편의 제목은 지문 테이블에서 읽는다. 처방 순서를 지킨다.
+    preview_ids = prescription.recommended_texts.text_ids[:3]
+    t_q = await db.execute(select(TextContent).where(TextContent.id.in_(preview_ids)))
+    by_id = {t.id: t for t in t_q.scalars().all()}
+    preview_texts = [by_id[i] for i in preview_ids if i in by_id]
+
+    content, disclaimers = build_student_report(
+        judgment, prescription, encouragement, preview_texts=preview_texts)
     content, polished = _maybe_polish(content)
 
     report = Report(
@@ -218,7 +247,7 @@ async def generate_student_report(db: AsyncSession, session_id: int) -> Report:
         disclaimer_flags=disclaimers,
         # 템플릿을 썼을 때만 기록한다. 빈 목록이면 폴백으로 조립된 리포트다 —
         # 나중에 '어떤 문구가 어디서 나왔는지' 추적할 때 이 구분이 필요하다.
-        template_ids_used=[template_id] if template_id else [],
+        template_ids_used=TemplateIds(ids=[template_id] if template_id else []),
         llm_polished=polished,
         review_status=ReviewStatus.approved,   # 결정적 조립 → 신뢰 (LLM은 표현만)
     )

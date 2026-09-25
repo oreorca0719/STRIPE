@@ -1,0 +1,205 @@
+"""값 목록(enum) — 형식 정의(contracts)와 DB 모델(core)이 함께 쓴다.
+
+[왜 core.py 에서 분리했나]
+형식 정의가 enum 을 쓰고, DB 모델은 형식 정의를 칸 타입으로 쓴다.
+enum 이 core.py 에 있으면 contracts → core → contracts 로 서로를 불러오는
+순환이 생긴다. enum 을 여기 두고 양쪽이 이것만 불러온다.
+
+기존 코드의 `from app.models.core import Difficulty` 는 그대로 동작한다
+(core.py 가 다시 내보낸다).
+"""
+import enum
+
+
+# =========================================================================
+# Enums — v1.2 기획상세명세 §1, §10 기준
+# 결정사항: PK는 Integer 유지(기존 코드 관례). text/question은 코드체계를
+#          별도 VARCHAR 보조 unique 키(text_code/question_code)로 보존.
+# =========================================================================
+
+class GradeGroup(str, enum.Enum):
+    G4_G6 = "G4_G6"   # 초4~초6
+    G7 = "G7"         # 중1
+
+
+class TextGenre(str, enum.Enum):
+    narrative = "narrative"     # 이야기글
+    expository = "expository"   # 설명글
+
+
+class Difficulty(str, enum.Enum):
+    easy = "easy"
+    normal = "normal"
+    hard = "hard"
+
+
+class ReviewStatus(str, enum.Enum):
+    """texts/questions/item_sets 공통 3단(실질 5단) 승인 상태."""
+    draft = "draft"
+    ai_generated = "ai_generated"
+    auto_checked = "auto_checked"
+    jun_reviewed = "jun_reviewed"
+    approved = "approved"
+
+
+class TextStructure(str, enum.Enum):
+    chronological = "chronological"
+    compare_contrast = "compare_contrast"
+    cause_effect = "cause_effect"
+    problem_solution = "problem_solution"
+
+
+class TargetArea(str, enum.Enum):
+    A5 = "A5"   # 사실적 이해
+    A6 = "A6"   # 추론적 이해
+    A7 = "A7"   # 비판적 이해
+
+
+class QuestionFormat(str, enum.Enum):
+    multiple_choice = "multiple_choice"
+    true_false = "true_false"
+
+
+class Gender(str, enum.Enum):
+    M = "M"
+    F = "F"
+    other = "other"
+
+
+class ReaderType1(str, enum.Enum):
+    enthusiast = "enthusiast"       # 애독자
+    intermittent = "intermittent"   # 간헐적
+    non_reader = "non_reader"       # 비독자
+
+
+class ReaderType2(str, enum.Enum):
+    sharp_decline = "sharp_decline"     # 급락형
+    gradual_decline = "gradual_decline" # 하락형
+    fixed = "fixed"                     # 고정형
+
+
+class DiagSessionStatus(str, enum.Enum):
+    in_progress = "in_progress"
+    completed = "completed"
+    early_stop = "early_stop"
+    indeterminate = "indeterminate"
+    # 학생이 중단하고 새로 시작한 세션. 데이터는 보존한다(중도이탈 집계 근거).
+    abandoned = "abandoned"
+
+
+class ReliabilityFlag(str, enum.Enum):
+    normal = "normal"
+    low = "low"
+    unstable = "unstable"
+
+
+class BettsLevel(str, enum.Enum):
+    independent = "independent"     # ≥0.90
+    instructional = "instructional" # 0.70~0.89
+    frustration = "frustration"     # <0.70
+
+
+# --- Phase C 판정·처방 도메인 (v1.2 §3, §5, §1-16/§1-17) -----------------
+class Level3(str, enum.Enum):
+    """유창성/독해 수준 3분할."""
+    low = "low"
+    mid = "mid"
+    high = "high"
+
+
+class FluencySource(str, enum.Enum):
+    oral = "oral"
+    silent = "silent"
+    unavailable = "unavailable"
+
+
+class FluencyUnit(str, enum.Enum):
+    CWPM = "CWPM"
+    SPS = "SPS"
+    none = "none"
+
+
+class Label5(str, enum.Enum):
+    excellent = "excellent"
+    observe = "observe"
+    caution = "caution"
+    risk = "risk"
+    urgent = "urgent"
+
+
+class PrescriptionGroup(str, enum.Enum):
+    G1 = "G1"   # 양호
+    G2 = "G2"   # 독해보강
+    G3 = "G3"   # 유창보강
+    G4 = "G4"   # 독해집중
+    G5 = "G5"   # 이중집중
+    G6 = "G6"   # 기초개입
+
+
+class PrescriptionType(str, enum.Enum):
+    A_only = "A_only"
+    B_only = "B_only"
+    A_and_B = "A_and_B"
+    basic_intervention = "basic_intervention"
+
+
+class ToneCode(str, enum.Enum):
+    challenge = "challenge"
+    encourage = "encourage"
+    autonomy = "autonomy"
+    scaffold = "scaffold"
+    success_first = "success_first"
+
+
+class Metacognition(str, enum.Enum):
+    accurate = "accurate"
+    overestimate = "overestimate"
+    underestimate = "underestimate"
+
+
+# --- 변경하지 않는 기존 테이블용 enum (Phase A 범위 밖) -----------------
+class FluencyType(str, enum.Enum):
+    oral = "oral"
+    silent = "silent"
+
+
+class ReaderType(str, enum.Enum):
+    avid = "avid"
+    intermittent = "intermittent"
+    non_reader = "non_reader"
+
+
+class ReadingLevel(str, enum.Enum):
+    low = "low"
+    mid = "mid"
+    high = "high"
+
+
+class ReportRole(str, enum.Enum):
+    student = "student"
+    parent = "parent"
+    teacher = "teacher"
+
+
+# --- 형식 규격화 (2026-09-25) --------------------------------------------
+class DisclaimerCode(str, enum.Enum):
+    """면책 문구 코드. 리포트가 이 코드로 report_templates 에서 문구를 찾는다.
+
+    **지금 목록은 구현 기준이다.** 계약(Package #4 S5-FN-04)은
+    basic·unstable·silent_only·early_stop·grade_boundary·fluency_unavailable 로
+    서로 다르다 — 확정은 문준석 회신 대기(docs/모듈간_데이터_확정필요.md 1-1).
+    자유 문자열이 아니라 여기 없는 코드는 저장 자체가 안 된다.
+    """
+    basic = "basic"
+    fluency_unavailable = "fluency_unavailable"
+    fluency_implausible = "fluency_implausible"
+    fluency_partial_implausible = "fluency_partial_implausible"
+    text_repeated = "text_repeated"
+    reliability_low = "reliability_low"
+    reliability_unstable = "reliability_unstable"
+
+
+class EnvironmentSkipReason(str, enum.Enum):
+    """가정환경 판정을 건너뛴 이유. 환경 수준이 null 일 때 왜 null 인지 남긴다."""
+    no_score = "no_score"               # 보호자 미응답 또는 B-3~B-6 부분 응답
+    no_thresholds = "no_thresholds"     # 학년군 경계값(P33/P67) 미확정

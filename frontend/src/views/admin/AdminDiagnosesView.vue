@@ -145,10 +145,10 @@
               <h3 class="p-title">처방</h3>
               <div class="kv"><span>유형</span><b>{{ detail.prescription.prescription_type }}</b></div>
               <div class="kv"><span>톤</span><b>{{ detail.prescription.type_tone }}</b></div>
+              <div class="kv"><span>추천 지문</span><b>{{ detail.prescription.recommended_texts?.text_ids?.length ?? 0 }}편</b></div>
+              <!-- 처방은 지문 id 만 갖는다. 제목은 리포트가 만든 시점의 미리보기(최대 3편)로 보여 준다. -->
               <div class="rec-list">
-                <div v-for="(t, i) in (detail.prescription.recommended_texts || [])" :key="i" class="rec">
-                  📖 {{ typeof t === 'string' ? t : (t.title || t.text_code || t.id) }}
-                </div>
+                <div v-for="t in recommendedPreview" :key="t.text_id" class="rec">📖 {{ t.title }}</div>
               </div>
             </div>
             <div v-if="detail.report" class="panel">
@@ -211,18 +211,18 @@ function fmtDate(s: string | null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+// 약점 프로필: 6칸, 칸마다 정답 수·문항 수와 서버가 계산한 정답률(문항 없던 칸은 null)
 const weaknessCells = computed(() => {
-  const wp = detail.value?.judgment?.weakness_profile_12
-  if (!wp) return []
-  return Object.entries(wp).map(([k, v]) => {
-    const [area, genre] = k.split('_')
-    return {
-      key: k,
-      label: `${genreKo(genre)} · ${areaKo(area)}`,
-      acc: v as number | null,
-    }
-  })
+  const cells = detail.value?.judgment?.weakness_profile_12?.cells
+  if (!cells) return []
+  return cells.map((c: any) => ({
+    key: `${c.area}_${c.genre}`,
+    label: `${genreKo(c.genre)} · ${areaKo(c.area)} (${c.correct_count}/${c.question_count})`,
+    acc: c.accuracy as number | null,
+  }))
 })
+const recommendedPreview = computed<any[]>(() =>
+  detail.value?.report?.report_content?.layer1?.recommended_preview || [])
 
 async function load() {
   try { list.value = (await api.get('/api/admin/diagnoses')).data }

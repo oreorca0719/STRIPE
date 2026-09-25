@@ -188,6 +188,13 @@ async def _run(predicted_correct: int | None = 7):
         else:
             assert j["metacognition"] == "accurate"             # 예측7 vs 실제8, |gap|=1
         assert p["prescription_type"] in ("A_and_B", "A_only")
+        # 약점 프로필 6칸 — 조회용 칸(total_*)은 칸들의 합과 같아야 한다(한 곳에서 계산)
+        cells = j["weakness_profile_12"]["cells"]
+        assert len(cells) == 6
+        assert sum(c["correct_count"] for c in cells) == j["total_correct"]
+        assert sum(c["question_count"] for c in cells) == j["total_questions"]
+        # 처방은 지문을 id 로만 가리킨다
+        assert all(isinstance(i, int) for i in p["recommended_texts"]["text_ids"])
         print(f"PASS finalize: fluency={j['fluency_value']}({j['fluency_level']}), "
               f"comp={j['comprehension_level']}, label={j['label_5']}, group={j['prescription_group']}")
 
@@ -197,7 +204,11 @@ async def _run(predicted_correct: int | None = 7):
         rep = r.json()
         assert rep["report_content"]["layer1"]["label"] == "보통이야", rep
         assert rep["llm_polished"] is False                    # 키 없음 → 템플릿만
-        assert "basic" in rep["disclaimer_flags"]
+        assert "basic" in rep["disclaimer_flags"]["codes"]
+        # 리포트 문서: 영역 6칸, 판정의 약점 프로필과 같은 순서
+        areas = rep["report_content"]["layer2"]["comprehension"]["areas"]
+        assert [(a["area"], a["genre"]) for a in areas] == \
+            [(c["area"], c["genre"]) for c in j["weakness_profile_12"]["cells"]]
         if predicted_correct is None:
             assert rep["report_content"]["layer2"]["metacognition"] is None, rep
         print(f"PASS report: label='{rep['report_content']['layer1']['label']}', "
@@ -367,7 +378,7 @@ async def _run_no_repeat():
             r = await ac.post(f"/api/diagnosis/session/{sid2}/finalize")
             assert r.status_code == 201, r.text
             j = r.json()["judgment"]
-            assert "text_repeated" in (j["disclaimer_flags"] or []), j["disclaimer_flags"]
+            assert "text_repeated" in j["disclaimer_flags"]["codes"], j["disclaimer_flags"]
             assert j["reliability_flag"] in ("low", "unstable"), j["reliability_flag"]
             print(f"PASS 판정 반영: flags={j['disclaimer_flags']}, "
                   f"reliability={j['reliability_flag']}")

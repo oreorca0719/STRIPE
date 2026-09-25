@@ -7,177 +7,42 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
+from app.contracts.column import ContractJSONB
+from app.contracts.judgment import Disclaimers, WeaknessProfile
+from app.contracts.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
+from app.contracts.report import ReportContent, TemplateIds
 
 
-# =========================================================================
-# Enums — v1.2 기획상세명세 §1, §10 기준
-# 결정사항: PK는 Integer 유지(기존 코드 관례). text/question은 코드체계를
-#          별도 VARCHAR 보조 unique 키(text_code/question_code)로 보존.
-# =========================================================================
-
-class GradeGroup(str, enum.Enum):
-    G4_G6 = "G4_G6"   # 초4~초6
-    G7 = "G7"         # 중1
-
-
-class TextGenre(str, enum.Enum):
-    narrative = "narrative"     # 이야기글
-    expository = "expository"   # 설명글
-
-
-class Difficulty(str, enum.Enum):
-    easy = "easy"
-    normal = "normal"
-    hard = "hard"
-
-
-class ReviewStatus(str, enum.Enum):
-    """texts/questions/item_sets 공통 3단(실질 5단) 승인 상태."""
-    draft = "draft"
-    ai_generated = "ai_generated"
-    auto_checked = "auto_checked"
-    jun_reviewed = "jun_reviewed"
-    approved = "approved"
-
-
-class TextStructure(str, enum.Enum):
-    chronological = "chronological"
-    compare_contrast = "compare_contrast"
-    cause_effect = "cause_effect"
-    problem_solution = "problem_solution"
-
-
-class TargetArea(str, enum.Enum):
-    A5 = "A5"   # 사실적 이해
-    A6 = "A6"   # 추론적 이해
-    A7 = "A7"   # 비판적 이해
-
-
-class QuestionFormat(str, enum.Enum):
-    multiple_choice = "multiple_choice"
-    true_false = "true_false"
-
-
-class Gender(str, enum.Enum):
-    M = "M"
-    F = "F"
-    other = "other"
-
-
-class ReaderType1(str, enum.Enum):
-    enthusiast = "enthusiast"       # 애독자
-    intermittent = "intermittent"   # 간헐적
-    non_reader = "non_reader"       # 비독자
-
-
-class ReaderType2(str, enum.Enum):
-    sharp_decline = "sharp_decline"     # 급락형
-    gradual_decline = "gradual_decline" # 하락형
-    fixed = "fixed"                     # 고정형
-
-
-class DiagSessionStatus(str, enum.Enum):
-    in_progress = "in_progress"
-    completed = "completed"
-    early_stop = "early_stop"
-    indeterminate = "indeterminate"
-    # 학생이 중단하고 새로 시작한 세션. 데이터는 보존한다(중도이탈 집계 근거).
-    abandoned = "abandoned"
-
-
-class ReliabilityFlag(str, enum.Enum):
-    normal = "normal"
-    low = "low"
-    unstable = "unstable"
-
-
-class BettsLevel(str, enum.Enum):
-    independent = "independent"     # ≥0.90
-    instructional = "instructional" # 0.70~0.89
-    frustration = "frustration"     # <0.70
-
-
-# --- Phase C 판정·처방 도메인 (v1.2 §3, §5, §1-16/§1-17) -----------------
-class Level3(str, enum.Enum):
-    """유창성/독해 수준 3분할."""
-    low = "low"
-    mid = "mid"
-    high = "high"
-
-
-class FluencySource(str, enum.Enum):
-    oral = "oral"
-    silent = "silent"
-    unavailable = "unavailable"
-
-
-class FluencyUnit(str, enum.Enum):
-    CWPM = "CWPM"
-    SPS = "SPS"
-    none = "none"
-
-
-class Label5(str, enum.Enum):
-    excellent = "excellent"
-    observe = "observe"
-    caution = "caution"
-    risk = "risk"
-    urgent = "urgent"
-
-
-class PrescriptionGroup(str, enum.Enum):
-    G1 = "G1"   # 양호
-    G2 = "G2"   # 독해보강
-    G3 = "G3"   # 유창보강
-    G4 = "G4"   # 독해집중
-    G5 = "G5"   # 이중집중
-    G6 = "G6"   # 기초개입
-
-
-class PrescriptionType(str, enum.Enum):
-    A_only = "A_only"
-    B_only = "B_only"
-    A_and_B = "A_and_B"
-    basic_intervention = "basic_intervention"
-
-
-class ToneCode(str, enum.Enum):
-    challenge = "challenge"
-    encourage = "encourage"
-    autonomy = "autonomy"
-    scaffold = "scaffold"
-    success_first = "success_first"
-
-
-class Metacognition(str, enum.Enum):
-    accurate = "accurate"
-    overestimate = "overestimate"
-    underestimate = "underestimate"
-
-
-# --- 변경하지 않는 기존 테이블용 enum (Phase A 범위 밖) -----------------
-class FluencyType(str, enum.Enum):
-    oral = "oral"
-    silent = "silent"
-
-
-class ReaderType(str, enum.Enum):
-    avid = "avid"
-    intermittent = "intermittent"
-    non_reader = "non_reader"
-
-
-class ReadingLevel(str, enum.Enum):
-    low = "low"
-    mid = "mid"
-    high = "high"
-
-
-class ReportRole(str, enum.Enum):
-    student = "student"
-    parent = "parent"
-    teacher = "teacher"
-
+# 값 목록은 app/enums.py 에 있다. 기존 import 경로를 위해 여기서 다시 내보낸다.
+from app.enums import (  # noqa: F401
+    GradeGroup,
+    TextGenre,
+    Difficulty,
+    ReviewStatus,
+    TextStructure,
+    TargetArea,
+    QuestionFormat,
+    Gender,
+    ReaderType1,
+    ReaderType2,
+    DiagSessionStatus,
+    ReliabilityFlag,
+    BettsLevel,
+    Level3,
+    FluencySource,
+    FluencyUnit,
+    Label5,
+    PrescriptionGroup,
+    PrescriptionType,
+    ToneCode,
+    Metacognition,
+    FluencyType,
+    ReaderType,
+    ReadingLevel,
+    ReportRole,
+    DisclaimerCode,
+    EnvironmentSkipReason,
+)
 
 # =========================================================================
 # user_relations — 부모-학생 연동 (기존 유지)
@@ -452,7 +317,8 @@ class JudgmentResult(Base):
     overall_accuracy = Column(Float, nullable=True)
     total_correct = Column(Integer, nullable=False, default=0)
     total_questions = Column(Integer, nullable=False, default=0)
-    weakness_profile_12 = Column(JSONB, nullable=False)   # area×genre 셀 정답률
+    # 형식: contracts.judgment.WeaknessProfile (6칸, 칸마다 정답 수·문항 수)
+    weakness_profile_12 = Column(ContractJSONB(WeaknessProfile), nullable=False)
     # 매트릭스 (§3-3)
     matrix_position = Column(String(40), nullable=False)
     label_5 = Column(Enum(Label5), nullable=False)
@@ -464,7 +330,7 @@ class JudgmentResult(Base):
     d2_gap = Column(Integer, nullable=True)
     actual_10 = Column(Integer, nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
-    disclaimer_flags = Column(JSONB, nullable=True)
+    disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     prescription = relationship("PrescriptionResult", back_populates="judgment", uselist=False)
@@ -478,12 +344,13 @@ class PrescriptionResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     prescription_type = Column(Enum(PrescriptionType), nullable=False)
-    recommended_texts = Column(JSONB, nullable=False)
-    weakness_training_plan = Column(JSONB, nullable=True)
+    recommended_texts = Column(ContractJSONB(RecommendedTexts), nullable=False)
+    weakness_training_plan = Column(ContractJSONB(TrainingPlan), nullable=True)
     type_tone = Column(Enum(ToneCode), nullable=False)
     next_session_difficulty = Column(Enum(Difficulty), nullable=True)
-    environment_level = Column(String(10), nullable=True)      # §5-4 (미구현, nullable)
-    environment_adjustment = Column(JSONB, nullable=True)
+    # 가정환경 판정을 건너뛰면 둘 다 null 이다 (보호자 미응답·경계값 미확정)
+    environment_level = Column(Enum(Level3), nullable=True)
+    environment_adjustment = Column(ContractJSONB(EnvironmentAdjustment), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     judgment = relationship("JudgmentResult", back_populates="prescription")
@@ -497,9 +364,9 @@ class Report(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     report_type = Column(Enum(ReportRole), nullable=False)   # MVP1: student
-    report_content = Column(JSONB, nullable=False)           # 3층 구조
-    disclaimer_flags = Column(JSONB, nullable=True)
-    template_ids_used = Column(JSONB, nullable=True)
+    report_content = Column(ContractJSONB(ReportContent), nullable=False)
+    disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)
+    template_ids_used = Column(ContractJSONB(TemplateIds), nullable=True)
     llm_polished = Column(Boolean, nullable=False, default=False)
     review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -4,6 +4,8 @@ from app.models.core import (
     Level3, FluencySource, FluencyUnit, Label5, PrescriptionGroup,
     Metacognition, ReliabilityFlag, GradeGroup, TargetArea, TextGenre,
 )
+from app.contracts.judgment import CellResponse
+from app.enums import DisclaimerCode as D
 from app.services.diagnosis import judgment as J
 
 
@@ -15,7 +17,7 @@ def test_fluency_empty_unavailable():
     assert r.fluency_value is None
     assert r.fluency_value_unit == FluencyUnit.none
     assert r.reliability_flag == ReliabilityFlag.unstable
-    assert "fluency_unavailable" in r.disclaimer_flags
+    assert D.fluency_unavailable in r.disclaimers.codes
     assert r.fluency_level == Level3.mid   # 내부 배치용
 
 
@@ -68,7 +70,7 @@ def test_fluency_all_implausible_is_unavailable():
     assert r.fluency_source == FluencySource.unavailable
     assert r.fluency_value is None
     assert r.reliability_flag == ReliabilityFlag.unstable
-    assert "fluency_implausible" in r.disclaimer_flags
+    assert D.fluency_implausible in r.disclaimers.codes
 
 
 def test_fluency_partial_implausible_uses_rest_with_low_reliability():
@@ -77,7 +79,7 @@ def test_fluency_partial_implausible_uses_rest_with_low_reliability():
     assert r.fluency_valid is True
     assert r.fluency_value == 3.0            # 비정상값 제외 후 산출
     assert r.reliability_flag == ReliabilityFlag.low
-    assert "fluency_partial_implausible" in r.disclaimer_flags
+    assert D.fluency_partial_implausible in r.disclaimers.codes
 
 
 def test_fluency_normal_values_unaffected():
@@ -85,15 +87,15 @@ def test_fluency_normal_values_unaffected():
     r = J.judge_fluency([3.0, 4.0], GradeGroup.G4_G6)
     assert r.fluency_valid is True
     assert r.reliability_flag == ReliabilityFlag.normal
-    assert r.disclaimer_flags == []
+    assert r.disclaimers.codes == []
 
 
-# ---- §3-2 독해 + 12셀 ----------------------------------------------------
+# ---- §3-2 독해 + 약점 프로필 6칸 ----------------------------------------------------
 def _cells(spec):
     out = []
     for area, genre, n_correct, n_total in spec:
         for i in range(n_total):
-            out.append(J.CellResponse(area, genre, i < n_correct))
+            out.append(CellResponse(target_area=area, genre=genre, is_correct=i < n_correct))
     return out
 
 
@@ -101,7 +103,7 @@ def test_comprehension_level_and_accuracy():
     # 8/10 = 0.8 → G4_G6 P67=0.80 → high
     resp = _cells([(TargetArea.A5, TextGenre.narrative, 8, 10)])
     r = J.judge_comprehension(resp, GradeGroup.G4_G6)
-    assert r.total_questions == 10 and r.total_correct == 8
+    assert r.profile.question_count == 10 and r.profile.correct_count == 8
     assert r.overall_accuracy == pytest.approx(0.8)
     assert r.comprehension_level == Level3.high
 
@@ -111,8 +113,8 @@ def test_comprehension_empty_unstable():
     assert r.comprehension_level == Level3.mid
     assert r.overall_accuracy is None
     assert r.reliability_flag == ReliabilityFlag.unstable
-    # 모든 셀 None
-    assert all(v is None for v in r.weakness_profile.values())
+    # 모든 칸이 측정 안 됨 (0/0, 정답률 None — 0 이 아니다)
+    assert all(c.question_count == 0 and c.accuracy is None for c in r.profile.cells)
 
 
 def test_weakness_profile_cells():
@@ -122,13 +124,17 @@ def test_weakness_profile_cells():
         _cells([(TargetArea.A6, TextGenre.narrative, 0, 2)])     # 0.0
     )
     r = J.judge_comprehension(resp, GradeGroup.G4_G6)
-    wp = r.weakness_profile
-    assert wp["A5_narrative"] == pytest.approx(1.0)
-    assert wp["A5_expository"] == pytest.approx(0.5)
-    assert wp["A6_narrative"] == pytest.approx(0.0)
-    assert wp["A6_expository"] is None        # 측정 안 됨
-    assert wp["A7_narrative"] is None and wp["A7_expository"] is None
-    assert len(wp) == 6                         # 3영역 × 2장르
+    wp = r.profile
+    A5, A6, A7 = TargetArea.A5, TargetArea.A6, TargetArea.A7
+    N, E = TextGenre.narrative, TextGenre.expository
+    assert wp.cell(A5, N).accuracy == pytest.approx(1.0)
+    assert wp.cell(A5, E).accuracy == pytest.approx(0.5)
+    assert wp.cell(A6, N).accuracy == pytest.approx(0.0)   # 측정했고 0 이다
+    assert wp.cell(A6, E).accuracy is None                 # 측정 안 됨
+    assert wp.cell(A7, N).accuracy is None and wp.cell(A7, E).accuracy is None
+    assert len(wp.cells) == 6                              # 3영역 × 2장르
+    # 정답률만 남기면 사라지던 정보 — 몇 문항으로 잰 값인가
+    assert (wp.cell(A5, E).correct_count, wp.cell(A5, E).question_count) == (1, 2)
 
 
 # ---- §3-3 매트릭스 9칸 ---------------------------------------------------
@@ -157,7 +163,7 @@ def test_matrix_lookup(flu, comp, label, group):
 def test_metacognition(pred, acc, expected, gap):
     m = J.judge_metacognition(pred, acc)
     assert m.metacognition == expected
-    assert m.d2_gap == gap
+    assert m.gap_count == gap
 
 
 # 미수집을 0 으로 채우면 '재지 않았다'가 '0 이라고 답했다'로 바뀐다.
@@ -176,4 +182,4 @@ def test_예측_0은_미수집과_다르게_취급한다():
     m = J.judge_metacognition(0, 0.8)
     assert m is not None
     assert m.metacognition == Metacognition.underestimate
-    assert m.d2_gap == -8
+    assert m.gap_count == -8
