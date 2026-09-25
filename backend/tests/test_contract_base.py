@@ -1,0 +1,72 @@
+"""형식 틀(contracts/base.py) 자체의 함정.
+
+[공유 별칭의 기본값 오염 — 실제로 났다]
+pydantic 2.5 는 `step: Annotated[int, Field(ge=0)] = 1` 처럼 별칭에 기본값을 주면
+별칭 안의 Field 객체에 그 기본값을 **써 넣는다**. Count 가 `Field(ge=0)` 를 품고
+있을 때 설문 형식의 `step: Count = 1` 한 줄 때문에, 그 뒤에 정의된 모든 Count 칸
+(정답 번호·읽기 시간·음절 수 …)이 기본값 1 을 갖게 됐다 — 빠진 칸이 거부되지
+않고 1 로 채워졌다. 에러는 없었다.
+"""
+import importlib
+import pkgutil
+import typing
+
+from pydantic import BaseModel
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
+
+import app.contracts as contracts_pkg
+from app.contracts.base import Count, Ratio
+
+
+def _shared_aliases():
+    for m in pkgutil.iter_modules(contracts_pkg.__path__):
+        mod = importlib.import_module(f"app.contracts.{m.name}")
+        for name, obj in vars(mod).items():
+            if typing.get_origin(obj) is typing.Annotated:
+                yield f"{m.name}.{name}", obj
+
+
+def test_공유_별칭에_기본값이_새어_들어가지_않았다():
+    """모든 형식을 불러온 뒤에도 별칭 안의 Field 객체는 기본값이 없어야 한다."""
+    leaked = [name for name, alias in _shared_aliases()
+              for meta in typing.get_args(alias)[1:]
+              if isinstance(meta, FieldInfo) and meta.default is not PydanticUndefined]
+    assert not leaked, f"별칭에 기본값이 새어 들어갔다: {leaked}"
+
+
+def test_기본값을_준_칸이_다른_칸을_오염시키지_않는다():
+    class First(BaseModel):
+        a: Count = 1
+        r: Ratio = 0.5
+
+    class Later(BaseModel):
+        a: Count
+        r: Ratio
+
+    assert Later.model_fields["a"].is_required()
+    assert Later.model_fields["r"].is_required()
+
+
+def test_빠진_필수_칸은_거부된다():
+    """오염이 실제로 드러났던 칸들."""
+    from app.contracts.content import SeedText
+    from app.contracts.measurement import AnswerSubmit, SilentReadingSubmit
+    for model, field in [(SeedText, "syllable_count"), (AnswerSubmit, "student_answer"),
+                         (SilentReadingSubmit, "reading_time_ms")]:
+        assert model.model_fields[field].is_required(), f"{model.__name__}.{field}"
+
+
+def test_한_칸에_같은_종류의_제약이_겹치지_않는다():
+    """Annotated[Count, ...] = Field(ge=1) 처럼 겹치면 뒤에 붙은 Ge(0) 가 이겨
+    ge=1 이 조용히 풀린다(선지 번호 0 이 통과됐다). 겹칠 일이 있으면 별칭을 따로 둔다."""
+    import collections
+    from tests.test_contract_principles import _all_contracts
+    kinds = ("Ge", "Gt", "Le", "Lt", "MinLen", "MaxLen")
+    dup = []
+    for model in _all_contracts():
+        for name, f in model.model_fields.items():
+            c = collections.Counter(type(m).__name__ for m in f.metadata)
+            if any(c[k] > 1 for k in kinds):
+                dup.append(f"{model.__name__}.{name}")
+    assert not dup, dup

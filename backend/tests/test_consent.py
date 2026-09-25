@@ -182,7 +182,7 @@ def test_enforcement_blocks_diagnosis_when_enabled():
         settings.REQUIRE_PILOT_CONSENT = True
         try:
             survey = {"grade": 5, "reading_freq": 3, "reading_attitude": 3,
-                      "interest_topics": ["animal"], "predicted_correct": 5}
+                      "interest_topics": ["animal"]}
 
             # 기록 없음 → 403
             async with _client(_student_app(S1)) as ac:
@@ -227,7 +227,7 @@ def test_enforcement_off_by_default_does_not_block():
         async with _client(_student_app(S2)) as ac:
             r = await ac.post("/api/diagnosis/profile", json={
                 "grade": 5, "reading_freq": 3, "reading_attitude": 3,
-                "interest_topics": ["animal"], "predicted_correct": 5,
+                "interest_topics": ["animal"],
             })
             assert r.status_code == 201, r.text
 

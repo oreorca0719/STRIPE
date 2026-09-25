@@ -33,13 +33,11 @@ from __future__ import annotations
 
 from typing import Iterable, List, Sequence
 
-from app.services.survey import definition as D
+from app.contracts.content import TopicTag
 
 # MVP1 에서 지문 하나가 가질 수 있는 태그 수. 늘리려면 식별자 형식부터 바꿔야 한다.
 MAX_TAGS = 1
 
-# 자유입력 항목. 파이프라인은 태그 코드만 쓰므로 매칭 어휘에서 뺀다.
-_NOT_A_TAG = {"other"}
 
 
 class TagError(ValueError):
@@ -48,7 +46,7 @@ class TagError(ValueError):
 
 def canonical() -> List[str]:
     """학생이 고를 수 있는 주제 코드. 이것이 매칭 가능한 어휘의 전부다."""
-    return [v for v in D.option_values("student", "C-1") if v not in _NOT_A_TAG]
+    return [t.value for t in TopicTag]
 
 
 def normalize(tags: Iterable[str] | None) -> List[str]:

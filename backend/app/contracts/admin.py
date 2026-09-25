@@ -16,7 +16,7 @@ from typing import Annotated, List, Optional
 
 from pydantic import Field, model_validator
 
-from app.contracts.base import Bool, Contract, Count, Float, Int, Ratio, Text, Unitless
+from app.contracts.base import ChoiceNumber, Bool, Contract, Count, Float, Int, Ratio, Text, Unitless
 from app.contracts.judgment import Disclaimers, WeaknessProfileView
 from app.contracts.prescription import RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent
@@ -26,6 +26,8 @@ from app.enums import (
     PrescriptionType, ReliabilityFlag, ReviewStatus, TargetArea, TextGenre, TextStructure,
     ToneCode, VocabularyLevel,
 )
+
+from app.contracts.content import ReadabilityMetrics  # noqa: E402
 
 TopicCode = Text("주제 코드. 정본은 C-1 선지 15종(content.topic_tags) — 정본 밖 지문 "
                  "15편이 재태깅 대기라 조회에서는 막지 않는다. 적재·설문 입력에서 막는다")
@@ -70,22 +72,6 @@ class TextSummary(Contract):
     vocabulary_level: Optional[VocabularyLevel] = None
 
 
-class ReadabilityMetrics(Contract):
-    """가독성 산출 근거 (content.readability.TextMetrics)."""
-    sentence_count: Count
-    word_count: Count
-    syllable_count: Count
-    avg_sentence_words: Annotated[Float, Unitless("문장당 평균 어절 수")]
-    avg_word_syllables: Annotated[Float, Unitless("어절당 평균 음절 수")]
-    long_word_ratio: Ratio = Field(description="긴 어절(5음절 이상) 비율 0~1")
-    clause_density: Annotated[Float, Unitless("문장당 평균 절 수")]
-    lexical_variety: Annotated[Ratio, Unitless(
-        "0~1 비율. 이름이 원칙(_ratio)과 다르지만 texts.readability_metrics 에 이미 저장된 "
-        "키라 콘텐츠 경로에서 저장 데이터와 함께 바꾼다")] = Field(description="서로 다른 어절 비율 0~1")
-    readability_score: Annotated[Float, Field(ge=0, le=100)]
-    vocabulary_level: VocabularyLevel
-
-
 class QuestionDetail(Contract):
     """관리자용 문항 — 정답·근거·해설 포함."""
     id: Int
@@ -93,7 +79,7 @@ class QuestionDetail(Contract):
     target_area: TargetArea
     question_text: Text("발문")
     choices: List[Text("선지")]
-    answer_index: Annotated[Count, Unitless("정답 선지 번호, 1부터")] = Field(ge=1)
+    answer_index: ChoiceNumber = Field(description="정답 선지 번호")
     evidence_text: Text("정답 근거 문장")
     explanation: Text("해설")
     review_status: ReviewStatus
@@ -182,10 +168,10 @@ class TextBrief(Contract):
 class ResponseDetail(Contract):
     """문항 응답 한 건. 문항이 삭제됐으면 문항 칸이 null."""
     target_area: TargetArea
-    student_answer: Annotated[Count, Unitless("고른 선지 번호, 1부터")]
+    student_answer: ChoiceNumber = Field(description="고른 선지 번호")
     is_correct: Bool
     question_text: Optional[Text("발문")] = None
-    answer_index: Optional[Annotated[Count, Unitless("정답 선지 번호")]] = None
+    answer_index: Optional[ChoiceNumber] = Field(None, description="정답 선지 번호")
     choices: Optional[List[Text("선지")]] = None
 
 

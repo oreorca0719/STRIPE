@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+from annotated_types import Ge, Interval
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
 
@@ -76,9 +77,17 @@ def _number_only(v: Any) -> Any:
 Int = StrictInt
 Bool = StrictBool
 Float = Annotated[float, BeforeValidator(_number_only)]
-Count = Annotated[StrictInt, Field(ge=0)]
-Ratio = Annotated[float, BeforeValidator(_number_only), Field(ge=0.0, le=1.0)]
+# 공유 별칭의 제약은 Field(...) 가 아니라 annotated_types 로 건다. pydantic 2.5 는
+# `x: Annotated[int, Field(ge=0)] = 1` 처럼 별칭에 기본값을 주면 **별칭 안의 Field
+# 객체에 기본값을 써 넣는다** — 그 뒤에 정의된 모든 Count 칸이 기본값 1 을 갖게 되어,
+# 빠진 칸이 거부되지 않고 1 로 채워졌다(tests/test_contract_base.py).
+Count = Annotated[StrictInt, Ge(0)]
+Ratio = Annotated[float, BeforeValidator(_number_only), Interval(ge=0.0, le=1.0)]
 """0~1 비율. 퍼센트(0~100)는 이름을 _pct 로 끝낸다."""
+
+# 선지 번호(1부터). 개수·시간이 아닌 순번이다. Count 에 Field(ge=1) 를 덧대면 Count 의
+# Ge(0) 가 뒤에 붙어 ge=1 을 덮어쓴다(0 번이 통과됐다) — 그래서 따로 둔다.
+ChoiceNumber = Annotated[StrictInt, Ge(1), Unitless("선지 번호 — 1부터 세는 순번")]
 
 
 def Text(why: str):

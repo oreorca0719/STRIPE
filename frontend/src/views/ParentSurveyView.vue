@@ -46,7 +46,7 @@
             <SurveyQuestion
               v-for="q in questions" :key="q.code"
               :q="q"
-              :model-value="answers[q.storage_field]"
+              :model-value="answers[field(q)]"
               @update:model-value="setAnswer(q, $event)"
             />
           </section>
@@ -68,7 +68,8 @@
 </template>
 
 <script setup lang="ts">
-import type { ParentSurveyOut } from '@/api-types'
+import type { ParentSurveyOut, SurveyQuestions } from '@/api-types'
+import { errorDetail, type SurveyItem, type SurveyValue } from '@/utils/survey'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -84,8 +85,13 @@ import SurveyQuestion from '@/components/SurveyQuestion.vue'
 const router = useRouter()
 const auth = useAuthStore()
 
-const questions = ref<any[]>([])
-const answers = reactive<Record<string, any>>({})
+const questions = ref<SurveyItem[]>([])
+// 화면에 뜨는 문항은 모두 저장 칸이 있다(서버 테스트가 보장) — 저장 칸 이름이 키다.
+const answers = reactive<Record<string, SurveyValue>>({})
+
+function field(q: SurveyItem): string {
+  return q.storage_field ?? q.code
+}
 const previous = ref(false)
 const noProfile = ref(false)
 const loadError = ref(false)
@@ -95,7 +101,7 @@ const busy = ref(false)
 
 const answeredCount = computed(() =>
   questions.value.filter(q => {
-    const v = answers[q.storage_field]
+    const v = answers[field(q)]
     return v !== null && v !== undefined && v !== ''
   }).length)
 
@@ -104,21 +110,21 @@ async function load() {
   noProfile.value = false
   try {
     const [defRes, latestRes] = await Promise.all([
-      api.get('/api/parent/survey/definition'),
+      api.get<SurveyQuestions>('/api/parent/survey/definition'),
       api.get<ParentSurveyOut | null>('/api/parent/survey/latest'),
     ])
     questions.value = defRes.data.questions
     for (const q of questions.value) {
-      if (!(q.storage_field in answers)) answers[q.storage_field] = null
+      if (!(field(q) in answers)) answers[field(q)] = null
     }
     // 이전 응답이 있으면 채워 넣는다. 처음부터 다시 쓰게 하면 고치려는
     // 보호자가 오히려 응답을 빠뜨린다.
-    // 설문 문항 정의는 아직 형식이 없어(설문 경로) storage_field 로 칸을 찾는다.
-    const prev = latestRes.data as unknown as Record<string, unknown> | null
+    // 문항의 저장 칸 이름이 응답 형식의 칸 이름과 같다(서버 테스트가 보장).
+    const prev = latestRes.data as unknown as Record<string, SurveyValue> | null
     if (prev) {
       previous.value = true
       for (const q of questions.value) {
-        if (prev[q.storage_field] !== undefined) answers[q.storage_field] = prev[q.storage_field]
+        if (prev[field(q)] !== undefined) answers[field(q)] = prev[field(q)]
       }
     }
   } catch (e: any) {
@@ -127,21 +133,21 @@ async function load() {
   }
 }
 
-function setAnswer(q: any, v: any) {
-  answers[q.storage_field] = v
+function setAnswer(q: SurveyItem, v: SurveyValue) {
+  answers[field(q)] = v
   submitError.value = ''
 }
 
 async function submit() {
   busy.value = true; submitError.value = ''
   try {
-    const payload: Record<string, any> = {}
-    for (const q of questions.value) payload[q.storage_field] = answers[q.storage_field]
+    const payload: Record<string, SurveyValue> = {}
+    for (const q of questions.value) payload[field(q)] = answers[field(q)]
     await api.post<ParentSurveyOut>('/api/parent/survey', payload)
     submitted.value = true
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (e: any) {
-    submitError.value = e?.response?.data?.detail || '저장하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+    submitError.value = errorDetail(e, '저장하지 못했습니다. 잠시 후 다시 시도해 주세요.')
   } finally { busy.value = false }
 }
 

@@ -22,9 +22,9 @@
     "grade_group": "G4_G6",              // 필수. G4_G6 | G7
     "genre": "narrative",                // 필수. narrative | expository
     "difficulty_level": "normal",        // 필수. easy | normal | hard
-    "topic_tags": ["FRIENDSHIP"],        // 지문과 같은 taxonomy 를 쓴다
-    "difficulty_source": "publisher",    // 난도 근거. publisher | curriculum_list | manual
-    "source": "manual"                   // 데이터 출처
+    "topic_tags": ["friendship"],        // 필수. 설문 C-1 선지 코드(소문자, 기타 제외)
+    "difficulty_source": "publisher",    // 필수. publisher | curriculum_list | manual
+    "source": "manual"                   // 필수. api | manual | curriculum_list | template
   }
 ]
 
@@ -51,17 +51,15 @@ sys.path.insert(0, str(BACKEND_DIR))
 from dotenv import load_dotenv                                   # noqa: E402
 load_dotenv(BACKEND_DIR / ".env")
 
+from pydantic import ValidationError                             # noqa: E402
 from sqlalchemy import select                                    # noqa: E402
+from app.contracts.content import SeedBooks                      # noqa: E402
 from app.core.database import AsyncSessionLocal, engine          # noqa: E402
-from app.models.core import (                                    # noqa: E402
-    Book, Difficulty, GradeGroup, ReviewStatus, TextGenre,
-)
+from app.models.core import Book, ReviewStatus                   # noqa: E402
 
-# 지문 생성과 같은 taxonomy. 새 태그를 쓰려면 generate_content.py 와 함께 늘릴 것.
-KNOWN_TOPICS = {
-    "ANIMAL", "FRIENDSHIP", "ADVENTURE", "FAMILY", "FANTASY",
-    "SCIENCE", "NATURE", "SPACE", "HISTORY", "DAILY",
-}
+# 주제 태그는 지문과 같은 정본(설문 C-1 선지)을 쓴다 — contracts/content.TopicTag.
+# 예전에는 여기에 옛 태그 목록(대문자 10종, NATURE·SPACE 등 C-1 에 없는 것 포함)이
+# 따로 있어, 그대로 적재한 책은 학생 관심 주제와 한 번도 만나지 않았다.
 
 TEMPLATE = [
     {
@@ -76,60 +74,23 @@ TEMPLATE = [
         "grade_group": "G4_G6",
         "genre": "narrative",
         "difficulty_level": "easy",
-        "topic_tags": ["NATURE", "FAMILY"],
+        "topic_tags": ["family"],
         "difficulty_source": "manual",
         "source": "template",
     }
 ]
 
 
-def validate(item: dict, idx: int) -> list[str]:
-    errs = []
-    if not (item.get("title") or "").strip():
-        errs.append("title 없음")
-    for field, enum_cls in (("grade_group", GradeGroup),
-                            ("genre", TextGenre),
-                            ("difficulty_level", Difficulty)):
-        v = item.get(field)
-        try:
-            enum_cls(v)
-        except (ValueError, KeyError):
-            errs.append(f"{field}={v!r} 유효하지 않음")
-
-    tags = item.get("topic_tags") or []
-    if not isinstance(tags, list):
-        errs.append("topic_tags 는 배열이어야 함")
-    else:
-        unknown = [t for t in tags if t not in KNOWN_TOPICS]
-        if unknown:
-            errs.append(f"모르는 주제 태그: {unknown}")
-
-    isbn = item.get("isbn13")
-    if isbn and (not str(isbn).isdigit() or len(str(isbn)) != 13):
-        errs.append(f"isbn13 형식 오류: {isbn!r}")
-
-    if item.get("page_count") is None:
-        # 실패는 아니지만 알린다 — 완독 경험 설계에 쓰이는 값이다
-        errs.append("(경고) page_count 없음 — 짧은 책 우선 정렬에서 뒤로 밀림")
-    return errs
-
-
 async def load(path: Path, approve: bool) -> None:
-    items = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(items, list):
-        print("ERROR: 최상위가 배열이어야 합니다.")
+    try:
+        items = SeedBooks.validate_json(path.read_bytes())
+    except ValidationError as e:
+        print(f"도서 파일이 형식에 맞지 않아 적재하지 않았습니다 ({e.error_count()}건)\n{e}")
         return
-
-    fatal = 0
     for i, it in enumerate(items):
-        errs = validate(it, i)
-        hard = [e for e in errs if not e.startswith("(경고)")]
-        for e in errs:
-            print(f"  [{i}] {it.get('title', '?')}: {e}")
-        fatal += len(hard)
-    if fatal:
-        print(f"\n검증 실패 {fatal}건 — 적재하지 않았습니다.")
-        return
+        if it.page_count is None:
+            # 실패는 아니지만 알린다 — 완독 경험 설계에 쓰이는 값이다
+            print(f"  [{i}] {it.title}: (경고) page_count 없음 — 짧은 책 우선 정렬에서 뒤로 밀림")
 
     status = ReviewStatus.approved if approve else ReviewStatus.draft
     added = updated = 0
@@ -137,25 +98,25 @@ async def load(path: Path, approve: bool) -> None:
     async with AsyncSessionLocal() as db:
         for it in items:
             existing = None
-            if it.get("isbn13"):
+            if it.isbn13:
                 existing = (await db.execute(
-                    select(Book).where(Book.isbn13 == str(it["isbn13"]))
+                    select(Book).where(Book.isbn13 == it.isbn13)
                 )).scalar_one_or_none()
 
             fields = dict(
-                title=it["title"].strip(),
-                author=it.get("author"),
-                publisher=it.get("publisher"),
-                published_year=it.get("published_year"),
-                page_count=it.get("page_count"),
-                cover_url=it.get("cover_url"),
-                description=it.get("description"),
-                grade_group=GradeGroup(it["grade_group"]),
-                genre=TextGenre(it["genre"]),
-                difficulty_level=Difficulty(it["difficulty_level"]),
-                topic_tags=it.get("topic_tags") or [],
-                difficulty_source=it.get("difficulty_source"),
-                source=it.get("source"),
+                title=it.title.strip(),
+                author=it.author,
+                publisher=it.publisher,
+                published_year=it.published_year,
+                page_count=it.page_count,
+                cover_url=it.cover_url,
+                description=it.description,
+                grade_group=it.grade_group,
+                genre=it.genre,
+                difficulty_level=it.difficulty_level,
+                topic_tags=[t.value for t in it.topic_tags],
+                difficulty_source=it.difficulty_source,
+                source=it.source,
             )
 
             if existing:
@@ -165,7 +126,7 @@ async def load(path: Path, approve: bool) -> None:
                     setattr(existing, k, v)
                 updated += 1
             else:
-                db.add(Book(isbn13=it.get("isbn13"), review_status=status, **fields))
+                db.add(Book(isbn13=it.isbn13, review_status=status, **fields))
                 added += 1
 
         await db.commit()

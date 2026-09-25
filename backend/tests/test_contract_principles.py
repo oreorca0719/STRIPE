@@ -133,23 +133,14 @@ def test_원칙_검사가_어긴_형식을_실제로_잡는다():
 # 아직 정리하지 않은 곳. 정리하면 지운다. 목록에 있는데 코드에서 사라져도 실패한다
 # (목록이 낡지 않도록).
 ALLOWED_UNTYPED = {
-    "content/item_quality.py::QualityReport.position_counts": "콘텐츠 경로에서 정리 예정",
-    "content/item_quality.py::analyze": "콘텐츠 경로에서 정리 예정",
-    "content/item_quality.py::as_dict": "콘텐츠 경로에서 정리 예정",
-    "content/readability.py::as_dict": "콘텐츠 경로에서 정리 예정",
-    "diagnosis/environment.py::judge_environment": "percentiles 는 설정표(데이터 라인 아님)",
     "stt/adapter.py::STTResult.words": "음독 경로에서 정리 예정",
     "stt/analyzer.py::OralReadingAnalysis.alignment_deviations": "음독 경로에서 정리 예정",
     "stt/vad.py::to_dict": "음독 경로에서 정리 예정",
-    "survey/definition.py::load": "설문 경로에서 정리 예정",
-    "survey/definition.py::questions": "설문 경로에서 정리 예정",
-    "survey/definition.py::get": "설문 경로에서 정리 예정",
-    "survey/definition.py::option_values": "설문 경로에서 정리 예정",
-    "survey/definition.py::storage_map": "설문 경로에서 정리 예정",
-    "survey/definition.py::validate": "설문 경로에서 정리 예정",
 }
 
-_UNTYPED = re.compile(r"\b(dict|Dict|Any|list\[dict\]|List\[dict\])\b")
+# 칸 타입이 드러나지 않는 것만 잡는다: 맨 dict·Dict, Any. Dict[str, str] 처럼 키·값
+# 타입을 적은 것은 형식이 드러나 있으므로 통과한다(Dict[str, Any] 는 Any 로 잡힌다).
+_UNTYPED = re.compile(r"\b(?:dict|Dict)\b(?!\[)|\bAny\b")
 
 
 def _untyped_in_services():

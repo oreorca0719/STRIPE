@@ -7,6 +7,7 @@ from app.contracts.prescription import RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent
 from app.contracts.measurement import AdaptiveDecision, RoundAggregateView
 from app.contracts.base import Bool, Contract, Count, Int
+from app.contracts.survey import ProfileCreate, ReaderTypeProbe, TopicCodes  # noqa: F401
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -15,34 +16,8 @@ from app.models.core import (
 
 
 # ---- 학생 프로필 (설문 → 독자유형) ----------------------------------------
-class ProfileCreate(ResponseModel):
-    """MVP1 학생 설문 (필수 9 + 조건부 2). 선지 검증은 문항 정의가 한다."""
-    # 필수 9문항
-    grade: int                                   # B-1 학년 4~7 (7=중1)
-    gender: Optional[str] = None                 # B-2 성별 M/F/other
-    reading_freq: Optional[int] = None           # A-2 독서빈도 (1~6, 클수록 자주)
-    reading_attitude: Optional[int] = None       # A-3 독서태도 (1~6, 클수록 좋아함)
-    voluntary_reading: Optional[int] = None      # A-1 최근 한 달 자발적 독서 권수
-    life_reading_graph: Optional[List[Optional[int]]] = None  # A-4 학년별 7칸
-    interest_topics: Optional[List[str]] = None  # C-1 관심주제 (1~3개)
-    free_text_interest: Optional[str] = None     # C-1 기타 원문
-    preferred_genres: Optional[List[str]] = None # C-3 선호 글 종류 (최대 3개)
-    self_reading_level: Optional[int] = None     # D-1 자기 인식 (1~5)
-
-    # 조건부 2문항 — 비독자로 판정된 학생에게만 노출된다(§6).
-    # 그 외 학생은 화면에 뜨지 않으므로 None 으로 들어온다. 이 None 은
-    # '해당 없음'이지 '무응답'이 아니다.
-    book_image: Optional[List[str]] = None       # A-5 책의 이미지
-    non_reading_reason: Optional[List[str]] = None  # A-6 안 읽는 이유
-
-    # 예약·비활성 (STR-127). 수집하지 않으나 기존 호출을 깨뜨리지 않도록 남긴다.
-    predicted_correct: Optional[int] = None      # D-2
-
-
-class ReaderTypeProbe(ResponseModel):
-    """A-2·A-3 만으로 1차 유형을 미리 물어보는 요청."""
-    reading_freq: Optional[int] = None
-    reading_attitude: Optional[int] = None
+# 설문 제출 형식(ProfileCreate·ReaderTypeProbe)은 app/contracts/survey.py — 값 목록을
+# 설문 파일의 선지에서 만든다.
 
 
 class ReaderTypeProbeResponse(ResponseModel):
@@ -57,7 +32,7 @@ class ProfileResponse(ResponseModel):
     user_id: int
     grade: Optional[int]
     type_1: Optional[ReaderType1]
-    interest_topics: Optional[List[str]]
+    interest_topics: Optional[TopicCodes]
 
 
 # ---- 회차 콘텐츠 (지문 + 문항, 정답 제외) ---------------------------------

@@ -14,8 +14,13 @@ from app.contracts.report import ReportContent, TemplateIds
 from app.contracts.measurement import AwayEvents
 from app.contracts.privacy import ConsentSnapshot, DeletedCounts
 from app.contracts.review import Checklist
+from app.contracts.content import Choices, ReadabilityMetrics
+from app.contracts.survey import (
+    BookImages, GenrePreferences, LifeReadingGraph, NonReadingReasons, TopicCodes,
+)
 from app.enums import (
-    DeletionReason, DisposalReason, GradeLevel, ReviewDecision, ReviewTarget, UserRole,
+    BookDifficultySource, BookSource, ContentAuthor, DeletionReason, DisposalReason, GradeLevel,
+    ReviewDecision, ReviewTarget, UserRole, VocabularyLevel,
 )
 
 
@@ -87,15 +92,15 @@ class TextContent(Base):
     # 외부 기관 지수. 우리가 산출할 수 없어 NULL 로 둔다 — 자체 계산값을 넣으면
     # 외부 표준으로 오인된다. 자체 지표는 readability_* 를 쓴다.
     kread_index = Column(Float, nullable=True)
-    vocabulary_level = Column(String(20), nullable=True)   # 길이 기반 대리 등급
+    vocabulary_level = Column(Enum(VocabularyLevel), nullable=True)   # 길이 기반 대리 등급
     sentence_complexity = Column(Float, nullable=True)     # 문장당 평균 어절 수
     text_structure = Column(Enum(TextStructure), nullable=True)
     # 표면 구조 합성 지표(0~100)와 산출 근거. STR-103, 마이그레이션 009.
     readability_score = Column(Float, nullable=True)
-    readability_metrics = Column(JSONB, nullable=True)
+    readability_metrics = Column(ContractJSONB(ReadabilityMetrics), nullable=True)
     text_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    created_by_role = Column(String(20), nullable=True)  # 'jun' | 'ai'
+    created_by_role = Column(Enum(ContentAuthor), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -137,7 +142,7 @@ class Question(Base):
     target_area = Column(Enum(TargetArea), nullable=False)
     question_type = Column(Enum(QuestionFormat), nullable=False)
     question_text = Column(Text, nullable=False)
-    choices = Column(JSONB, nullable=False)              # 4지선다 선지 배열
+    choices = Column(ContractJSONB(Choices), nullable=False)   # 4지선다 선지 4개
     answer_index = Column(Integer, nullable=False)       # 정답 인덱스 (1-based)
     evidence_text = Column(Text, nullable=False)         # 정답 근거 지문 문장
     explanation = Column(Text, nullable=False)
@@ -168,21 +173,21 @@ class StudentProfile(Base):
     # 행동 (A-1~A-3, A-7, A-8, C-7, A-4)
     reading_freq = Column(Integer, nullable=True)        # A-2 (1~6)
     reading_attitude = Column(Integer, nullable=True)    # A-3 (1~6)
-    voluntary_reading = Column(String(50), nullable=True)# A-1
+    voluntary_reading_count = Column(Integer, nullable=True)  # A-1 최근 한 달 권수 (0~99)
     voluntary_ratio = Column(Integer, nullable=True)     # A-8 (0~100)
     reading_fondness = Column(Integer, nullable=True)    # A-7 (1~5)
     smartphone_hours = Column(Float, nullable=True)      # C-7
-    life_reading_graph = Column(JSONB, nullable=True)    # A-4 (3시점×0~10)
+    life_reading_graph = Column(ContractJSONB(LifeReadingGraph), nullable=True)  # A-4 학년별 7칸
     # 환경 (A-5, A-6, C-2, C-4, C-5)
-    book_image = Column(JSONB, nullable=True)            # A-5
-    non_reading_reason = Column(JSONB, nullable=True)    # A-6
+    book_image = Column(ContractJSONB(BookImages), nullable=True)                # A-5
+    non_reading_reason = Column(ContractJSONB(NonReadingReasons), nullable=True)  # A-6
     media_genre = Column(JSONB, nullable=True)           # C-2
     enjoyed_book = Column(String(200), nullable=True)    # C-4
     abandoned_book_reason = Column(JSONB, nullable=True) # C-5
     # 관심 (C-1, C-3, C-6, C-8, D-5)
-    interest_topics = Column(JSONB, nullable=True)       # C-1 (B7 태그 코드 배열)
+    interest_topics = Column(ContractJSONB(TopicCodes), nullable=True)           # C-1
     free_text_interest = Column(String(100), nullable=True)  # C-1 기타
-    preferred_genres = Column(JSONB, nullable=True)      # C-3
+    preferred_genres = Column(ContractJSONB(GenrePreferences), nullable=True)    # C-3
     leisure_ranking = Column(JSONB, nullable=True)       # C-6
     info_media = Column(String(50), nullable=True)       # C-8
     unknown_word_strategy = Column(String(50), nullable=True)  # D-5
@@ -560,8 +565,8 @@ class Book(Base):
 
     # 난도를 무엇을 근거로 매겼는가. 추천이 어긋났을 때 어느 출처가 부정확했는지
     # 추적하는 경로 — STR-108 의 핵심 쟁점이다.
-    difficulty_source = Column(String(30), nullable=True)
-    source = Column(String(30), nullable=True)          # api | manual | curriculum_list ...
+    difficulty_source = Column(Enum(BookDifficultySource), nullable=True)
+    source = Column(Enum(BookSource), nullable=True)
 
     # 운영 — 부적절한 책이 아동에게 추천되면 안 되므로 지문과 같은 검수를 거친다
     review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
@@ -601,7 +606,7 @@ class ParentResponse(Base):
     # 보호자 인식 (E-1~E-6)
     parent_freq_estimate = Column(Integer, nullable=True)      # E-1 자발적 독서 빈도 (1~6)
     parent_reading_level = Column(Integer, nullable=True)      # E-2 또래 대비 이해력 (1~5)
-    parent_predicted_correct = Column(Integer, nullable=True)  # E-3 예상 정답 수 (0~10)
+    parent_predicted_correct_count = Column(Integer, nullable=True)  # E-3 예상 정답 수 (0~10)
     parent_recommend_freq = Column(Integer, nullable=True)     # E-4 권유 빈도 (1~4)
     parent_info_source = Column(String(30), nullable=True)     # E-5 참고 정보원
     parent_book_criteria = Column(String(30), nullable=True)   # E-6 도서 선택 기준

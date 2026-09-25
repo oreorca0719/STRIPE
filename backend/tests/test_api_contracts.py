@@ -11,8 +11,6 @@ from main import app
 
 # 아직 형식을 달지 않은 곳. 사유가 있어야 하고, 정리하면 지운다.
 ALLOWED_UNTYPED = {
-    ("GET", "/api/diagnosis/survey/definition"): "설문 경로 — 설문 정의 파일 형식과 함께 정한다",
-    ("GET", "/api/parent/survey/definition"): "설문 경로 — 설문 정의 파일 형식과 함께 정한다",
     ("POST", "/api/audio/oral"): "음독 경로에서 정한다",
     ("POST", "/api/audio/timing"): "음독 경로에서 정한다",
     ("GET", "/api/audio/health"): "음독 경로에서 정한다",

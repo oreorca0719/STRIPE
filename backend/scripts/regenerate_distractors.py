@@ -40,6 +40,12 @@ load_dotenv(BACKEND_DIR / ".env")
 
 from anthropic import Anthropic                                  # noqa: E402
 from app.services.content import item_quality as Q               # noqa: E402
+from app.contracts.content import SeedQuestion                   # noqa: E402
+
+
+def _question_groups(items: list) -> list:
+    """시드 파일의 지문별 문항을 형식으로 검사해 품질 점검에 넘긴다."""
+    return [[SeedQuestion.model_validate(q) for q in it["questions"]] for it in items]
 
 MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
 
@@ -190,7 +196,7 @@ def main() -> None:
 
     path = Path(args.file)
     items = json.loads(path.read_text(encoding="utf-8"))
-    print(Q.format_report(Q.analyze(items)))
+    print(Q.format_report(Q.analyze(_question_groups(items))))
 
     targets = items[:1] if args.dry_run else items
     done = failed = skipped = 0
@@ -223,7 +229,7 @@ def main() -> None:
                 failed += 1
 
     print(f"\n재생성 {done} / 실패 {failed} / 건너뜀 {skipped}")
-    print(Q.format_report(Q.analyze(items)))
+    print(Q.format_report(Q.analyze(_question_groups(items))))
 
     if args.dry_run:
         print("\n[dry-run] 저장하지 않았습니다.")

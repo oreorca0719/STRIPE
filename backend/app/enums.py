@@ -338,3 +338,25 @@ class GradeLevel(str, enum.Enum):
     elem5 = "elem5"
     elem6 = "elem6"
     mid1  = "mid1"
+
+
+# --- 콘텐츠 경로 규격화 (2026-09-26) ------------------------------------
+class QuestionStatus(str, enum.Enum):
+    """설문 문항의 상태 (survey_questions.json)."""
+    active = "active"               # 화면에 뜨고 수집한다
+    conditional = "conditional"     # 조건(show_if)을 만족할 때만 뜬다
+    reserved = "reserved"           # 정의만 있고 수집하지 않는다 (예약·비활성)
+
+
+class ResponseType(str, enum.Enum):
+    """설문 응답 유형 — 유형마다 필요한 칸이 다르다."""
+    single_select = "single_select"
+    multi_select = "multi_select"
+    scale_4 = "scale_4"
+    scale_5 = "scale_5"
+    scale_6 = "scale_6"
+    numeric_input = "numeric_input"
+    slider = "slider"
+    grade_history = "grade_history"
+    rank = "rank"
+    hybrid = "hybrid"

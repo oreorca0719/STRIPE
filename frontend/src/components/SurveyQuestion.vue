@@ -7,7 +7,8 @@
     <p v-if="q.guide_text" class="q-guide">{{ q.guide_text }}</p>
 
     <!-- 단일 선택 · 척도 -->
-    <div v-if="isSingle" class="chips wrap">
+    <div v-if="q.response_type === 'single_select' || q.response_type === 'scale_4'
+               || q.response_type === 'scale_5' || q.response_type === 'scale_6'" class="chips wrap">
       <button v-for="o in q.options" :key="String(o.value)" class="chip"
               :class="{ sel: modelValue === o.value }"
               @click="emit('update:modelValue', o.value)">
@@ -31,6 +32,13 @@
              :value="modelValue ?? ''" @input="onNumber" />
       <span class="num-unit">{{ q.unit }}</span>
       <button class="num-btn" :disabled="numValue >= q.max" @click="step(1)">+</button>
+    </div>
+
+    <!-- 슬라이더 (E-3) — 예전에는 이 분기가 없어 문구만 뜨고 답할 칸이 없었다 -->
+    <div v-else-if="q.response_type === 'slider'" class="slider-row">
+      <input type="range" :min="q.min" :max="q.max" :step="q.step"
+             :value="modelValue ?? q.min" @input="onNumber" />
+      <span class="slider-val">{{ modelValue ?? '—' }}<template v-if="q.unit"> {{ q.unit }}</template></span>
     </div>
 
     <!-- 학년별 독서량 (A-4) -->
@@ -58,6 +66,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { SurveyItem, SurveyValue } from '@/utils/survey'
 
 /**
  * 문항 하나를 정의(survey_questions.json)대로 그린다.
@@ -67,30 +76,29 @@ import { computed } from 'vue'
  * 다시 빌드해야 하고 서버 검증과 어긋날 여지가 생긴다.
  */
 const props = defineProps<{
-  q: any
-  modelValue: any
+  q: SurveyItem
+  modelValue: SurveyValue
   error?: string
   /** A-4 의 auto_disable_after 대상 값 (B-1 에서 고른 학년) */
   currentGrade?: number | null
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', v: any): void }>()
-
-const isSingle = computed(() =>
-  props.q.response_type === 'single_select' || props.q.response_type.startsWith('scale_'))
+const emit = defineEmits<{ (e: 'update:modelValue', v: SurveyValue): void }>()
 
 const hint = computed(() => {
-  const { min_select: lo, max_select: hi } = props.q
+  if (props.q.response_type !== 'multi_select') return ''
+  const { min_select_count: lo, max_select_count: hi } = props.q
   if (lo && hi) return lo === hi ? `(${hi}개)` : `(${lo}~${hi}개)`
   if (hi) return `(최대 ${hi}개)`
   return ''
 })
 
 // ── 복수 선택 ─────────────────────────────────────────────────────────────
-const selected = computed<any[]>(() => props.modelValue ?? [])
+const selected = computed(() => (props.modelValue ?? []) as (number | string)[])
 const atMax = computed(() =>
-  !!props.q.max_select && selected.value.length >= props.q.max_select)
+  props.q.response_type === 'multi_select' && !!props.q.max_select_count
+  && selected.value.length >= props.q.max_select_count)
 
-function toggle(v: any) {
+function toggle(v: number | string) {
   const cur = [...selected.value]
   const i = cur.indexOf(v)
   if (i >= 0) cur.splice(i, 1)
@@ -102,10 +110,12 @@ function toggle(v: any) {
 }
 
 // ── 숫자 입력 ─────────────────────────────────────────────────────────────
-const numValue = computed(() => props.modelValue ?? 0)
+const numValue = computed(() => (props.modelValue as number | null) ?? 0)
 
 function clamp(n: number) {
-  return Math.min(props.q.max, Math.max(props.q.min, n))
+  const q = props.q
+  if (q.response_type !== 'numeric_input' && q.response_type !== 'slider') return n
+  return Math.min(q.max, Math.max(q.min, n))
 }
 function step(d: number) {
   emit('update:modelValue', clamp(numValue.value + d))
@@ -121,13 +131,15 @@ function onNumber(e: Event) {
 // 항상 길이 7 배열을 유지한다. 잘라서 보내면 마지막 요소가 몇 학년의 응답인지
 // 서버가 알 수 없다(4학년의 마지막과 중1의 마지막이 구분되지 않는다).
 const graph = computed<(number | null)[]>(() =>
-  props.modelValue ?? new Array(props.q.grades?.length ?? 7).fill(null))
+  (props.modelValue as (number | null)[] | null)
+  ?? new Array(props.q.response_type === 'grade_history' ? props.q.grades.length : 7).fill(null))
 
 function isDisabled(i: number) {
   // 아직 오지 않은 학년은 묻지 않는다. B-1 을 고르기 전에는 전부 잠근다.
-  if (!props.q.auto_disable_after) return false
+  const q = props.q
+  if (q.response_type !== 'grade_history' || !q.auto_disable_after) return false
   if (props.currentGrade == null) return true
-  return props.q.grades[i].grade > props.currentGrade
+  return q.grades[i].grade > props.currentGrade
 }
 
 function setGrade(i: number, v: number | null) {
@@ -202,4 +214,7 @@ function setGrade(i: number, v: number | null) {
 }
 .grade-cell.sel { border-color: var(--mint); background: var(--mint); }
 .grade-cell.sel .dot { background: #fff; }
+.slider-row { display: flex; align-items: center; gap: 1rem; }
+.slider-row input[type=range] { flex: 1; accent-color: var(--mint); }
+.slider-val { font-weight: 900; color: var(--mint-dark); min-width: 3rem; }
 </style>

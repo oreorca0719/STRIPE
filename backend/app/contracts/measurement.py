@@ -12,7 +12,7 @@ from typing import Annotated, List, Optional
 
 from pydantic import Field, model_validator
 
-from app.contracts.base import Bool, Contract, Count, Int, Ratio, Unitless
+from app.contracts.base import ChoiceNumber, Bool, Contract, Count, Int, Ratio, Unitless
 from app.enums import (
     AdaptiveAction, AwayEventType, BettsLevel, DiagSessionStatus, Difficulty,
     ReliabilityFlag, TargetArea, TextGenre,
@@ -101,8 +101,7 @@ class AnswerSubmit(Contract):
     """문항 하나에 고른 답. 선지 수 이내인지·그 회차 지문의 문항인지는 서버가 DB 로 확인한다."""
     round_id: Int = Field(description="diagnosis_rounds.id")
     question_id: Int = Field(description="questions.id — 그 회차 지문의 문항이어야 한다")
-    student_answer: Annotated[Count, Unitless("선지 번호 — 개수·시간이 아닌 순번")] = Field(
-        ge=1, description="고른 선지 번호, 1부터")
+    student_answer: ChoiceNumber = Field(description="고른 선지 번호")
     response_time_ms: Optional[Count] = Field(None, description="문항을 보고 고르기까지 ms. 안 쟀으면 null")
 
 

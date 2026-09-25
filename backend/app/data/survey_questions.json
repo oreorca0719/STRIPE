@@ -79,7 +79,7 @@
       "code": "A-1", "block": 2, "status": "active",
       "text": "최근 한 달 동안 스스로 골라서 읽은 책은 몇 권인가요?",
       "response_type": "numeric_input",
-      "storage_field": "voluntary_reading",
+      "storage_field": "voluntary_reading_count",
       "required": true,
       "min": 0, "max": 99, "step": 1,
       "unit": "권"
@@ -200,7 +200,7 @@
       "text": "유튜브나 웹툰에서 주로 어떤 것을 보나요?",
       "response_type": "multi_select",
       "storage_field": "media_genre",
-      "max_select": 3,
+      "max_select_count": 3,
       "options": [
         { "label": "게임", "value": "game" },
         { "label": "먹방", "value": "mukbang" },
@@ -240,8 +240,8 @@
       "storage_field": "interest_topics",
       "free_text_field": "free_text_interest",
       "required": true,
-      "min_select": 1,
-      "max_select": 3,
+      "min_select_count": 1,
+      "max_select_count": 3,
       "options": [
         { "label": "동물·자연", "value": "animal" },
         { "label": "과학·실험", "value": "science" },
@@ -271,7 +271,7 @@
       "response_type": "multi_select",
       "storage_field": "preferred_genres",
       "required": true,
-      "max_select": 3,
+      "max_select_count": 3,
       "options": [
         { "label": "이야기(소설·동화)", "value": "story" },
         { "label": "만화·웹툰", "value": "comics" },
@@ -423,7 +423,7 @@
       "code": "E-3", "status": "active",
       "text": "이후 아이가 10개 문제를 풀 예정인데, 몇 개 정도 맞출 것 같으시나요?",
       "response_type": "slider",
-      "storage_field": "parent_predicted_correct",
+      "storage_field": "parent_predicted_correct_count",
       "min": 0, "max": 10, "step": 1
     },
     {

@@ -57,7 +57,7 @@ async def main():
         # 1) 프로필 (설문 → type_1) — 학생 식별은 토큰에서
         r = await ac.post("/api/diagnosis/profile", json={
             "grade": 4, "reading_freq": 5, "reading_attitude": 5,
-            "interest_topics": ["ANIMAL"], "predicted_correct": 5,
+            "interest_topics": ["animal"],
         })
         r.raise_for_status(); prof = r.json()
         print(f"프로필 id={prof['id']}, type_1={prof['type_1']}")

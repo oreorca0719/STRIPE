@@ -68,9 +68,9 @@
             <SurveyQuestion
               v-for="q in visibleQuestions" :key="q.code"
               :q="q"
-              :model-value="surveyAnswers[q.storage_field]"
-              :error="fieldErrors[q.storage_field]"
-              :current-grade="surveyAnswers.grade"
+              :model-value="surveyAnswers[field(q)]"
+              :error="fieldErrors[field(q)]"
+              :current-grade="surveyAnswers.grade as number | null"
               @update:model-value="setAnswer(q, $event)"
             />
 
@@ -200,7 +200,8 @@
 </template>
 
 <script setup lang="ts">
-import type { FinalizeResponse, FluencyResultResponse, MySummaryResponse, ProfileResponse, QuestionPublic, QuestionResponseResult, ReaderTypeProbeResponse, ReportResponse, ResumeResponse, RoundCompleteResponse, RoundContentResponse, RoundResponse, SessionResponse } from '@/api-types'
+import type { SurveyItem, SurveyValue } from '@/utils/survey'
+import type { FinalizeResponse, FluencyResultResponse, MySummaryResponse, ProfileResponse, QuestionPublic, QuestionResponseResult, ReaderTypeProbeResponse, ReportResponse, ResumeResponse, RoundCompleteResponse, RoundContentResponse, RoundResponse, SessionResponse, SurveyQuestions } from '@/api-types'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -233,9 +234,10 @@ const ACCOUNT_GRADE_TO_NUM: Record<string, number> = {
   elem4: 4, elem5: 5, elem6: 6, mid1: 7,
 }
 
-const questions = ref<any[]>([])
+const questions = ref<SurveyItem[]>([])
 const defError = ref(false)
-const surveyAnswers = reactive<Record<string, any>>({})
+// 화면에 뜨는 문항은 모두 저장 칸이 있다(서버 테스트가 보장) — 저장 칸 이름이 키다.
+const surveyAnswers = reactive<Record<string, SurveyValue>>({})
 const fieldErrors = reactive<Record<string, string>>({})
 const submitError = ref('')
 
@@ -246,11 +248,11 @@ const showNonReader = ref(false)
 async function loadDefinition() {
   defError.value = false
   try {
-    const r = await api.get('/api/diagnosis/survey/definition')
+    const r = await api.get<SurveyQuestions>('/api/diagnosis/survey/definition')
     questions.value = r.data.questions
     for (const q of questions.value) {
-      if (!(q.storage_field in surveyAnswers)) {
-        surveyAnswers[q.storage_field] =
+      if (!(field(q) in surveyAnswers)) {
+        surveyAnswers[field(q)] =
           q.response_type === 'multi_select' ? []
           : q.response_type === 'grade_history' ? new Array(q.grades.length).fill(null)
           : null
@@ -272,15 +274,20 @@ const accountGradeNum = computed(() =>
   auth.user?.grade ? ACCOUNT_GRADE_TO_NUM[auth.user.grade] ?? null : null)
 const accountGradeLabel = computed(() => {
   const b1 = questions.value.find(q => q.code === 'B-1')
-  return b1?.options.find((o: any) => o.value === accountGradeNum.value)?.label ?? ''
+  if (!b1 || !('options' in b1)) return ''
+  return b1.options.find(o => o.value === accountGradeNum.value)?.label ?? ''
 })
 const gradeMismatch = computed(() =>
   accountGradeNum.value !== null && surveyAnswers.grade != null
   && surveyAnswers.grade !== accountGradeNum.value)
 
-function setAnswer(q: any, v: any) {
-  surveyAnswers[q.storage_field] = v
-  delete fieldErrors[q.storage_field]
+function field(q: SurveyItem): string {
+  return q.storage_field ?? q.code
+}
+
+function setAnswer(q: SurveyItem, v: SurveyValue) {
+  surveyAnswers[field(q)] = v
+  delete fieldErrors[field(q)]
   submitError.value = ''
   // 학년을 바꾸면 A-4 에서 아직 오지 않은 학년의 응답을 지운다.
   // 남겨두면 화면에 보이지 않는 값이 그대로 전송된다.
@@ -289,11 +296,12 @@ function setAnswer(q: any, v: any) {
 
 function pruneGradeHistory() {
   const a4 = questions.value.find(q => q.response_type === 'grade_history')
-  if (!a4) return
-  const cur = surveyAnswers[a4.storage_field]
+  if (!a4 || a4.response_type !== 'grade_history') return
+  const cur = surveyAnswers[field(a4)]
   if (!Array.isArray(cur)) return
-  a4.grades.forEach((g: any, i: number) => {
-    if (surveyAnswers.grade == null || g.grade > surveyAnswers.grade) cur[i] = null
+  const grade = surveyAnswers.grade as number | null
+  a4.grades.forEach((g, i) => {
+    if (grade == null || g.grade > grade) cur[i] = null
   })
 }
 
@@ -312,22 +320,24 @@ watch(() => [surveyAnswers.reading_freq, surveyAnswers.reading_attitude], async 
     // 비독자가 아니게 되면 이미 고른 답을 지운다. 남겨두면 화면에 보이지 않는
     // 응답이 그대로 전송되고, 서버가 버려도 학생 입장에선 유령 응답이 된다.
     for (const q of questions.value) {
-      if (q.status === 'conditional') surveyAnswers[q.storage_field] = []
+      if (q.status === 'conditional') surveyAnswers[field(q)] = []
     }
   }
 })
 
-function isAnswered(q: any): boolean {
-  const v = surveyAnswers[q.storage_field]
+function isAnswered(q: SurveyItem): boolean {
+  const v = surveyAnswers[field(q)]
   if (q.response_type === 'multi_select') {
-    return Array.isArray(v) && v.length >= (q.min_select ?? 1)
+    return Array.isArray(v) && v.length >= (q.min_select_count ?? 1)
   }
   if (q.response_type === 'grade_history') {
     // 아직 오지 않은 학년은 묻지 않으므로, 물어본 칸이 다 차면 답한 것이다.
-    return q.grades.every((g: any, i: number) =>
-      surveyAnswers.grade == null || g.grade > surveyAnswers.grade || v?.[i] !== undefined)
-      && q.grades.some((g: any, i: number) =>
-        surveyAnswers.grade != null && g.grade <= surveyAnswers.grade && v?.[i] !== null)
+    const grade = surveyAnswers.grade as number | null
+    const cells = (v ?? []) as (number | null)[]
+    return q.grades.every((g, i) =>
+      grade == null || g.grade > grade || cells[i] !== undefined)
+      && q.grades.some((g, i) =>
+        grade != null && g.grade <= grade && cells[i] !== null)
   }
   return v !== null && v !== undefined && v !== ''
 }
@@ -387,9 +397,9 @@ async function submitSurvey() {
     // 학생 식별은 서버가 토큰에서 판별한다 (student_id 파라미터 없음)
     // 화면에 뜨지 않은 문항은 보내지 않는다 — 노출되지 않은 문항의 응답이
     // 저장되면 분석에서 표본이 오염된다(서버도 유형을 다시 확인해 걸러낸다).
-    const payload: Record<string, any> = {}
+    const payload: Record<string, SurveyValue> = {}
     for (const q of visibleQuestions.value) {
-      payload[q.storage_field] = surveyAnswers[q.storage_field]
+      payload[field(q)] = surveyAnswers[field(q)]
     }
     const prof = await api.post<ProfileResponse>('/api/diagnosis/profile', payload)
     const sess = await api.post<SessionResponse>('/api/diagnosis/session', {

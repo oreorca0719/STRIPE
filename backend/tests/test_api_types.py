@@ -37,8 +37,7 @@ def test_화면_API_호출이_있다():
 
 
 # 서버에 아직 응답 형식이 없는 API (tests/test_api_contracts.ALLOWED_UNTYPED 와 같은 사유)
-_ALLOWED_PATHS = ("/api/admin/pilot/export.csv", "/api/diagnosis/survey/definition",
-                  "/api/parent/survey/definition")
+_ALLOWED_PATHS = ("/api/admin/pilot/export.csv",)
 
 
 def test_화면이_응답_타입_없이_API를_부르지_않는다():

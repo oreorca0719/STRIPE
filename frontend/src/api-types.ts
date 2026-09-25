@@ -75,7 +75,7 @@ export interface AnswerSubmit {
   round_id: number;
   /** questions.id — 그 회차 지문의 문항이어야 한다 */
   question_id: number;
-  /** 고른 선지 번호, 1부터 */
+  /** 고른 선지 번호 */
   student_answer: number;
   /** 문항을 보고 고르기까지 ms. 안 쟀으면 null */
   response_time_ms?: number | null;
@@ -168,6 +168,9 @@ export interface BookBasis {
 
 /** 도서 난도를 무엇을 근거로 매겼나 (STR-108). */
 export type BookDifficultySource = "publisher" | "curriculum_list" | "manual"
+
+/** '책' 하면 드는 느낌 — 정본: survey_questions.json student A-5 선지 */
+export type BookImage = "boring" | "difficult" | "obligation" | "study" | "no_interest" | "fun" | "curious" | "helpful" | "enjoyable" | "other"
 
 /** 추천 도서 한 권과 추천 사유. */
 export interface BookRecommendation {
@@ -302,6 +305,25 @@ export interface ChecklistInfo {
   principles: Principle[];
   statuses: StatusLabel[];
   source: string;
+}
+
+/** 하나를 고른다 — 단일 선택·4/5/6점 척도. */
+export interface ChoiceQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "single_select" | "scale_4" | "scale_5" | "scale_6";
+  options: Option[];
 }
 
 /** 선택지 한 개 — 코드와 화면 문구. */
@@ -717,6 +739,11 @@ export interface FluencyView {
   value_unit: FluencyUnit;
 }
 
+export type Gender = "M" | "F" | "other"
+
+/** 선호 글 종류 — 정본: survey_questions.json student C-3 선지 */
+export type GenrePreference = "story" | "comics" | "science_nature" | "history_society" | "sports" | "cooking_life" | "fantasy" | "mystery_horror" | "poem_essay" | "other"
+
 export type GradeGroup = "G4_G6" | "G7"
 
 export interface GradeGroupBetts {
@@ -725,7 +752,34 @@ export interface GradeGroupBetts {
   betts: BettsCount[];
 }
 
+/** 학년마다 척도 하나 — A-4 생애 독서 그래프. 배열의 위치가 곧 학년이다. */
+export interface GradeHistoryQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "grade_history";
+  grades: GradeSlot[];
+  scale: ScalePoint[];
+  /** 이 문항의 답(학년)보다 뒤 학년 칸은 비활성 */
+  auto_disable_after: string | null;
+}
+
 export type GradeLevel = "elem1" | "elem2" | "elem3" | "elem4" | "elem5" | "elem6" | "mid1"
+
+export interface GradeSlot {
+  label: string;
+  grade: number;
+}
 
 export interface HTTPValidationError {
   detail?: ValidationError[];
@@ -738,6 +792,25 @@ export interface Health {
 }
 
 export type HealthStatus = "ok" | "degraded"
+
+/** 선택 + 자유 입력 (예약 문항). */
+export interface HybridQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "hybrid";
+  options: Option[];
+}
 
 /** 계정 발급·비밀번호 초기화 응답. temp_password 는 이때만 평문으로 나간다. */
 export interface IssuedCredential {
@@ -829,6 +902,28 @@ export type Level3 = "low" | "mid" | "high"
 
 export type Metacognition = "accurate" | "overestimate" | "underestimate"
 
+/** 여러 개를 고른다. */
+export interface MultiQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "multi_select";
+  options: Option[];
+  min_select_count: number | null;
+  max_select_count: number | null;
+  free_text_field: string | null;
+}
+
 export interface MyDeletionRequests {
   items: DeletionRequestView[];
   backup_notice: string;
@@ -855,6 +950,40 @@ export interface MySummaryResponse {
   completed_count: number;
   in_progress_session_id: number | null;
   latest: MySessionItem | null;
+}
+
+/** 책을 안 읽는 이유 — 정본: survey_questions.json student A-6 선지 */
+export type NonReadingReason = "not_fun" | "no_interest" | "forced" | "not_understood" | "other_activities" | "no_time" | "no_habit" | "other"
+
+/** 숫자를 입력하거나 슬라이더로 고른다. */
+export interface NumberQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "numeric_input" | "slider";
+  min: number;
+  max: number;
+  step: number;
+  unit: string | null;
+}
+
+/** 선지 한 개. value 가 저장값이고 순서와 무관하다(scale_direction 참조). */
+export interface Option {
+  label: string;
+  /** 저장값 — 척도는 정수, 범주는 코드 문자열 */
+  value: number | string;
+  /** 고르면 자유 입력칸이 열린다 ('기타') */
+  free_text: boolean;
 }
 
 /**
@@ -907,42 +1036,49 @@ export interface Overview {
   approved_question_count: number;
 }
 
+/** 보호자의 도서 선택 기준 — 정본: survey_questions.json parent E-6 선지 */
+export type ParentBookCriteria = "child_interest" | "curriculum" | "recommendation" | "bestseller" | "none" | "other"
+
+/** 보호자가 참고하는 정보원 — 정본: survey_questions.json parent E-5 선지 */
+export type ParentInfoSource = "community" | "youtube" | "sns" | "teacher" | "library" | "other_parents" | "none" | "other"
+
 /**
- * 보호자 설문 제출.
+ * 보호자 설문 — 화면에 뜨는 문항의 저장 칸과 1:1.
  *
  * 전 문항 선택 사항이다. 보호자가 중간에 그만두어도 받아 두고, 덜 채워진
  * 응답은 환경 점수가 산출되지 않을 뿐 학생 진단을 막지 않는다.
- * 미응답은 0 이 아니라 null 로 들어간다 — 0 을 넣으면 '가장 낮음'과
- * '답하지 않음'이 같은 값이 되어 구분할 수 없다.
+ * 미응답은 0 이 아니라 null 이다.
  */
 export interface ParentSurveyIn {
+  /** 어느 진단의 응답인지. 자녀가 하나면 생략 가능 */
   profile_id?: number | null;
-  parent_freq_estimate?: number | null;
-  parent_reading_level?: number | null;
-  parent_predicted_correct?: number | null;
-  parent_recommend_freq?: number | null;
-  parent_info_source?: string | null;
-  parent_book_criteria?: string | null;
-  parent_reading_support?: number | null;
-  books_at_home?: number | null;
-  parent_reading_model?: number | null;
-  bookstore_library_visits?: number | null;
+  parent_freq_estimate?: "1" | "2" | "3" | "4" | "5" | "6" | null;
+  parent_reading_level?: "1" | "2" | "3" | "4" | "5" | null;
+  /** E-3 자녀가 맞힐 것 같은 문항 수 (10문항 중) */
+  parent_predicted_correct_count?: number | null;
+  parent_recommend_freq?: "1" | "2" | "3" | "4" | null;
+  parent_info_source?: ParentInfoSource | null;
+  parent_book_criteria?: ParentBookCriteria | null;
+  parent_reading_support?: "1" | "2" | "3" | "4" | null;
+  books_at_home?: "1" | "2" | "3" | "4" | null;
+  parent_reading_model?: "1" | "2" | "3" | "4" | null;
+  bookstore_library_visits?: "1" | "2" | "3" | "4" | null;
 }
 
 export interface ParentSurveyOut {
   id: number;
   profile_id: number;
   parent_user_id: number | null;
-  parent_freq_estimate: number | null;
-  parent_reading_level: number | null;
-  parent_predicted_correct: number | null;
-  parent_recommend_freq: number | null;
-  parent_info_source: string | null;
-  parent_book_criteria: string | null;
-  parent_reading_support: number | null;
-  books_at_home: number | null;
-  parent_reading_model: number | null;
-  bookstore_library_visits: number | null;
+  parent_freq_estimate: "1" | "2" | "3" | "4" | "5" | "6" | null;
+  parent_reading_level: "1" | "2" | "3" | "4" | "5" | null;
+  parent_predicted_correct_count: number | null;
+  parent_recommend_freq: "1" | "2" | "3" | "4" | null;
+  parent_info_source: ParentInfoSource | null;
+  parent_book_criteria: ParentBookCriteria | null;
+  parent_reading_support: "1" | "2" | "3" | "4" | null;
+  books_at_home: "1" | "2" | "3" | "4" | null;
+  parent_reading_model: "1" | "2" | "3" | "4" | null;
+  bookstore_library_visits: "1" | "2" | "3" | "4" | null;
   home_environment_score: number | null;
   created_at: string;
 }
@@ -984,21 +1120,39 @@ export interface Principle {
   desc: string;
 }
 
-/** MVP1 학생 설문 (필수 9 + 조건부 2). 선지 검증은 문항 정의가 한다. */
+/**
+ * 학생 설문 — 화면에 뜨는 문항(active·conditional)의 저장 칸과 1:1.
+ *
+ * 칸 이름 = 문항의 storage_field. 값의 범위·개수는 설문 파일에서 만든다.
+ * 예약 문항(reserved)은 받지 않는다 — 보내면 모르는 키로 거부된다.
+ *
+ * 조건부 2문항(A-5·A-6)은 비독자로 판정된 학생에게만 뜬다. 그 외 학생은 null —
+ * '해당 없음'이지 '무응답'이 아니다.
+ */
 export interface ProfileCreate {
-  grade: number;
-  gender?: string | null;
-  reading_freq?: number | null;
-  reading_attitude?: number | null;
-  voluntary_reading?: number | null;
-  life_reading_graph?: (number | null)[] | null;
-  interest_topics?: string[] | null;
+  /** B-1 학년 (7=중1) */
+  grade: "4" | "5" | "6" | "7";
+  /** B-2 */
+  gender?: Gender | null;
+  /** A-2 독서 빈도, 클수록 자주 */
+  reading_freq?: "1" | "2" | "3" | "4" | "5" | "6" | null;
+  /** A-3 독서 태도, 클수록 좋아함 */
+  reading_attitude?: "1" | "2" | "3" | "4" | "5" | "6" | null;
+  /** A-1 최근 한 달 자발적으로 읽은 책 권수 */
+  voluntary_reading_count?: number | null;
+  /** A-4 학년별 척도 7칸(위치=학년, 1학년~중1). null 칸은 해당 없음·아직 오지 않은 학년 */
+  life_reading_graph?: ("1" | "2" | "3" | "4" | "5" | null)[] | null;
+  /** C-1 */
+  interest_topics?: TopicCode[] | null;
   free_text_interest?: string | null;
-  preferred_genres?: string[] | null;
-  self_reading_level?: number | null;
-  book_image?: string[] | null;
-  non_reading_reason?: string[] | null;
-  predicted_correct?: number | null;
+  /** C-3 */
+  preferred_genres?: GenrePreference[] | null;
+  /** D-1 자기 인식, 클수록 잘 읽는다고 봄 */
+  self_reading_level?: "1" | "2" | "3" | "4" | "5" | null;
+  /** A-5 (비독자만) */
+  book_image?: BookImage[] | null;
+  /** A-6 (비독자만) */
+  non_reading_reason?: NonReadingReason[] | null;
 }
 
 export interface ProfileResponse {
@@ -1006,7 +1160,7 @@ export interface ProfileResponse {
   user_id: number;
   grade: number | null;
   type_1: ReaderType1 | null;
-  interest_topics: string[] | null;
+  interest_topics: TopicCode[] | null;
 }
 
 /** 관리자용 문항 — 정답·근거·해설 포함. */
@@ -1016,6 +1170,7 @@ export interface QuestionDetail {
   target_area: TargetArea;
   question_text: string;
   choices: string[];
+  /** 정답 선지 번호 */
   answer_index: number;
   evidence_text: string;
   explanation: string;
@@ -1040,18 +1195,48 @@ export interface QuestionResponseResult {
   created_at: string;
 }
 
-/** 가독성 산출 근거 (content.readability.TextMetrics). */
+/** 설문 문항의 상태 (survey_questions.json). */
+export type QuestionStatus = "active" | "conditional" | "reserved"
+
+/** 순서를 매긴다. */
+export interface RankQuestion {
+  code: string;
+  block: number | null;
+  status: QuestionStatus;
+  text: string;
+  storage_field: string | null;
+  required: boolean;
+  show_if: ShowIf | null;
+  /** 가정환경 점수(B-3~B-6 합)에 들어가는 문항 */
+  env_score: boolean;
+  guide_text: string | null;
+  usage_note: string[];
+  storage_note: string[];
+  options_note: string[];
+  response_type: "rank";
+  options: Option[];
+}
+
+/**
+ * 지문 1편의 표면 구조 지표 — texts.readability_metrics 에 저장된다.
+ *
+ * KReaD 지수가 아니다(외부 기관 지수라 산출할 수 없다). 어휘 등급도 어휘의
+ * '어려움'이 아니라 어절 길이 분포로 매긴 대리 지표다.
+ */
 export interface ReadabilityMetrics {
   sentence_count: number;
+  /** 어절 수 */
   word_count: number;
+  /** 한글 음절 수 */
   syllable_count: number;
   avg_sentence_words: number;
   avg_word_syllables: number;
   /** 긴 어절(5음절 이상) 비율 0~1 */
   long_word_ratio: number;
   clause_density: number;
-  /** 서로 다른 어절 비율 0~1 */
-  lexical_variety: number;
+  /** 서로 다른 어절 / 전체 어절 0~1. 조사를 떼지 않아 과대 추정된다 */
+  lexical_variety_ratio: number;
+  /** 합성 지표 0~100, 높을수록 어려움. 가중치 잠정 */
   readability_score: number;
   vocabulary_level: VocabularyLevel;
 }
@@ -1060,8 +1245,8 @@ export type ReaderType1 = "enthusiast" | "intermittent" | "non_reader"
 
 /** A-2·A-3 만으로 1차 유형을 미리 물어보는 요청. */
 export interface ReaderTypeProbe {
-  reading_freq?: number | null;
-  reading_attitude?: number | null;
+  reading_freq?: "1" | "2" | "3" | "4" | "5" | "6" | null;
+  reading_attitude?: "1" | "2" | "3" | "4" | "5" | "6" | null;
 }
 
 export interface ReaderTypeProbeResponse {
@@ -1163,9 +1348,11 @@ export interface ReportSummary {
 /** 문항 응답 한 건. 문항이 삭제됐으면 문항 칸이 null. */
 export interface ResponseDetail {
   target_area: TargetArea;
+  /** 고른 선지 번호 */
   student_answer: number;
   is_correct: boolean;
   question_text: string | null;
+  /** 정답 선지 번호 */
   answer_index: number | null;
   choices: string[] | null;
 }
@@ -1301,6 +1488,12 @@ export interface RoundsReached {
   session_count: number;
 }
 
+export interface ScalePoint {
+  label: string;
+  /** 척도 값. null 은 '해당 없음' */
+  value: number | null;
+}
+
 export interface SessionBrief {
   id: number;
   status: DiagSessionStatus;
@@ -1327,6 +1520,11 @@ export interface SessionResponse {
   status: DiagSessionStatus;
   started_at: string;
   completed_at: string | null;
+}
+
+/** 조건부 문항이 뜨는 조건. */
+export interface ShowIf {
+  type_1: ReaderType1;
 }
 
 /**
@@ -1371,6 +1569,11 @@ export interface StudentBrief {
   id: number;
   name: string;
   username: string;
+}
+
+/** 화면에 내려주는 설문 — 화면에 뜨는 문항만(active·conditional). */
+export interface SurveyQuestions {
+  questions: (ChoiceQuestion | MultiQuestion | RankQuestion | NumberQuestion | GradeHistoryQuestion | HybridQuestion)[];
 }
 
 export interface SystemStatus {
@@ -1451,6 +1654,9 @@ export interface TokenResponse {
 }
 
 export type ToneCode = "challenge" | "encourage" | "autonomy" | "scaffold" | "success_first"
+
+/** 관심 주제 코드 — 정본: survey_questions.json student C-1 선지 */
+export type TopicCode = "animal" | "science" | "history" | "sports" | "mystery" | "fantasy" | "humor" | "friendship" | "family" | "art_music" | "cooking" | "game" | "world" | "horror" | "society" | "other"
 
 /**
  * 약점 훈련 대상, 우선순위 순서, 최대 2칸.
@@ -1610,9 +1816,11 @@ export interface ApiResponses {
   "POST /api/diagnosis/session/{session_id}/report": ReportResponse;
   "POST /api/diagnosis/session/{session_id}/resume": ResumeResponse;
   "POST /api/diagnosis/session/{session_id}/start": RoundResponse;
+  "GET /api/diagnosis/survey/definition": SurveyQuestions;
   "GET /api/health": Health;
   "GET /api/health/ready": Readiness;
   "POST /api/parent/survey": ParentSurveyOut;
+  "GET /api/parent/survey/definition": SurveyQuestions;
   "GET /api/parent/survey/latest": ParentSurveyOut | null;
   "GET /api/parent/survey/{profile_id}": ParentSurveyOut;
 }
