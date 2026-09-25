@@ -12,11 +12,14 @@ approved 로 넣어, '승인됨'이 '검수를 통과했다'가 아니라 '적�
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
+from app.contracts.review import (
+    Checklist, ChecklistInfo, Principle, ReviewItem, ReviewRequest, ReviewResult, StatusLabel,
+)
+from app.enums import ReviewDecision, ReviewTarget
 from app.core.database import get_db
 from app.models.core import (
     ContentReview, ItemSet, Question, ReviewStatus, TextContent,
@@ -62,28 +65,16 @@ CHECKLIST = [
     {"key": "neutrality", "label": "중립성",
      "desc": "성별·지역·특정 관심사에 편향되지 않았는가"},
 ]
-CHECKLIST_KEYS = {c["key"] for c in CHECKLIST}
+# 체크리스트 형식(contracts.review.Checklist)의 칸과 이 목록의 key 가 같아야 한다.
+assert [c["key"] for c in CHECKLIST] == list(Checklist.model_fields), \
+    "7원칙 목록과 체크리스트 형식의 칸이 어긋났다"
 
 TARGETS = {
-    "text": (TextContent, "text_review_status", "text_code"),
-    "item_set": (ItemSet, "item_set_review_status", "set_code"),
-    "question": (Question, "question_review_status", "question_code"),
+    ReviewTarget.text: (TextContent, "text_review_status", "text_code"),
+    ReviewTarget.item_set: (ItemSet, "item_set_review_status", "set_code"),
+    ReviewTarget.question: (Question, "question_review_status", "question_code"),
 }
-
-
-class ReviewRequest(BaseModel):
-    target_type: str = Field(..., description="text | item_set | question")
-    target_id: int
-    decision: str = Field(..., description="advance | approve | reject")
-    checklist: Optional[dict] = Field(
-        None, description="7원칙 키 → true/false. approve 시 필수")
-    comment: Optional[str] = None
-
-
-def _resolve(target_type: str):
-    if target_type not in TARGETS:
-        raise HTTPException(status_code=422, detail=f"알 수 없는 대상: {target_type}")
-    return TARGETS[target_type]
+assert set(TARGETS) == set(ReviewTarget)
 
 
 def _next_status(current: ReviewStatus) -> ReviewStatus:
@@ -93,17 +84,17 @@ def _next_status(current: ReviewStatus) -> ReviewStatus:
     return STATUS_ORDER[i + 1]
 
 
-@router.get("/checklist")
+@router.get("/checklist", response_model=ChecklistInfo)
 async def get_checklist():
     """검수 체크리스트 — 이은주(2026) 7원칙. 화면에서 그대로 그린다."""
-    return {
-        "principles": CHECKLIST,
-        "statuses": [{"code": s.value, "label": STATUS_KO[s]} for s in STATUS_ORDER],
-        "source": "이은주(2026) 텍스트 선정 7원칙 — 도메인 문서 §5-3",
-    }
+    return ChecklistInfo(
+        principles=[Principle(**c) for c in CHECKLIST],
+        statuses=[StatusLabel(code=s, label=STATUS_KO[s]) for s in STATUS_ORDER],
+        source="이은주(2026) 텍스트 선정 7원칙 — 도메인 문서 §5-3",
+    )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=ReviewResult)
 async def submit_review(
     body: ReviewRequest,
     db: AsyncSession = Depends(get_db),
@@ -119,7 +110,7 @@ async def submit_review(
     승인에 체크리스트를 요구하는 이유: 지금까지 '전부 approved' 였던 것은 검수를
     통과해서가 아니라 아무도 보지 않아서였다. 근거 없는 승인을 다시 만들지 않는다.
     """
-    model, status_field, code_field = _resolve(body.target_type)
+    model, status_field, code_field = TARGETS[body.target_type]
 
     obj = (await db.execute(select(model).where(model.id == body.target_id))).scalar_one_or_none()
     if not obj:
@@ -127,47 +118,45 @@ async def submit_review(
 
     current: ReviewStatus = getattr(obj, status_field)
 
-    if body.decision == "reject":
+    if body.decision == ReviewDecision.reject:
         if not (body.comment or "").strip():
             raise HTTPException(status_code=422, detail="반려 사유를 입력해야 합니다.")
         new_status = ReviewStatus.draft
-    elif body.decision == "advance":
+    elif body.decision == ReviewDecision.advance:
         new_status = _next_status(current)
         if new_status == ReviewStatus.approved:
             raise HTTPException(
                 status_code=409,
                 detail="최종 승인은 decision=approve 로 체크리스트와 함께 요청하세요.",
             )
-    elif body.decision == "approve":
+    elif body.decision == ReviewDecision.approve:
         if current != ReviewStatus.jun_reviewed:
             raise HTTPException(
                 status_code=409,
                 detail=f"승인은 '검수 완료' 단계에서만 가능합니다. 현재: {STATUS_KO[current]}",
             )
-        cl = body.checklist or {}
-        missing = CHECKLIST_KEYS - set(cl)
+        cl = body.checklist or Checklist()
+        missing = cl.missing()
         if missing:
             raise HTTPException(
                 status_code=422,
                 detail=f"체크리스트 미작성 항목: {', '.join(sorted(missing))}",
             )
-        failed = [k for k, v in cl.items() if k in CHECKLIST_KEYS and not v]
+        failed = cl.failed()
         if failed:
             raise HTTPException(
                 status_code=422,
                 detail=f"통과하지 못한 원칙이 있어 승인할 수 없습니다: {', '.join(failed)}",
             )
         new_status = ReviewStatus.approved
-    else:
-        raise HTTPException(status_code=422, detail=f"알 수 없는 판정: {body.decision}")
 
     setattr(obj, status_field, new_status)
     review = ContentReview(
         target_type=body.target_type,
         target_id=obj.id,
         target_code=getattr(obj, code_field, None),
-        from_status=current.value,
-        to_status=new_status.value,
+        from_status=current,
+        to_status=new_status,
         decision=body.decision,
         reviewer_id=admin.id,
         reviewer_code=admin.username,
@@ -178,21 +167,21 @@ async def submit_review(
     await db.commit()
     await db.refresh(review)
 
-    return {
-        "id": review.id,
-        "target_type": review.target_type,
-        "target_id": review.target_id,
-        "target_code": review.target_code,
-        "from_status": review.from_status,
-        "to_status": review.to_status,
-        "to_status_label": STATUS_KO[new_status],
-        "decision": review.decision,
-    }
+    return ReviewResult(
+        id=review.id,
+        target_type=review.target_type,
+        target_id=review.target_id,
+        target_code=review.target_code,
+        from_status=review.from_status,
+        to_status=review.to_status,
+        to_status_label=STATUS_KO[new_status],
+        decision=review.decision,
+    )
 
 
-@router.get("")
+@router.get("", response_model=List[ReviewItem])
 async def list_reviews(
-    target_type: Optional[str] = Query(None),
+    target_type: Optional[ReviewTarget] = Query(None),
     target_id: Optional[int] = Query(None),
     limit: int = Query(100, le=500),
     db: AsyncSession = Depends(get_db),
@@ -206,18 +195,11 @@ async def list_reviews(
 
     rows = (await db.execute(stmt)).scalars().all()
     return [
-        {
-            "id": r.id,
-            "target_type": r.target_type,
-            "target_id": r.target_id,
-            "target_code": r.target_code,
-            "from_status": r.from_status,
-            "to_status": r.to_status,
-            "decision": r.decision,
-            "reviewer_code": r.reviewer_code,
-            "checklist": r.checklist,
-            "comment": r.comment,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
+        ReviewItem(
+            id=r.id, target_type=r.target_type, target_id=r.target_id,
+            target_code=r.target_code, from_status=r.from_status, to_status=r.to_status,
+            decision=r.decision, reviewer_code=r.reviewer_code, checklist=r.checklist,
+            comment=r.comment, created_at=r.created_at,
+        )
         for r in rows
     ]

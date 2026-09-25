@@ -60,40 +60,39 @@
 </template>
 
 <script setup lang="ts">
+import type { Overview, Stats } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
 import { api } from '@/api'
+import { LABEL_5_KO } from '@/utils/diagnosis'
 
 const router = useRouter()
-const stats = ref<any>(null)
-const ov = ref<any>(null)
+const stats = ref<Stats | null>(null)
+const ov = ref<Overview | null>(null)
 
-const hasJudgments = computed(() => (stats.value?.judgments_total ?? 0) > 0)
+const hasJudgments = computed(() => (stats.value?.judgment_count ?? 0) > 0)
 
 const summaryStats = computed(() => [
-  { icon: '🎯', label: '완료 판정', value: stats.value?.judgments_total ?? '-' },
+  { icon: '🎯', label: '완료 판정', value: stats.value?.judgment_count ?? '-' },
   { icon: '📈', label: '평균 정답률',
-    value: stats.value?.avg_accuracy != null ? Math.round(stats.value.avg_accuracy * 100) + '%' : '-' },
-  { icon: '📝', label: '진단 세션', value: ov.value?.diagnosis_sessions ?? '-' },
-  { icon: '📚', label: '승인 지문', value: ov.value?.texts_approved ?? '-' },
+    value: stats.value?.mean_accuracy != null ? Math.round(stats.value.mean_accuracy * 100) + '%' : '-' },
+  { icon: '📝', label: '진단 세션', value: ov.value?.session_count ?? '-' },
+  { icon: '📚', label: '승인 지문', value: ov.value?.approved_text_count ?? '-' },
 ])
 
-const LABELS: Record<string, { name: string; color: string }> = {
-  excellent: { name: '아주 잘함', color: '#4ECDC4' },
-  observe:   { name: '잘함',     color: '#7ed6c4' },
-  caution:   { name: '보통',     color: '#FFE66D' },
-  risk:      { name: '조금 부족', color: '#ffab6b' },
-  urgent:    { name: '도움 필요', color: '#FF6B6B' },
+// 라벨 이름은 LABEL_5_KO 한 곳에서 온다. 예전에는 이 화면이 observe='잘함'·
+// caution='보통' 으로 따로 갖고 있어 학생 화면('보통이야')과 뜻이 갈렸다.
+const LABEL_COLOR: Record<string, string> = {
+  excellent: '#4ECDC4', observe: '#7ed6c4', caution: '#FFE66D', risk: '#ffab6b', urgent: '#FF6B6B',
 }
 
 const labelRows = computed(() => {
-  const dist = stats.value?.label_distribution || {}
-  const total = stats.value?.judgments_total || 0
-  return Object.keys(LABELS).map(k => ({
-    key: k, name: LABELS[k].name, color: LABELS[k].color,
-    count: dist[k] || 0,
-    pct: total ? Math.round(((dist[k] || 0) / total) * 100) : 0,
+  const total = stats.value?.judgment_count || 0
+  return (stats.value?.label_distribution || []).map(d => ({
+    key: d.label_5, name: LABEL_5_KO[d.label_5], color: LABEL_COLOR[d.label_5],
+    count: d.judgment_count,
+    pct: total ? Math.round((d.judgment_count / total) * 100) : 0,
   }))
 })
 
@@ -103,11 +102,11 @@ const DIFF_COLOR: Record<string, string> = { easy: '#4ECDC4', normal: '#FFE66D',
 
 const textRows = computed(() => {
   const dist = stats.value?.text_distribution || []
-  const max = Math.max(1, ...dist.map((d: any) => d.count))
-  return dist.map((d: any) => ({
+  const max = Math.max(1, ...dist.map(d => d.text_count))
+  return dist.map(d => ({
     key: `${d.genre}-${d.difficulty}`,
     name: `${GENRE_KO[d.genre] || d.genre} · ${DIFF_KO[d.difficulty] || d.difficulty}`,
-    count: d.count, pct: Math.round((d.count / max) * 100),
+    count: d.text_count, pct: Math.round((d.text_count / max) * 100),
     color: DIFF_COLOR[d.difficulty] || '#4ECDC4',
   }))
 })
@@ -115,8 +114,8 @@ const textRows = computed(() => {
 async function load() {
   try {
     const [s, o] = await Promise.all([
-      api.get('/api/admin/stats'),
-      api.get('/api/admin/overview'),
+      api.get<Stats>('/api/admin/stats'),
+      api.get<Overview>('/api/admin/overview'),
     ])
     stats.value = s.data; ov.value = o.data
   } catch { /* 권한 없음/오류 시 기본값 */ }

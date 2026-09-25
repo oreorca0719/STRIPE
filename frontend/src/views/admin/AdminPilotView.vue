@@ -15,7 +15,7 @@
         <button class="ghost-btn" @click="loadAll">다시 시도</button>
       </div>
 
-      <template v-else>
+      <template v-else-if="dist && outliers && dropoff && validity && duration">
         <!-- 내보내기 -->
         <section class="panel">
           <div class="panel-head">
@@ -52,18 +52,18 @@
           </div>
 
           <div v-if="dist.a4.percentiles" class="pct-row">
-            <div class="pct"><span class="pct-k">n</span><span class="pct-v">{{ dist.a4.percentiles.n }}</span></div>
+            <div class="pct"><span class="pct-k">n</span><span class="pct-v">{{ dist.a4.percentiles.sample_count }}</span></div>
             <div class="pct hl"><span class="pct-k">P33</span><span class="pct-v">{{ dist.a4.percentiles.p33 }}</span></div>
             <div class="pct"><span class="pct-k">중앙값</span><span class="pct-v">{{ dist.a4.percentiles.p50 }}</span></div>
             <div class="pct hl"><span class="pct-k">P67</span><span class="pct-v">{{ dist.a4.percentiles.p67 }}</span></div>
             <div class="pct"><span class="pct-k">최소~최대</span><span class="pct-v">{{ dist.a4.percentiles.min }}~{{ dist.a4.percentiles.max }}</span></div>
           </div>
-          <p v-if="thinSample(dist.a4.percentiles)" class="warn-line">
-            ⚠ 표본이 {{ dist.a4.percentiles.n }}건뿐이다. 백분위가 크게 흔들리므로 이 값으로 경계를 확정하지 말 것.
+          <p v-if="dist.a4.percentiles && thinSample(dist.a4.percentiles)" class="warn-line">
+            ⚠ 표본이 {{ dist.a4.percentiles.sample_count }}건뿐이다. 백분위가 크게 흔들리므로 이 값으로 경계를 확정하지 말 것.
           </p>
 
           <div class="hist">
-            <div v-for="(c, i) in dist.a4.bins" :key="i" class="bar-row">
+            <div v-for="(c, i) in dist.a4.bin_counts" :key="i" class="bar-row">
               <span class="bar-label">{{ a4BinLabel(i) }}</span>
               <div class="bar-track">
                 <div class="bar-fill" :style="{ width: barPct(c, maxA4) }"></div>
@@ -81,17 +81,17 @@
           </div>
 
           <div v-if="dist.accuracy.percentiles" class="pct-row">
-            <div class="pct"><span class="pct-k">n</span><span class="pct-v">{{ dist.accuracy.percentiles.n }}</span></div>
+            <div class="pct"><span class="pct-k">n</span><span class="pct-v">{{ dist.accuracy.percentiles.sample_count }}</span></div>
             <div class="pct hl"><span class="pct-k">P33</span><span class="pct-v">{{ pctText(dist.accuracy.percentiles.p33) }}</span></div>
             <div class="pct"><span class="pct-k">중앙값</span><span class="pct-v">{{ pctText(dist.accuracy.percentiles.p50) }}</span></div>
             <div class="pct hl"><span class="pct-k">P67</span><span class="pct-v">{{ pctText(dist.accuracy.percentiles.p67) }}</span></div>
           </div>
-          <p v-if="thinSample(dist.accuracy.percentiles)" class="warn-line">
-            ⚠ 표본이 {{ dist.accuracy.percentiles.n }}건뿐이다. 경계 확정에는 부족하다.
+          <p v-if="dist.accuracy.percentiles && thinSample(dist.accuracy.percentiles)" class="warn-line">
+            ⚠ 표본이 {{ dist.accuracy.percentiles.sample_count }}건뿐이다. 경계 확정에는 부족하다.
           </p>
 
           <div class="hist">
-            <div v-for="(c, i) in dist.accuracy.bins" :key="i" class="bar-row">
+            <div v-for="(c, i) in dist.accuracy.bin_counts" :key="i" class="bar-row">
               <span class="bar-label">{{ i * 10 }}~{{ (i + 1) * 10 }}%</span>
               <div class="bar-track">
                 <div class="bar-fill acc" :style="{ width: barPct(c, maxAcc) }"></div>
@@ -108,10 +108,10 @@
             <p class="sub">문항 응답 전수 집계. 사실→추론→비판 순으로 낮아지는 것이 정상이다.</p>
           </div>
           <div class="area-grid">
-            <div v-for="(v, k) in dist.area_accuracy" :key="k" class="area-card">
-              <span class="area-name">{{ areaKo(k) }}</span>
+            <div v-for="v in dist.area_accuracy" :key="v.area" class="area-card">
+              <span class="area-name">{{ areaKo(v.area) }}</span>
               <span class="area-acc">{{ v.accuracy != null ? Math.round(v.accuracy * 100) + '%' : '—' }}</span>
-              <span class="area-sub">{{ v.correct }} / {{ v.total }}</span>
+              <span class="area-sub">{{ v.correct_count }} / {{ v.question_count }}</span>
             </div>
           </div>
         </section>
@@ -119,7 +119,7 @@
         <!-- 이상치 -->
         <section class="panel">
           <div class="panel-head">
-            <h2>측정 이상치 <span class="count-chip">{{ outliers.count }}</span></h2>
+            <h2>측정 이상치 <span class="count-chip">{{ outliers.item_count }}</span></h2>
             <p class="sub">
               A4 게이트({{ outliers.range_min }}~{{ outliers.range_max }})에 걸린 응시.
               게이트 범위를 조정하려면 이 목록을 하나씩 봐야 한다. 여기는 식별코드를 그대로 보여준다.
@@ -142,7 +142,7 @@
                   <td class="mono dim">{{ it.text_code ?? '—' }}</td>
                   <td class="num">{{ it.reading_time_ms != null ? (it.reading_time_ms / 1000).toFixed(1) : '—' }}</td>
                   <td class="num">{{ it.text_syllable_count ?? '—' }}</td>
-                  <td class="num strong">{{ it.a4 }}</td>
+                  <td class="num strong">{{ it.a4_syllable_per_sec }}</td>
                   <td>
                     <span class="reason" :class="it.reason">
                       {{ it.reason === 'too_slow' ? '너무 느림 (미독 의심)' : '너무 빠름 (버튼만 누름 의심)' }}
@@ -161,31 +161,31 @@
             <p class="sub">문항 수·소요시간 조정의 근거.</p>
           </div>
           <div class="stat-row">
-            <div class="stat"><span class="stat-k">전체 세션</span><span class="stat-v">{{ dropoff.total_sessions }}</span></div>
+            <div class="stat"><span class="stat-k">전체 세션</span><span class="stat-v">{{ dropoff.session_count }}</span></div>
             <div class="stat"><span class="stat-k">완료율</span>
-              <span class="stat-v">{{ dropoff.completion_rate != null ? Math.round(dropoff.completion_rate * 100) + '%' : '—' }}</span>
+              <span class="stat-v">{{ dropoff.completion_ratio != null ? Math.round(dropoff.completion_ratio * 100) + '%' : '—' }}</span>
             </div>
-            <div v-for="(c, k) in dropoff.status_counts" :key="k" class="stat">
-              <span class="stat-k">{{ statusKo(k) }}</span><span class="stat-v">{{ c }}</span>
+            <div v-for="c in dropoff.status_counts" :key="c.status" class="stat">
+              <span class="stat-k">{{ statusKo(c.status) }}</span><span class="stat-v">{{ c.session_count }}</span>
             </div>
           </div>
 
           <div class="two-col">
             <div>
               <h3 class="h3">도달 회차별 미완료</h3>
-              <div v-if="!Object.keys(dropoff.incomplete_by_rounds_reached).length" class="empty-inline">없음</div>
+              <div v-if="!dropoff.incomplete_by_rounds_reached.length" class="empty-inline">없음</div>
               <ul v-else class="plain-list">
-                <li v-for="(c, k) in dropoff.incomplete_by_rounds_reached" :key="k">
-                  {{ k }}회차까지 진행 후 이탈 — <strong>{{ c }}건</strong>
+                <li v-for="r in dropoff.incomplete_by_rounds_reached" :key="r.rounds_reached_count">
+                  {{ r.rounds_reached_count }}회차까지 진행 후 이탈 — <strong>{{ r.session_count }}건</strong>
                 </li>
               </ul>
             </div>
             <div>
               <h3 class="h3">마지막 회차에서 멈춘 지점</h3>
               <ul class="plain-list">
-                <li>읽기 전 — <strong>{{ dropoff.incomplete_last_round_stage.before_reading }}건</strong></li>
-                <li>읽었으나 문항 미응답 — <strong>{{ dropoff.incomplete_last_round_stage.after_reading_no_answer }}건</strong></li>
-                <li>문항 풀다 중단 — <strong>{{ dropoff.incomplete_last_round_stage.partial_answers }}건</strong></li>
+                <li>읽기 전 — <strong>{{ dropoff.incomplete_last_round_stage.before_reading_count }}건</strong></li>
+                <li>읽었으나 문항 미응답 — <strong>{{ dropoff.incomplete_last_round_stage.after_reading_no_answer_count }}건</strong></li>
+                <li>문항 풀다 중단 — <strong>{{ dropoff.incomplete_last_round_stage.partial_answers_count }}건</strong></li>
               </ul>
             </div>
           </div>
@@ -197,28 +197,29 @@
             <h2>1회 진단 소요시간</h2>
             <p class="panel-desc">
               보호자 동의서에 적는 예상 시간의 근거다. 완료된 세션만 센다.
-              <strong>총 소요</strong>는 학생이 앉아 있던 시간,
-              <strong>과업</strong>은 읽기·응답에 실제로 쓴 시간이다. 차이가 곧 멈칫한 시간.
+              <strong>총 소요</strong>는 학생이 앉아 있던 시간, <strong>묵독</strong>은 지문을 읽은 시간이다.
+              문항 응답 시간은 화면이 재지 않아 포함하지 않는다(예전에는 비어 있는 값을 0 으로 더했다).
             </p>
           </div>
 
-          <div v-if="!duration || !duration.n_sessions" class="empty-inline">
+          <div v-if="!duration.session_count" class="empty-inline">
             완료된 세션이 없다. 응시가 쌓이면 표시된다.
           </div>
 
           <template v-else>
             <p v-if="!duration.sufficient_sample" class="warn-line">
-              ⚠ 완료 세션 {{ duration.n_sessions }}건 — 20건 미만이라 이 값으로 동의서 문구를 확정하지 말 것.
+              ⚠ 완료 세션 {{ duration.session_count }}건 — 20건 미만이라 이 값으로 동의서 문구를 확정하지 말 것.
             </p>
-            <div v-for="k in ['total_minutes','task_minutes']" :key="k" class="dur-block">
-              <span class="dur-name">{{ k === 'total_minutes' ? '총 소요' : '과업' }}</span>
-              <div v-if="duration[k].percentiles" class="pct-row">
-                <div class="pct"><span class="pct-k">최소</span><span class="pct-v">{{ duration[k].percentiles.min }}분</span></div>
-                <div class="pct hl"><span class="pct-k">중앙값</span><span class="pct-v">{{ duration[k].percentiles.p50 }}분</span></div>
-                <div class="pct"><span class="pct-k">P67</span><span class="pct-v">{{ duration[k].percentiles.p67 }}분</span></div>
-                <div class="pct"><span class="pct-k">최대</span><span class="pct-v">{{ duration[k].percentiles.max }}분</span></div>
+            <div v-for="b in durationBlocks" :key="b.name" class="dur-block">
+              <span class="dur-name">{{ b.name }}</span>
+              <div v-if="b.p" class="pct-row">
+                <div class="pct"><span class="pct-k">최소</span><span class="pct-v">{{ b.p.min }}분</span></div>
+                <div class="pct hl"><span class="pct-k">중앙값</span><span class="pct-v">{{ b.p.p50 }}분</span></div>
+                <div class="pct"><span class="pct-k">P67</span><span class="pct-v">{{ b.p.p67 }}분</span></div>
+                <div class="pct"><span class="pct-k">최대</span><span class="pct-v">{{ b.p.max }}분</span></div>
               </div>
             </div>
+            <p class="sub">문항 응답 시간이 기록된 응답: {{ duration.answer_time_measured_count }}건</p>
           </template>
         </section>
 
@@ -233,13 +234,13 @@
             </p>
           </div>
 
-          <div v-if="!validity || !validity.total_rounds" class="empty-inline">
+          <div v-if="!validity.round_count" class="empty-inline">
             아직 채점된 회차가 없다. 파일럿 응시가 쌓이면 표시된다.
           </div>
 
           <template v-else>
             <p v-if="!validity.sufficient_sample" class="warn-line">
-              ⚠ 표본 {{ validity.total_rounds }}회차 — 30회차 미만이라 판정을 신뢰할 수 없다.
+              ⚠ 표본 {{ validity.round_count }}회차 — 30회차 미만이라 판정을 신뢰할 수 없다.
             </p>
 
             <div v-if="validity.verdict" class="verdict"
@@ -257,19 +258,20 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="d in ['easy','normal','hard']" :key="d">
-                  <template v-if="validity.by_difficulty[d]">
-                    <td><span class="lv-chip" :class="d">{{ diffKo(d) }}</span></td>
-                    <td>{{ validity.by_difficulty[d].rounds }}</td>
-                    <td>{{ validity.by_difficulty[d].mean_readability ?? '–' }}</td>
-                    <td>{{ validity.by_difficulty[d].mean_accuracy != null
-                           ? pctText(validity.by_difficulty[d].mean_accuracy) : '–' }}</td>
-                    <td v-for="b in ['independent','instructional','frustration']" :key="b">
-                      {{ pctText(validity.by_difficulty[d].betts_ratio[b] || 0) }}
-                      <span class="dim">({{ validity.by_difficulty[d].betts[b] }})</span>
-                    </td>
+                <tr v-for="d in DIFFICULTIES" :key="d">
+                  <template v-for="row in [rowOf(d)]" :key="d">
+                    <template v-if="row">
+                      <td><span class="lv-chip" :class="d">{{ diffKo(d) }}</span></td>
+                      <td>{{ row.round_count }}</td>
+                      <td>{{ row.mean_readability_score ?? '–' }}</td>
+                      <td>{{ row.mean_accuracy != null ? pctText(row.mean_accuracy) : '–' }}</td>
+                      <td v-for="b in row.betts" :key="b.betts_level">
+                        {{ b.ratio != null ? pctText(b.ratio) : '–' }}
+                        <span class="dim">({{ b.round_count }})</span>
+                      </td>
+                    </template>
+                    <td v-else colspan="7" class="dim">{{ diffKo(d) }} — 응시 없음</td>
                   </template>
-                  <td v-else colspan="7" class="dim">{{ diffKo(d) }} — 응시 없음</td>
                 </tr>
               </tbody>
             </table>
@@ -281,6 +283,7 @@
 </template>
 
 <script setup lang="ts">
+import type { Difficulty, DifficultyRow, DifficultyValidity, Distributions, Dropoff, Duration, Outliers, Percentiles } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -293,11 +296,11 @@ const error = ref('')
 const downloading = ref(false)
 const anonymize = ref(true)
 
-const dist = ref<any>(null)
-const outliers = ref<any>(null)
-const dropoff = ref<any>(null)
-const validity = ref<any>(null)
-const duration = ref<any>(null)
+const dist = ref<Distributions | null>(null)
+const outliers = ref<Outliers | null>(null)
+const dropoff = ref<Dropoff | null>(null)
+const validity = ref<DifficultyValidity | null>(null)
+const duration = ref<Duration | null>(null)
 
 function diffKo(d: string) {
   return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
@@ -305,15 +308,25 @@ function diffKo(d: string) {
 
 // 표본이 적으면 백분위가 크게 흔들린다. 이 값으로 경계를 확정하지 않도록 경고한다.
 const THIN_SAMPLE = 30
-function thinSample(p: any) { return p && p.n < THIN_SAMPLE }
+function thinSample(p?: Percentiles | null) { return !!p && p.sample_count < THIN_SAMPLE }
 
-const maxA4 = computed(() => Math.max(1, ...(dist.value?.a4.bins || [1])))
-const maxAcc = computed(() => Math.max(1, ...(dist.value?.accuracy.bins || [1])))
+const maxA4 = computed(() => Math.max(1, ...(dist.value?.a4.bin_counts || [1])))
+const maxAcc = computed(() => Math.max(1, ...(dist.value?.accuracy.bin_counts || [1])))
+
+const DIFFICULTIES: Difficulty[] = ['easy', 'normal', 'hard']
+function rowOf(d: Difficulty): DifficultyRow | undefined {
+  return validity.value?.by_difficulty.find(r => r.difficulty === d)
+}
+const durationBlocks = computed(() => [
+  { name: '총 소요', p: duration.value?.total_minutes ?? null },
+  { name: '묵독', p: duration.value?.reading_minutes ?? null },
+])
 
 function barPct(c: number, max: number) { return `${Math.round((c / max) * 100)}%` }
 function pctText(v: number) { return `${Math.round(v * 100)}%` }
 
 function a4BinLabel(i: number) {
+  if (!dist.value) return ''
   const lo = dist.value.a4.range_min + i * dist.value.a4.bin_width
   return `${lo.toFixed(1)}~${(lo + dist.value.a4.bin_width).toFixed(1)}`
 }
@@ -331,11 +344,11 @@ async function loadAll() {
   loading.value = true; error.value = ''
   try {
     const [d, o, r, v, du] = await Promise.all([
-      api.get('/api/admin/pilot/distributions'),
-      api.get('/api/admin/pilot/outliers'),
-      api.get('/api/admin/pilot/dropoff'),
-      api.get('/api/admin/pilot/difficulty-validity'),
-      api.get('/api/admin/pilot/duration'),
+      api.get<Distributions>('/api/admin/pilot/distributions'),
+      api.get<Outliers>('/api/admin/pilot/outliers'),
+      api.get<Dropoff>('/api/admin/pilot/dropoff'),
+      api.get<DifficultyValidity>('/api/admin/pilot/difficulty-validity'),
+      api.get<Duration>('/api/admin/pilot/duration'),
     ])
     dist.value = d.data; outliers.value = o.data
     dropoff.value = r.data; validity.value = v.data; duration.value = du.data

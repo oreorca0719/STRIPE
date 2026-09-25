@@ -138,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import type { DeletionReasons, DeletionRequestReceipt, DeletionRequestView, MyDeletionRequests, MySessionItem, MySummaryResponse } from '@/api-types'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -160,7 +161,7 @@ const del = reactive<{
   open: boolean; busy: boolean; error: string
   reason: string; reasons: { code: string; label: string }[]
   backupNotice: string
-  pending: any | null; lastResolved: any | null
+  pending: DeletionRequestView | null; lastResolved: DeletionRequestView | null
 }>({
   open: false, busy: false, error: '',
   reason: '', reasons: [], backupNotice: '',
@@ -169,10 +170,10 @@ const del = reactive<{
 
 async function loadDeletion() {
   try {
-    const r = await api.get('/api/account/deletion-request')
+    const r = await api.get<MyDeletionRequests>('/api/account/deletion-request')
     const items = r.data.items || []
-    del.pending = items.find((i: any) => i.status === 'pending') ?? null
-    del.lastResolved = items.find((i: any) => i.status !== 'pending') ?? null
+    del.pending = items.find((i) => i.status === 'pending') ?? null
+    del.lastResolved = items.find((i) => i.status !== 'pending') ?? null
     del.backupNotice = r.data.backup_notice || ''
   } catch {
     // 삭제 요청 상태를 못 불러와도 홈 화면 나머지는 그대로 쓸 수 있어야 한다.
@@ -184,7 +185,7 @@ async function openDeletion() {
   del.error = ''
   if (!del.reasons.length) {
     try {
-      const r = await api.get('/api/account/deletion-request/reasons')
+      const r = await api.get<DeletionReasons>('/api/account/deletion-request/reasons')
       del.reasons = r.data.reasons
       del.backupNotice = r.data.backup_notice
     } catch {
@@ -198,7 +199,7 @@ async function openDeletion() {
 async function requestDeletion() {
   del.busy = true; del.error = ''
   try {
-    await api.post('/api/account/deletion-request', { reason: del.reason })
+    await api.post<DeletionRequestReceipt>('/api/account/deletion-request', { reason: del.reason })
     del.open = false; del.reason = ''
     await loadDeletion()
   } catch (e: any) {
@@ -210,7 +211,7 @@ async function cancelDeletion() {
   if (!del.pending) return
   del.busy = true; del.error = ''
   try {
-    await api.post(`/api/account/deletion-request/${del.pending.id}/cancel`)
+    await api.post<DeletionRequestView>(`/api/account/deletion-request/${del.pending.id}/cancel`)
     await loadDeletion()
   } catch (e: any) {
     del.error = e?.response?.data?.detail || '취소하지 못했어요.'
@@ -220,7 +221,7 @@ async function cancelDeletion() {
 const loading = ref(true)
 const error = ref(false)
 const completedCount = ref(0)
-const latest = ref<any | null>(null)
+const latest = ref<MySessionItem | null>(null)
 const resumeId = ref<number | null>(null)
 
 // 판정 등급은 아동에게 그대로 보여주지 않고 친화 표현으로 바꾼다(§2 SCR-13).
@@ -242,7 +243,7 @@ function goResult() {
 async function load() {
   loading.value = true; error.value = false      // 재시도 시 이전 오류를 지운다
   try {
-    const res = await api.get('/api/diagnosis/my/summary')
+    const res = await api.get<MySummaryResponse>('/api/diagnosis/my/summary')
     completedCount.value = res.data.completed_count
     latest.value = res.data.latest
     resumeId.value = res.data.in_progress_session_id

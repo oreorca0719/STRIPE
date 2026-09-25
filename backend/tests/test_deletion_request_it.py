@@ -212,7 +212,7 @@ def test_파기_실행이_요청과_이어진다():
                 "user_id": s, "reason": "subject_request", "confirm_code": "elem5-017",
             })
             assert r.status_code == 201, r.text
-            assert r.json()["linked_requests"] == 1
+            assert r.json()["linked_request_count"] == 1
             log_id = r.json()["id"]
 
         async with AsyncSessionLocal() as db:

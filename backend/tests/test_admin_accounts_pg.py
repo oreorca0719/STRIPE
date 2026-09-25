@@ -64,7 +64,7 @@ async def _run_enum_roundtrip():
     async with AsyncClient(transport=ASGITransport(app=_app()),
                            base_url="http://t", headers=_hdr(admin_id)) as ac:
         r = await ac.post("/api/auth/admin/users", json={
-            "username": "pgstu001", "password": "ignored",
+            "username": "pgstu001",
             "name": "학생", "role": "student", "grade": "mid1",
         })
         assert r.status_code == 201, r.text
@@ -85,7 +85,7 @@ async def _run_enum_roundtrip():
 
         # 서비스 대상 밖 학년은 Postgres 에서도 거부돼야 한다
         r = await ac.post("/api/auth/admin/users", json={
-            "username": "pgstu002", "password": "x", "name": "범위밖",
+            "username": "pgstu002", "name": "범위밖",
             "role": "student", "grade": "elem2",
         })
         assert r.status_code == 422, r.text
@@ -159,7 +159,7 @@ async def _run_reset_and_deactivate():
     async with AsyncClient(transport=ASGITransport(app=_app()),
                            base_url="http://t", headers=_hdr(admin_id)) as ac:
         r = await ac.post("/api/auth/admin/users", json={
-            "username": "pgstu100", "password": "x", "name": "학생",
+            "username": "pgstu100", "name": "학생",
             "role": "student", "grade": "elem4",
         })
         uid = r.json()["user"]["id"]

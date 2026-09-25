@@ -11,6 +11,8 @@ from app.models.core import (
     AdaptiveAction, ReliabilityFlag, TargetArea,
 )
 from app.contracts.judgment import CellResponse
+from app.contracts.student import BookBasis, BooksForMe
+from app.enums import BooksUnavailableReason, FINISHED_SESSION_STATUSES
 from app.contracts.measurement import (
     AdaptiveDecision, AnswerSubmit, AwayEvents, SilentReadingSubmit,
 )
@@ -149,7 +151,7 @@ def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
 # 별도 소유권 검증이 필요 없다(쿼리에 student_id를 강제로 건다).
 
 # 판정이 끝난 세션만 '결과 있음'으로 본다. 판정 전 세션은 진행 중이거나 중단된 것.
-_JUDGED_STATUSES = (DiagSessionStatus.completed, DiagSessionStatus.early_stop)
+_JUDGED_STATUSES = FINISHED_SESSION_STATUSES
 
 
 def _to_my_item(session: DiagnosisSession, judgment: Optional[JudgmentResult]) -> MySessionItem:
@@ -194,7 +196,7 @@ async def my_sessions(
     return [_to_my_item(s, j) for s, j in rows]
 
 
-@router.get("/my/books")
+@router.get("/my/books", response_model=BooksForMe)
 async def my_books(
     limit: int = 5,
     db: AsyncSession = Depends(get_db),
@@ -212,8 +214,8 @@ async def my_books(
     rows = await _my_sessions(db, user)
     judged = [(s, j) for s, j in rows if j is not None and s.status in _JUDGED_STATUSES]
     if not judged:
-        return {"ready": False, "reason": "no_diagnosis", "books": [],
-                "based_on": None, "catalog_empty": False}
+        return BooksForMe(books=[], reason=BooksUnavailableReason.no_diagnosis,
+                          catalog_empty=False, based_on=None)
 
     session, judgment = judged[0]
 
@@ -227,8 +229,8 @@ async def my_books(
     )
     profile = prof_q.scalar_one_or_none()
     if not profile or profile.grade is None:
-        return {"ready": False, "reason": "no_profile", "books": [],
-                "based_on": None, "catalog_empty": False}
+        return BooksForMe(books=[], reason=BooksUnavailableReason.no_profile,
+                          catalog_empty=False, based_on=None)
 
     grade_group = text_selection.grade_to_group(profile.grade)
     anchor = judgment.anchor_difficulty or Difficulty.normal
@@ -258,20 +260,20 @@ async def my_books(
     )
     catalog_empty = (total_q.scalar_one() or 0) == 0
 
-    return {
-        "ready": bool(books),
-        "reason": None if books else ("catalog_empty" if catalog_empty else "no_match"),
-        "catalog_empty": catalog_empty,
-        "based_on": {
-            "session_id": session.id,
-            "label_5": judgment.label_5.value,
-            "prescription_group": judgment.prescription_group.value,
-            "difficulties": [d.value for d in difficulties],
-            "interest_topics": profile.interest_topics or [],
-            "prefer_short": prefer_short,
-        },
-        "books": [book_recommend.to_dict(b, profile.interest_topics) for b in books],
-    }
+    return BooksForMe(
+        books=[book_recommend.to_view(b, profile.interest_topics) for b in books],
+        reason=None if books else (BooksUnavailableReason.catalog_empty if catalog_empty
+                                   else BooksUnavailableReason.no_match),
+        catalog_empty=catalog_empty,
+        based_on=BookBasis(
+            session_id=session.id,
+            label_5=judgment.label_5,
+            prescription_group=judgment.prescription_group,
+            difficulties=difficulties,
+            interest_topics=profile.interest_topics or [],
+            prefer_short=prefer_short,
+        ),
+    )
 
 
 @router.get("/my/summary", response_model=MySummaryResponse)
@@ -973,8 +975,19 @@ async def finalize_session(
     """SYS-01: 판정+처방 산출·저장 (§3+§5). 세션 종료 후 호출.
 
     채점·판정·처방 전부 규칙 기반(LLM 미사용). 리포트 생성(AI-07)은 C-3.
+
+    [세션당 한 번, 끝난 세션만]
+    예전에는 상태를 보지 않아 진행 중인 세션도 판정됐고, 두 번 부르면 판정이
+    두 줄 생겨 파일럿 분포에 그 학생이 두 번 잡혔다. 둘 다 409 로 막는다.
+    화면은 응답을 못 받고 다시 보낸 경우의 409 를 '이미 판정됨'으로 받아 넘어간다.
     """
     session = await _owned_session(db, session_id, user)
+    if session.status not in FINISHED_SESSION_STATUSES:
+        raise HTTPException(status_code=409, detail="진단이 아직 끝나지 않았습니다.")
+    done = await db.execute(select(JudgmentResult.id).where(
+        JudgmentResult.diagnosis_session_id == session.id))
+    if done.first() is not None:
+        raise HTTPException(status_code=409, detail="이미 판정된 진단입니다.")
     try:
         judgment, prescription = await pipeline.run_sys01(db, session)
     except ValueError as e:

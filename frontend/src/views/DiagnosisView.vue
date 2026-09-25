@@ -200,6 +200,7 @@
 </template>
 
 <script setup lang="ts">
+import type { FinalizeResponse, FluencyResultResponse, MySummaryResponse, ProfileResponse, QuestionPublic, QuestionResponseResult, ReaderTypeProbeResponse, ReportResponse, ResumeResponse, RoundCompleteResponse, RoundContentResponse, RoundResponse, SessionResponse } from '@/api-types'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -267,7 +268,8 @@ async function loadDefinition() {
 const visibleQuestions = computed(() =>
   questions.value.filter(q => q.status !== 'conditional' || showNonReader.value))
 
-const accountGradeNum = computed(() => ACCOUNT_GRADE_TO_NUM[auth.user?.grade] ?? null)
+const accountGradeNum = computed(() =>
+  auth.user?.grade ? ACCOUNT_GRADE_TO_NUM[auth.user.grade] ?? null : null)
 const accountGradeLabel = computed(() => {
   const b1 = questions.value.find(q => q.code === 'B-1')
   return b1?.options.find((o: any) => o.value === accountGradeNum.value)?.label ?? ''
@@ -299,7 +301,7 @@ function pruneGradeHistory() {
 watch(() => [surveyAnswers.reading_freq, surveyAnswers.reading_attitude], async ([f, a]) => {
   if (f == null || a == null) { showNonReader.value = false; return }
   try {
-    const r = await api.post('/api/diagnosis/reader-type',
+    const r = await api.post<ReaderTypeProbeResponse>('/api/diagnosis/reader-type',
                              { reading_freq: f, reading_attitude: a })
     showNonReader.value = !!r.data.show_non_reader_questions
   } catch {
@@ -339,7 +341,7 @@ const sessionId = ref<number | null>(null)
 const roundNumber = ref(1)
 const round = reactive<{
   roundId: number | null; title: string; content: string; genre: string
-  syllableCount: number; questions: any[]
+  syllableCount: number; questions: QuestionPublic[]
 }>({ roundId: null, title: '', content: '', genre: '', syllableCount: 0, questions: [] })
 const answers = reactive<Record<number, number>>({})
 // 읽기 시간 — "읽기 시작"과 "다 읽었어" 사이의 실제 시각 차이(ms).
@@ -389,12 +391,12 @@ async function submitSurvey() {
     for (const q of visibleQuestions.value) {
       payload[q.storage_field] = surveyAnswers[q.storage_field]
     }
-    const prof = await api.post('/api/diagnosis/profile', payload)
-    const sess = await api.post('/api/diagnosis/session', {
+    const prof = await api.post<ProfileResponse>('/api/diagnosis/profile', payload)
+    const sess = await api.post<SessionResponse>('/api/diagnosis/session', {
       profile_id: prof.data.id, silent_mode: true,
     })
     sessionId.value = sess.data.id
-    const r = await api.post(`/api/diagnosis/session/${sessionId.value}/start`)
+    const r = await api.post<RoundResponse>(`/api/diagnosis/session/${sessionId.value}/start`)
     await loadRound(r.data.id)
   } catch (e: any) {
     // 재시도를 걸지 않는다 — 이 흐름은 프로필·세션을 생성하므로 그대로 다시 부르면
@@ -411,7 +413,7 @@ async function checkResume() {
   // 학년 기본값 채우기는 loadDefinition 이 맡는다 — 문항 정의가 와야
   // B-1 의 선지 값과 맞출 수 있다.
   try {
-    const res = await api.get('/api/diagnosis/my/summary')
+    const res = await api.get<MySummaryResponse>('/api/diagnosis/my/summary')
     if (res.data.in_progress_session_id) {
       resumeSessionId.value = res.data.in_progress_session_id
       phase.value = 'resume-choice'
@@ -427,7 +429,7 @@ async function doResume() {
   if (!resumeSessionId.value) { phase.value = 'survey'; return }
   busy.value = true; error.value = ''
   try {
-    const res = await api.post(`/api/diagnosis/session/${resumeSessionId.value}/resume`)
+    const res = await api.post<ResumeResponse>(`/api/diagnosis/session/${resumeSessionId.value}/resume`)
     const d = res.data
     sessionId.value = d.session_id
     roundNumber.value = d.round_number
@@ -452,7 +454,7 @@ async function doRestart() {
   busy.value = true; error.value = ''
   try {
     if (resumeSessionId.value) {
-      await api.post(`/api/diagnosis/session/${resumeSessionId.value}/abandon`)
+      await api.post<SessionResponse>(`/api/diagnosis/session/${resumeSessionId.value}/abandon`)
     }
     resumeSessionId.value = null
     phase.value = 'survey'
@@ -462,7 +464,7 @@ async function doRestart() {
 }
 
 async function loadRound(roundId: number) {
-  const r = await api.get(`/api/diagnosis/round/${roundId}/content`)
+  const r = await api.get<RoundContentResponse>(`/api/diagnosis/round/${roundId}/content`)
   round.roundId = r.data.round_id
   round.title = r.data.title
   round.content = r.data.content
@@ -558,7 +560,7 @@ async function stopReading() {
 async function sendSilentReading() {
   busy.value = true; error.value = ''
   try {
-    await api.post('/api/diagnosis/fluency/silent', {
+    await api.post<FluencyResultResponse>('/api/diagnosis/fluency/silent', {
       session_id: sessionId.value, round_id: round.roundId,
       reading_time_ms: readingTimeMs.value, away_events: awayEvents.value,
     })
@@ -614,7 +616,7 @@ async function saveAnswer(questionId: number) {
   const ans = answers[questionId]
   if (!ans || !round.roundId) return
   try {
-    await api.post('/api/diagnosis/comprehension', {
+    await api.post<QuestionResponseResult>('/api/diagnosis/comprehension', {
       round_id: round.roundId, question_id: questionId, student_answer: ans,
     })
     unsavedIds.delete(questionId)
@@ -629,13 +631,13 @@ async function submitAnswers() {
   try {
     // 즉시 저장에 실패했던 문항만 다시 보낸다(정상 흐름에선 비어 있다).
     for (const qid of Array.from(unsavedIds)) {
-      await api.post('/api/diagnosis/comprehension', {
+      await api.post<QuestionResponseResult>('/api/diagnosis/comprehension', {
         round_id: round.roundId, question_id: qid, student_answer: answers[qid],
       })
       unsavedIds.delete(qid)
       persistUnsaved()
     }
-    const res = await api.post(`/api/diagnosis/round/${round.roundId}/complete`)
+    const res = await api.post<RoundCompleteResponse>(`/api/diagnosis/round/${round.roundId}/complete`)
     const body = res.data
     if (body.decision.action === 'continue' && body.next_round) {
       roundNumber.value++
@@ -654,7 +656,7 @@ async function submitAnswers() {
 
 async function recoverCompletedRound() {
   try {
-    const d = (await api.post(`/api/diagnosis/session/${sessionId.value}/resume`)).data
+    const d = (await api.post<ResumeResponse>(`/api/diagnosis/session/${sessionId.value}/resume`)).data
     roundNumber.value = d.round_number
     await loadRound(d.round.id)
   } catch (e: any) {
@@ -667,8 +669,13 @@ async function recoverCompletedRound() {
 async function finalize() {
   phase.value = 'processing'
   try {
-    await api.post(`/api/diagnosis/session/${sessionId.value}/finalize`)
-    await api.post(`/api/diagnosis/session/${sessionId.value}/report`)
+    try {
+      await api.post<FinalizeResponse>(`/api/diagnosis/session/${sessionId.value}/finalize`)
+    } catch (e: any) {
+      // 409 = 이미 판정됐다(응답을 못 받고 다시 보낸 경우). 리포트 단계로 넘어간다.
+      if (e?.response?.status !== 409) throw e
+    }
+    await api.post<ReportResponse>(`/api/diagnosis/session/${sessionId.value}/report`)
     clearUnsavedBackup()
     router.push({ name: 'result', query: { session: String(sessionId.value) } })
   } catch (e: any) {

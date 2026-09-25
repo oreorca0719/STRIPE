@@ -18,6 +18,6 @@ def test_모든_형식_파일이_명세에_실린다():
     """새 형식 파일을 만들고 MODULE_ORDER 에 넣지 않으면 명세에서 빠진다."""
     import pkgutil
     import app.contracts as pkg
-    infra = {"base", "column", "spec"}
+    infra = {"base", "column", "spec", "typescript"}
     files = {m.name for m in pkgutil.iter_modules(pkg.__path__)} - infra
     assert files == set(spec.MODULE_ORDER), f"명세에 빠진 형식 파일: {files - set(spec.MODULE_ORDER)}"

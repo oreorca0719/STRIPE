@@ -171,16 +171,18 @@ def test_distributions_counts_only_in_range_a4():
 
             assert d["a4"]["in_range_count"] == 2        # 3.0, 5.0
             assert d["a4"]["out_of_range_count"] == 2    # 0.1, 20.0
-            assert sum(d["a4"]["bins"]) == 2
+            assert sum(d["a4"]["bin_counts"]) == 2
 
             # 완료 세션 3건의 정답률(2/3)이 60~70% 구간에 모여야 한다
-            assert d["accuracy"]["percentiles"]["n"] == 3
-            assert d["accuracy"]["bins"][6] == 3
+            assert d["accuracy"]["percentiles"]["sample_count"] == 3
+            assert d["accuracy"]["bin_counts"][6] == 3
 
             # 영역별: A5·A6 정답, A7 오답 (완료 3명 기준)
-            assert d["area_accuracy"]["A5"]["correct"] == 3
-            assert d["area_accuracy"]["A7"]["correct"] == 0
-            assert d["area_accuracy"]["A7"]["accuracy"] == 0.0
+            areas = {a["area"]: a for a in d["area_accuracy"]}
+            assert list(areas) == ["A5", "A6", "A7"]            # 3칸 전부, 순서대로
+            assert areas["A5"]["correct_count"] == 3
+            assert areas["A7"]["correct_count"] == 0
+            assert areas["A7"]["accuracy"] == 0.0
 
     asyncio.run(_with_cleanup(_run))
 
@@ -191,8 +193,8 @@ def test_outliers_lists_gate_violations_with_reason():
         async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://t") as ac:
             o = (await ac.get("/api/admin/pilot/outliers")).json()
 
-            assert o["count"] == 2
-            reasons = {i["a4"]: i["reason"] for i in o["items"]}
+            assert o["item_count"] == 2
+            reasons = {i["a4_syllable_per_sec"]: i["reason"] for i in o["items"]}
             assert reasons[0.1] == "too_slow"
             assert reasons[20.0] == "too_fast"
             # 이상치 조사는 대상을 특정해야 하므로 식별코드를 그대로 준다
@@ -207,12 +209,14 @@ def test_dropoff_counts_incomplete_stage():
         async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://t") as ac:
             d = (await ac.get("/api/admin/pilot/dropoff")).json()
 
-            assert d["total_sessions"] == 4
-            assert d["status_counts"]["completed"] == 3
-            assert d["status_counts"]["abandoned"] == 1
-            assert d["completion_rate"] == 0.75
+            assert d["session_count"] == 4
+            status = {s["status"]: s["session_count"] for s in d["status_counts"]}
+            assert len(status) == 5                              # 상태 5종 전부
+            assert status["completed"] == 3
+            assert status["abandoned"] == 1
+            assert d["completion_ratio"] == 0.75
             # 읽기는 했고 문항은 안 푼 상태
-            assert d["incomplete_last_round_stage"]["after_reading_no_answer"] == 1
+            assert d["incomplete_last_round_stage"]["after_reading_no_answer_count"] == 1
 
     asyncio.run(_with_cleanup(_run))
 
@@ -235,5 +239,29 @@ def test_export_csv_anonymize_toggle():
             rounds = await ac.get("/api/admin/pilot/export.csv?level=round&anonymize=true")
             assert len(rounds.text.strip().split("\n")) == 5   # 헤더 + 회차 4건
             assert "TXT_PILOT_1" in rounds.text
+
+    asyncio.run(_with_cleanup(_run))
+
+
+def test_조기종료는_이탈이_아니라_끝난_세션이다():
+    """적응형 엔진이 2연속 좌절로 끝낸 세션(early_stop)은 정상 종료다.
+
+    예전 이탈 집계는 completed 가 아니면 전부 '이탈'로 셌다. 같은 파일의
+    소요시간 분석은 조기종료를 완료로 봤다 — 끝난 세션의 정의가 두 곳에서 달랐다.
+    """
+    async def _run():
+        await _seed()
+        async with AsyncSessionLocal() as db:
+            await db.execute(sql_text(
+                "UPDATE diagnosis_sessions SET status='early_stop' "
+                "WHERE id = (SELECT min(id) FROM diagnosis_sessions WHERE status='completed')"))
+            await db.commit()
+        async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://t") as ac:
+            d = (await ac.get("/api/admin/pilot/dropoff")).json()
+            status = {s["status"]: s["session_count"] for s in d["status_counts"]}
+            assert (status["completed"], status["early_stop"]) == (2, 1)
+            assert d["completion_ratio"] == 0.75            # 조기종료도 끝난 세션
+            reached = sum(r["session_count"] for r in d["incomplete_by_rounds_reached"])
+            assert reached == 1, "조기종료가 이탈로 잡혔다"   # abandoned 1건만
 
     asyncio.run(_with_cleanup(_run))

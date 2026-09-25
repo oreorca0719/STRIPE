@@ -28,10 +28,10 @@
         <div class="section">
           <h2 class="section-title">콘텐츠 현황</h2>
           <div class="stat-row">
-            <div class="stat-box"><span class="sv">{{ ov?.texts_approved ?? '-' }}</span><span class="sl">승인 지문</span></div>
-            <div class="stat-box"><span class="sv">{{ ov?.questions_approved ?? '-' }}</span><span class="sl">승인 문항</span></div>
-            <div class="stat-box"><span class="sv">{{ ov?.students ?? '-' }}</span><span class="sl">학생</span></div>
-            <div class="stat-box"><span class="sv">{{ ov?.diagnosis_completed ?? '-' }}</span><span class="sl">완료 진단</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.approved_text_count ?? '-' }}</span><span class="sl">승인 지문</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.approved_question_count ?? '-' }}</span><span class="sl">승인 문항</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.student_count ?? '-' }}</span><span class="sl">학생</span></div>
+            <div class="stat-box"><span class="sv">{{ ov?.finished_session_count ?? '-' }}</span><span class="sl">완료 진단</span></div>
           </div>
         </div>
 
@@ -54,6 +54,7 @@
 </template>
 
 <script setup lang="ts">
+import type { Overview, SystemStatus } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
@@ -62,8 +63,8 @@ import { api } from '@/api'
 const router = useRouter()
 const loading = ref(true)
 const error = ref('')
-const sys = ref<any>(null)
-const ov = ref<any>(null)
+const sys = ref<SystemStatus | null>(null)
+const ov = ref<Overview | null>(null)
 
 const services = computed(() => {
   if (!sys.value) return []
@@ -105,8 +106,8 @@ const infra = computed(() => {
 async function load() {
   try {
     const [s, o] = await Promise.all([
-      api.get('/api/admin/system'),
-      api.get('/api/admin/overview'),
+      api.get<SystemStatus>('/api/admin/system'),
+      api.get<Overview>('/api/admin/overview'),
     ])
     sys.value = s.data
     ov.value = o.data

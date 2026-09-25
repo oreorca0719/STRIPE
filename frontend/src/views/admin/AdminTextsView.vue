@@ -210,6 +210,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ChecklistInfo, Principle, ReviewItem, ReviewResult, TextDetail, TextSummary } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
@@ -220,7 +221,7 @@ const filterGrade = ref('')
 const filterGenre = ref('')
 const filterLevel = ref('')
 
-const texts = ref<any[]>([])
+const texts = ref<TextSummary[]>([])
 const loading = ref(true)
 
 // 실제 스키마의 학년군(G4_G6 / G7) 기준
@@ -245,7 +246,7 @@ const EXPECTED_RANGE: Record<string, [number, number]> = {
   normal: [55, 80],
   hard: [70, 100],
 }
-function scoreClass(t: any) {
+function scoreClass(t: TextSummary) {
   const r = EXPECTED_RANGE[t.difficulty]
   if (!r || t.readability_score == null) return ''
   return t.readability_score < r[0] || t.readability_score > r[1] ? 'off' : 'fit'
@@ -274,17 +275,17 @@ function coverageCells(gradeGroup: string) {
 // 지문 상세 (본문·문항·정답)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
-const detail = ref<any>(null)
+const detail = ref<TextDetail | null>(null)
 
 function areaKo(a: string) {
   return ({ A5: '사실적 이해', A6: '추론적 이해', A7: '비판적 이해' } as any)[a] || a
 }
 
 // ── 검수 (STR-81) ─────────────────────────────────────────────────────────
-const checklist = ref<any[]>([])
+const checklist = ref<Principle[]>([])
 const checks = ref<Record<string, boolean>>({})
 const reviewComment = ref('')
-const reviewHistory = ref<any[]>([])
+const reviewHistory = ref<ReviewItem[]>([])
 const reviewing = ref(false)
 const reviewError = ref('')
 
@@ -314,8 +315,7 @@ function resetChecks() {
 
 async function loadHistory(id: number) {
   try {
-    reviewHistory.value = (await api.get(
-      `/api/admin/reviews?target_type=text&target_id=${id}`)).data
+    reviewHistory.value = (await api.get<ReviewItem[]>(`/api/admin/reviews?target_type=text&target_id=${id}`)).data
   } catch { reviewHistory.value = [] }
 }
 
@@ -323,7 +323,7 @@ async function doReview(decision: 'advance' | 'approve' | 'reject') {
   if (!detail.value) return
   reviewing.value = true; reviewError.value = ''
   try {
-    await api.post('/api/admin/reviews', {
+    await api.post<ReviewResult>('/api/admin/reviews', {
       target_type: 'text',
       target_id: detail.value.id,
       decision,
@@ -340,7 +340,7 @@ async function doReview(decision: 'advance' | 'approve' | 'reject') {
 async function openDetail(id: number) {
   detailOpen.value = true; detailLoading.value = true; detail.value = null
   try {
-    detail.value = (await api.get(`/api/admin/texts/${id}`)).data
+    detail.value = (await api.get<TextDetail>(`/api/admin/texts/${id}`)).data
     resetChecks()
     await loadHistory(id)
   }
@@ -350,7 +350,7 @@ function closeDetail() { detailOpen.value = false; detail.value = null }
 
 async function load() {
   try {
-    const r = await api.get('/api/admin/texts')
+    const r = await api.get<TextSummary[]>('/api/admin/texts')
     texts.value = r.data
   } catch { texts.value = [] } finally { loading.value = false }
 }
@@ -359,7 +359,7 @@ function handleLogout() { router.push('/login') }
 onMounted(async () => {
   await load()
   try {
-    checklist.value = (await api.get('/api/admin/reviews/checklist')).data.principles
+    checklist.value = (await api.get<ChecklistInfo>('/api/admin/reviews/checklist')).data.principles
     resetChecks()
   } catch { checklist.value = [] }
 })

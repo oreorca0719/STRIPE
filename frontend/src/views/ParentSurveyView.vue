@@ -68,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ParentSurveyOut } from '@/api-types'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -104,7 +105,7 @@ async function load() {
   try {
     const [defRes, latestRes] = await Promise.all([
       api.get('/api/parent/survey/definition'),
-      api.get('/api/parent/survey/latest'),
+      api.get<ParentSurveyOut | null>('/api/parent/survey/latest'),
     ])
     questions.value = defRes.data.questions
     for (const q of questions.value) {
@@ -112,7 +113,8 @@ async function load() {
     }
     // 이전 응답이 있으면 채워 넣는다. 처음부터 다시 쓰게 하면 고치려는
     // 보호자가 오히려 응답을 빠뜨린다.
-    const prev = latestRes.data
+    // 설문 문항 정의는 아직 형식이 없어(설문 경로) storage_field 로 칸을 찾는다.
+    const prev = latestRes.data as unknown as Record<string, unknown> | null
     if (prev) {
       previous.value = true
       for (const q of questions.value) {
@@ -135,7 +137,7 @@ async function submit() {
   try {
     const payload: Record<string, any> = {}
     for (const q of questions.value) payload[q.storage_field] = answers[q.storage_field]
-    await api.post('/api/parent/survey', payload)
+    await api.post<ParentSurveyOut>('/api/parent/survey', payload)
     submitted.value = true
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (e: any) {

@@ -401,3 +401,31 @@ def test_회차를_두_번_완료하면_409이고_집계는_하나다():
             rows = (await db.execute(select(ComprehensionResult))).scalars().all()
             assert len(rows) == 1
     _run(go)
+
+
+def test_끝나지_않은_세션은_판정하지_않는다():
+    """예전에는 상태를 보지 않아 진행 중인 세션도 판정됐다."""
+    async def go():
+        s = await _seed()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            r = await ac.post(f"/api/diagnosis/session/{s['sid']}/finalize")
+            assert r.status_code == 409, r.text
+    _run(go)
+
+
+def test_같은_세션을_두_번_판정하지_않는다():
+    """두 번 판정하면 판정이 두 줄 생겨 파일럿 분포에 그 학생이 두 번 잡혔다."""
+    async def go():
+        s = await _seed()
+        async with AsyncSessionLocal() as db:
+            await db.execute(sql_text("UPDATE diagnosis_sessions SET status='completed' WHERE id=:i"),
+                             {"i": s["sid"]})
+            await db.commit()
+        async with AsyncClient(transport=ASGITransport(app=_app()),
+                               base_url="http://t", headers=_hdr(s["uid"])) as ac:
+            first = await ac.post(f"/api/diagnosis/session/{s['sid']}/finalize")
+            assert first.status_code == 201, first.text
+            second = await ac.post(f"/api/diagnosis/session/{s['sid']}/finalize")
+            assert second.status_code == 409, second.text
+    _run(go)

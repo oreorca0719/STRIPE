@@ -26,8 +26,21 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, 
 
 
 class Contract(BaseModel):
-    """모든 형식의 부모. 이 규칙을 개별 형식에서 풀지 않는다."""
-    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
+    """모든 형식의 부모. 이 규칙을 개별 형식에서 풀지 않는다.
+
+    json_schema_serialization_defaults_required — 응답으로 나갈 때는 기본값이 있는
+    칸도 항상 실린다. 이 설정이 없으면 화면 타입이 그 칸을 '없을 수도 있음'으로
+    받아, 화면 코드가 있지도 않은 경우를 처리해야 한다. 요청 쪽(입력)은 그대로
+    생략 가능하다.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True,
+                              json_schema_serialization_defaults_required=True)
+
+
+class ResponseModel(BaseModel):
+    """schemas/ 의 기존 응답 형식이 쓰는 부모. ORM 행에서 바로 만들 수 있다."""
+    model_config = ConfigDict(from_attributes=True,
+                              json_schema_serialization_defaults_required=True)
 
 
 # ── 원칙 3: 자유 문자열은 표시를 달아야만 쓸 수 있다 ──────────────────────

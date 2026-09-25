@@ -1,12 +1,21 @@
-from typing import List, Optional
+from typing import Annotated, List, Optional
+from app.contracts.base import ResponseModel
 from pydantic import BaseModel, field_validator
+
+from app.contracts.base import Bool, Contract, Count, Int, Text, Unitless
 from app.models.user import UserRole, GradeLevel
 
 
-class UserRegister(BaseModel):
-    username: str
-    password: str
-    name: str
+# ── 요청 (화면 → 서버) — 엄격 형식: 모르는 키·타입 자동 변환 거부 ─────────
+_USERNAME = Text("아이디 — 학생은 식별코드(elem5-017), 실명 금지")
+_PASSWORD = Text("비밀번호 — 저장하지 않고 해시만 남긴다")
+_NAME = Text("표시 이름")
+
+
+class UserRegister(Contract):
+    username: _USERNAME
+    password: _PASSWORD
+    name: _NAME
     role: UserRole = UserRole.student
     grade: Optional[GradeLevel] = None
 
@@ -25,18 +34,18 @@ class UserRegister(BaseModel):
         return v
 
 
-class AdminUserCreate(BaseModel):
+class AdminUserCreate(Contract):
     """관리자 계정 발급. 비밀번호는 서버가 임시값으로 만들어 응답에 1회 반환한다.
 
     must_change_password 를 발급 시점에 정하는 이유: 파일럿 학생 계정은
     변경 화면에서 이탈하지 않도록 False 로 발급한다(STR-90). 교사·학부모 등
     일반 발급은 기본값 True 로 최초 로그인 시 변경을 강제한다.
     """
-    username: str
-    name: str
+    username: _USERNAME
+    name: _NAME
     role: UserRole = UserRole.student
     grade: Optional[GradeLevel] = None
-    must_change_password: bool = True
+    must_change_password: Bool = True
 
     @field_validator("username")
     @classmethod
@@ -46,8 +55,8 @@ class AdminUserCreate(BaseModel):
         return v
 
 
-class ActiveUpdate(BaseModel):
-    is_active: bool
+class ActiveUpdate(Contract):
+    is_active: Bool
 
 
 # 파일럿 다건 발급 상한. 실수로 큰 수를 넣어 계정이 대량 생성되는 것을 막는다.
@@ -55,7 +64,7 @@ class ActiveUpdate(BaseModel):
 BULK_ISSUE_MAX = 200
 
 
-class BulkUserCreate(BaseModel):
+class BulkUserCreate(Contract):
     """파일럿 학생 계정 다건 발급 (STR-90).
 
     아이디는 `{학년}-{일련번호 3자리}` 형식으로 자동 생성한다(elem5-017).
@@ -65,9 +74,9 @@ class BulkUserCreate(BaseModel):
     학생 전용이다. 학년 기반 아이디 형식이 다른 역할에는 의미가 없다.
     """
     grade: GradeLevel
-    start: int = 1
-    count: int
-    must_change_password: bool = False   # 아동이 변경 화면에서 이탈하지 않도록 기본 해제
+    start: Annotated[Int, Unitless("일련번호 시작값 (001 의 1)")] = 1
+    count: Count
+    must_change_password: Bool = False   # 아동이 변경 화면에서 이탈하지 않도록 기본 해제
 
     @field_validator("start")
     @classmethod
@@ -84,21 +93,21 @@ class BulkUserCreate(BaseModel):
         return v
 
 
-class UserLogin(BaseModel):
-    username: str
-    password: str
+class UserLogin(Contract):
+    username: _USERNAME
+    password: _PASSWORD
 
 
-class UserNameUpdate(BaseModel):
-    name: str
+class UserNameUpdate(Contract):
+    name: _NAME
 
 
-class CredentialChange(BaseModel):
+class CredentialChange(Contract):
     """최초 로그인 시 아이디·비밀번호 변경. 현재 비밀번호로 본인 확인."""
-    username: str                          # 현재 아이디
-    current_password: str
-    new_username: Optional[str] = None     # 미지정 시 아이디 유지
-    new_password: str
+    username: _USERNAME                    # 현재 아이디
+    current_password: _PASSWORD
+    new_username: Optional[_USERNAME] = None   # 미지정 시 아이디 유지
+    new_password: _PASSWORD
 
     @field_validator("new_username")
     @classmethod
@@ -115,7 +124,8 @@ class CredentialChange(BaseModel):
         return v
 
 
-class UserResponse(BaseModel):
+# ── 응답 (서버 → 화면) ───────────────────────────────────────────────────
+class UserResponse(ResponseModel):
     id: int
     username: str
     name: str
@@ -124,24 +134,21 @@ class UserResponse(BaseModel):
     is_active: bool
     must_change_password: bool = False
 
-    class Config:
-        from_attributes = True
 
-
-class IssuedCredential(BaseModel):
+class IssuedCredential(ResponseModel):
     """계정 발급·비밀번호 초기화 응답. temp_password 는 이때만 평문으로 나간다."""
     user: UserResponse
     temp_password: str
 
 
-class BulkIssued(BaseModel):
+class BulkIssued(ResponseModel):
     """다건 발급 결과. 임시 비밀번호가 여러 건 한 번에 나가므로 재조회 경로는 없다."""
     grade: GradeLevel
     count: int
     credentials: List[IssuedCredential]
 
 
-class TokenResponse(BaseModel):
+class TokenResponse(ResponseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse

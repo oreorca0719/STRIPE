@@ -3,23 +3,11 @@ from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
 from sqlalchemy.sql import func
 from app.core.database import Base
+from app.enums import GradeLevel, UserRole  # noqa: F401 — 여기서도 내보낸다
 
 
-class UserRole(str, enum.Enum):
-    student = "student"
-    parent = "parent"
-    teacher = "teacher"
-    admin = "admin"
 
 
-class GradeLevel(str, enum.Enum):
-    elem1 = "elem1"
-    elem2 = "elem2"
-    elem3 = "elem3"
-    elem4 = "elem4"
-    elem5 = "elem5"
-    elem6 = "elem6"
-    mid1  = "mid1"
 
 
 class User(Base):

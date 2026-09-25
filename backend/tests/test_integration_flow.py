@@ -426,7 +426,7 @@ async def _run_difficulty_validity():
         # 응시 전 — 빈 상태로 안전하게 응답해야 한다
         r = await ac.get("/api/admin/pilot/difficulty-validity", headers=adm)
         assert r.status_code == 200, r.text
-        assert r.json()["total_rounds"] == 0
+        assert r.json()["round_count"] == 0
         assert r.json()["sufficient_sample"] is False
         assert r.json()["verdict"] is None
         print("PASS 응시 전: 빈 상태 안전 응답")
@@ -445,22 +445,23 @@ async def _run_difficulty_validity():
 
         r = await ac.get("/api/admin/pilot/difficulty-validity", headers=adm)
         body = r.json()
-        assert body["total_rounds"] >= 1, body
+        assert body["round_count"] >= 1, body
         # 1회차는 normal 난도 텍스트(t1)를 쓴다
-        assert "normal" in body["by_difficulty"], body["by_difficulty"].keys()
-        nb = body["by_difficulty"]["normal"]
-        assert nb["rounds"] >= 1
-        assert sum(nb["betts"].values()) == nb["rounds"], "Betts 합계가 회차 수와 다르다"
-        assert abs(sum(nb["betts_ratio"].values()) - 1.0) < 1e-6, nb["betts_ratio"]
+        rows = {d["difficulty"]: d for d in body["by_difficulty"]}
+        assert "normal" in rows, rows.keys()
+        nb = rows["normal"]
+        assert nb["round_count"] >= 1
+        assert [b["betts_level"] for b in nb["betts"]] == ["independent", "instructional", "frustration"]
+        assert sum(b["round_count"] for b in nb["betts"]) == nb["round_count"], "Betts 합계가 회차 수와 다르다"
+        assert abs(sum(b["ratio"] for b in nb["betts"]) - 1.0) < 1e-6, nb["betts"]
         assert nb["mean_accuracy"] is not None
         # 학년군 분해가 들어 있어야 한다 — G4_G6 와 G7 은 기준이 달라 섞으면 안 된다
-        assert "G4_G6" in nb["by_grade_group"], nb["by_grade_group"]
-        print(f"PASS 집계: normal {nb['rounds']}회차, betts={nb['betts']}, "
-              f"정답률={nb['mean_accuracy']}")
+        assert "G4_G6" in [g["grade_group"] for g in nb["by_grade_group"]], nb["by_grade_group"]
+        print(f"PASS 집계: normal {nb['round_count']}회차, 정답률={nb['mean_accuracy']}")
 
         # 표본이 30 미만이면 판정을 신뢰하지 말라고 표시해야 한다
-        assert body["sufficient_sample"] is False, body["total_rounds"]
-        print(f"PASS 표본 경고: {body['total_rounds']}회차 → sufficient_sample=False")
+        assert body["sufficient_sample"] is False, body["round_count"]
+        print(f"PASS 표본 경고: {body['round_count']}회차 → sufficient_sample=False")
 
     await engine.dispose()
 
@@ -529,30 +530,32 @@ async def _run_analysis_scope():
         # A4 분포 — 학생 1건만 잡혀야 한다(관리자 응시 제외)
         r = await ac.get("/api/admin/pilot/distributions")
         d = r.json()
-        assert d["a4"]["percentiles"]["n"] == 1, f"관리자 A4 가 섞였다: {d['a4']['percentiles']}"
-        assert d["accuracy"]["percentiles"]["n"] == 1, d["accuracy"]["percentiles"]
-        print(f"PASS 분포 제외: A4 n={d['a4']['percentiles']['n']} (학생만)")
+        assert d["a4"]["percentiles"]["sample_count"] == 1, f"관리자 A4 가 섞였다: {d['a4']['percentiles']}"
+        assert d["accuracy"]["percentiles"]["sample_count"] == 1, d["accuracy"]["percentiles"]
+        print(f"PASS 분포 제외: A4 n={d['a4']['percentiles']['sample_count']} (학생만)")
 
         # 난도 타당성 — 회차 1건만
         r = await ac.get("/api/admin/pilot/difficulty-validity")
         v = r.json()
-        assert v["total_rounds"] == 1, f"관리자 회차가 섞였다: {v['total_rounds']}"
-        print(f"PASS 타당성 제외: {v['total_rounds']}회차")
+        assert v["round_count"] == 1, f"관리자 회차가 섞였다: {v['round_count']}"
+        print(f"PASS 타당성 제외: {v['round_count']}회차")
 
         # 이탈 집계 — 학생 세션만
         r = await ac.get("/api/admin/pilot/dropoff")
-        assert r.json()["total_sessions"] == 1, r.json()["status_counts"]
+        assert r.json()["session_count"] == 1, r.json()["status_counts"]
         print("PASS 이탈 집계 제외")
 
         # 소요시간(STR-112) — 학생 1건, 값이 실제로 산출되는지
         r = await ac.get("/api/admin/pilot/duration")
         du = r.json()
-        assert du["n_sessions"] == 1, du
+        assert du["session_count"] == 1, du
         assert du["sufficient_sample"] is False       # 20건 미만 경고
-        assert du["total_minutes"]["percentiles"] is not None
-        assert du["task_minutes"]["percentiles"]["p50"] > 0, du["task_minutes"]
-        print(f"PASS 소요시간: 총 {du['total_minutes']['percentiles']['p50']}분 / "
-              f"과업 {du['task_minutes']['percentiles']['p50']}분")
+        assert du["total_minutes"] is not None
+        assert du["reading_minutes"]["p50"] > 0, du["reading_minutes"]
+        # 문항 응답 시간은 보내지 않았다 — 0 으로 더하지 않고 '잰 건수 0'으로 드러난다
+        assert du["answer_time_measured_count"] == 0, du
+        print(f"PASS 소요시간: 총 {du['total_minutes']['p50']}분 / "
+              f"묵독 {du['reading_minutes']['p50']}분 / 응답 시간 측정 {du['answer_time_measured_count']}건")
 
         # CSV — 기본은 학생만, students_only=false 면 관리자 포함
         r = await ac.get("/api/admin/pilot/export.csv?level=session")
@@ -629,10 +632,14 @@ async def _run_disposal():
         r = await ac.get(f"/api/admin/disposals/preview/{uid}")
         assert r.status_code == 200, r.text
         pv = r.json()
-        assert pv["counts"]["diagnosis_sessions"] >= 1, pv["counts"]
-        assert pv["counts"]["question_responses"] == 3, pv["counts"]
-        assert pv["counts"]["reports"] >= 1, pv["counts"]
-        assert pv["counts"]["consent_records"] == 1
+        assert pv["counts"]["diagnosis_sessions_count"] >= 1, pv["counts"]
+        assert pv["counts"]["question_responses_count"] == 3, pv["counts"]
+        assert pv["counts"]["reports_count"] >= 1, pv["counts"]
+        assert pv["counts"]["consent_records_count"] == 1
+        # 예전 기록이 빠뜨리던 테이블도 센다
+        assert pv["counts"]["prescription_results_count"] >= 1, pv["counts"]
+        assert pv["counts"]["parent_responses_count"] is not None
+        assert pv["counts"]["user_relations_count"] is not None
         assert pv["consent"]["document_location"] == "캐비닛 A-3"
         print(f"PASS 미리보기: {pv['counts']}")
 
@@ -684,12 +691,12 @@ async def _run_disposal():
         assert lg.subject_code == student_code
         assert lg.disposed_by_code == "disposeadmin"
         assert lg.reason == "subject_request"
-        assert lg.deleted_counts["question_responses"] == 3
+        assert lg.deleted_counts.question_responses_count == 3
         # 동의 사실이 보존돼야 한다 — consent_records 는 CASCADE 로 사라졌지만
         # 파기 이전 처리가 정당했음을 이 스냅샷으로 보인다
-        assert lg.consent_snapshot["document_location"] == "캐비닛 A-3"
+        assert lg.consent_snapshot.document_location == "캐비닛 A-3"
         print(f"PASS 파기 후: 하위 데이터 0건, 기록 보존 "
-              f"(동의 스냅샷 {lg.consent_snapshot['confirm_method']})")
+              f"(동의 스냅샷 {lg.consent_snapshot.confirm_method.value})")
 
     await engine.dispose()
 
@@ -904,7 +911,7 @@ async def _run_book_recommend():
         r = await ac.get("/api/diagnosis/my/books")
         body = r.json()
         titles = [b["title"] for b in body["books"]]
-        assert body["ready"] is True, body
+        assert body["books"] and body["reason"] is None, body
         assert titles == ["승인된 책"], f"미승인·비활성이 새어 나왔다: {titles}"
         print(f"PASS 3단 게이트: 승인·활성만 추천 ({titles})")
 

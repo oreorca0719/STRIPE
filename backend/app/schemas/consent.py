@@ -2,20 +2,23 @@
 from datetime import datetime
 from typing import Optional
 
+from app.contracts.base import ResponseModel
 from pydantic import BaseModel, field_validator
+
+from app.contracts.base import Bool, Contract, Int, Text
 
 from app.models.core import ConsentConfirmMethod
 
 
-class ConsentUpsert(BaseModel):
+class ConsentUpsert(Contract):
     """회수 기록 등록·갱신. 학생 1명당 1건이므로 같은 학생에 다시 보내면 갱신된다."""
-    user_id: int
+    user_id: Int
     confirm_method: ConsentConfirmMethod = ConsentConfirmMethod.written
-    consent_required: bool = True
-    consent_optional: bool = False
+    consent_required: Bool = True
+    consent_optional: Bool = False
     consented_at: Optional[datetime] = None      # 미지정 시 서버 시각
-    document_location: Optional[str] = None
-    note: Optional[str] = None
+    document_location: Optional[Text("종이 원본 보관 위치")] = None
+    note: Optional[Text("메모")] = None
 
     @field_validator("document_location", "note")
     @classmethod
@@ -26,11 +29,11 @@ class ConsentUpsert(BaseModel):
         return v or None
 
 
-class ConsentRevoke(BaseModel):
-    note: Optional[str] = None
+class ConsentRevoke(Contract):
+    note: Optional[Text("철회 메모")] = None
 
 
-class ConsentRow(BaseModel):
+class ConsentRow(ResponseModel):
     """학생별 동의 현황. 기록이 없는 학생도 has_record=False 로 함께 내려준다 —
     '아직 안 받은 사람'이 보이지 않으면 회수 누락을 발견할 수 없다."""
     user_id: int
@@ -55,7 +58,7 @@ class ConsentRow(BaseModel):
     can_take_diagnosis: bool
 
 
-class ConsentSummary(BaseModel):
+class ConsentSummary(ResponseModel):
     total_students: int
     collected: int          # 필수 동의 회수 완료(철회 안 됨)
     revoked: int
@@ -64,6 +67,6 @@ class ConsentSummary(BaseModel):
     enforcement_on: bool    # REQUIRE_PILOT_CONSENT 현재 값
 
 
-class ConsentListResponse(BaseModel):
+class ConsentListResponse(ResponseModel):
     summary: ConsentSummary
     items: list[ConsentRow]

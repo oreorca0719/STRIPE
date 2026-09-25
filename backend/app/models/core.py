@@ -12,6 +12,11 @@ from app.contracts.judgment import Disclaimers, WeaknessProfile
 from app.contracts.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent, TemplateIds
 from app.contracts.measurement import AwayEvents
+from app.contracts.privacy import ConsentSnapshot, DeletedCounts
+from app.contracts.review import Checklist
+from app.enums import (
+    DeletionReason, DisposalReason, GradeLevel, ReviewDecision, ReviewTarget, UserRole,
+)
 
 
 # 값 목록은 app/enums.py 에 있다. 기존 import 경로를 위해 여기서 다시 내보낸다.
@@ -45,6 +50,8 @@ from app.enums import (  # noqa: F401
     EnvironmentSkipReason,
     AwayEventType,
     AdaptiveAction,
+    ConsentConfirmMethod,
+    DeletionRequestStatus,
 )
 
 # =========================================================================
@@ -349,6 +356,8 @@ class JudgmentResult(Base):
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
     disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 세션당 판정 하나. 두 줄이면 파일럿 분포에 그 학생이 두 번 잡힌다.
+    __table_args__ = (UniqueConstraint('diagnosis_session_id', name='uq_judgment_session'),)
 
     prescription = relationship("PrescriptionResult", back_populates="judgment", uselist=False)
 
@@ -369,6 +378,7 @@ class PrescriptionResult(Base):
     environment_level = Column(Enum(Level3), nullable=True)
     environment_adjustment = Column(ContractJSONB(EnvironmentAdjustment), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint('judgment_id', name='uq_prescription_judgment'),)
 
     judgment = relationship("JudgmentResult", back_populates="prescription")
 
@@ -414,10 +424,6 @@ class ReportTemplate(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
-class ConsentConfirmMethod(str, enum.Enum):
-    """동의 확인 방법. 파일럿은 서면, 정식 오픈은 휴대전화 본인인증(STR-88)."""
-    written = "written"
-    phone_verification = "phone_verification"
 
 
 # =========================================================================
@@ -469,19 +475,19 @@ class DataDisposalLog(Base):
     # 파기 대상 (FK 없음 — 행이 사라짐)
     subject_user_id = Column(Integer, nullable=False, index=True)
     subject_code = Column(String(50), nullable=False)      # 식별코드 elem5-017
-    subject_grade = Column(String(20), nullable=True)
+    subject_grade = Column(Enum(GradeLevel), nullable=True)
 
     disposed_at = Column(DateTime(timezone=True), server_default=func.now(),
                          nullable=False, index=True)
     disposed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     disposed_by_code = Column(String(50), nullable=True)   # 관리자 계정이 지워져도 남도록
-    reason = Column(String(40), nullable=False)
+    reason = Column(Enum(DisposalReason), nullable=False)
     note = Column(Text, nullable=True)
 
-    deleted_counts = Column(JSONB, nullable=False)
+    deleted_counts = Column(ContractJSONB(DeletedCounts), nullable=False)
     # consent_records 가 CASCADE 라 파기와 함께 사라진다. 파기 이전 처리가
     # 정당했음을 보이려면 동의 사실을 여기 옮겨 두어야 한다.
-    consent_snapshot = Column(JSONB, nullable=True)
+    consent_snapshot = Column(ContractJSONB(ConsentSnapshot), nullable=True)
 
 
 # =========================================================================
@@ -501,19 +507,19 @@ class ContentReview(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    target_type = Column(String(20), nullable=False)   # text | item_set | question
+    target_type = Column(Enum(ReviewTarget), nullable=False)
     target_id = Column(Integer, nullable=False)
     target_code = Column(String(60), nullable=True)    # 조회 편의용 스냅샷
 
-    from_status = Column(String(20), nullable=False)
-    to_status = Column(String(20), nullable=False)
-    decision = Column(String(20), nullable=False)      # advance | approve | reject
+    from_status = Column(Enum(ReviewStatus), nullable=False)
+    to_status = Column(Enum(ReviewStatus), nullable=False)
+    decision = Column(Enum(ReviewDecision), nullable=False)
 
     reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     reviewer_code = Column(String(50), nullable=True)
 
     # 이은주(2026) 7원칙 체크 결과. 원칙별 반려가 쌓이면 생성 프롬프트를 고칠 근거.
-    checklist = Column(JSONB, nullable=True)
+    checklist = Column(ContractJSONB(Checklist), nullable=True)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -633,11 +639,6 @@ def compute_home_environment_score(
 # =========================================================================
 # deletion_requests (STR-115) — 정보주체의 삭제 요청
 # =========================================================================
-class DeletionRequestStatus(str, enum.Enum):
-    pending = "pending"        # 접수, 관리자 처리 대기
-    completed = "completed"    # 파기 완료 (disposal log 와 연결)
-    rejected = "rejected"      # 반려 (본인 확인 실패 등)
-    cancelled = "cancelled"    # 요청자가 철회
 
 
 class DeletionRequest(Base):
@@ -664,9 +665,9 @@ class DeletionRequest(Base):
     # 요청자. 본인이면 subject 와 같고, 보호자 대리 요청이면 다르다.
     requester_user_id = Column(Integer, nullable=False)
     requester_code = Column(String(50), nullable=False)
-    requester_role = Column(String(20), nullable=False)
+    requester_role = Column(Enum(UserRole), nullable=False)
 
-    reason = Column(String(40), nullable=False)
+    reason = Column(Enum(DeletionReason), nullable=False)
     note = Column(Text, nullable=True)
 
     status = Column(Enum(DeletionRequestStatus), nullable=False,

@@ -31,7 +31,8 @@ from app.contracts.base import Contract, FreeText, Unitless
 
 # 이름에 이 조각이 하나라도 있으면 단위가 드러난 것으로 본다.
 UNIT_TOKENS = {
-    "count", "ms", "sec", "seconds", "minute", "ratio", "accuracy", "pct",
+    "count", "counts", "ms", "sec", "seconds", "minute", "minutes", "month", "months",
+    "ratio", "accuracy", "pct",
     "id", "ids", "syllable", "syllables", "score", "index", "number",
 }
 
@@ -136,7 +137,6 @@ ALLOWED_UNTYPED = {
     "content/item_quality.py::analyze": "콘텐츠 경로에서 정리 예정",
     "content/item_quality.py::as_dict": "콘텐츠 경로에서 정리 예정",
     "content/readability.py::as_dict": "콘텐츠 경로에서 정리 예정",
-    "diagnosis/book_recommend.py::to_dict": "도서 경로에서 정리 예정",
     "diagnosis/environment.py::judge_environment": "percentiles 는 설정표(데이터 라인 아님)",
     "stt/adapter.py::STTResult.words": "음독 경로에서 정리 예정",
     "stt/analyzer.py::OralReadingAnalysis.alignment_deviations": "음독 경로에서 정리 예정",

@@ -121,6 +121,7 @@
 </template>
 
 <script setup lang="ts">
+import type { FinalizeResponse, JudgmentResultResponse, PrescriptionResultResponse, ReportResponse } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -132,9 +133,9 @@ const route = useRoute()
 
 const loading = ref(true)
 const error = ref('')
-const judgment = ref<any>(null)
-const prescription = ref<any>(null)
-const report = ref<any>(null)
+const judgment = ref<JudgmentResultResponse | null>(null)
+const prescription = ref<PrescriptionResultResponse | null>(null)
+const report = ref<ReportResponse | null>(null)
 
 // 등급 표현은 홈·이력 화면과 공유한다(@/utils/diagnosis). 화면마다 다른 말이 나오면 안 된다.
 
@@ -172,11 +173,11 @@ async function load() {
   if (!sid) { loading.value = false; return }
   loading.value = true; error.value = ''      // 재시도 시 이전 오류를 지운다
   try {
-    const j = await api.get(`/api/diagnosis/session/${sid}/judgment`)
+    const j = await api.get<FinalizeResponse>(`/api/diagnosis/session/${sid}/judgment`)
     judgment.value = j.data.judgment
     prescription.value = j.data.prescription
     try {
-      const r = await api.get(`/api/diagnosis/session/${sid}/report`)
+      const r = await api.get<ReportResponse>(`/api/diagnosis/session/${sid}/report`)
       report.value = r.data
     } catch { /* 리포트 없으면 판정만 표시 */ }
   } catch (e: any) {

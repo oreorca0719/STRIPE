@@ -1,10 +1,12 @@
-from typing import Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime
+from app.contracts.base import ResponseModel
 from pydantic import BaseModel, Field
 from app.contracts.judgment import Disclaimers, WeaknessProfileView
 from app.contracts.prescription import RecommendedTexts, TrainingPlan
 from app.contracts.report import ReportContent
 from app.contracts.measurement import AdaptiveDecision, RoundAggregateView
+from app.contracts.base import Bool, Contract, Count, Int
 from app.models.core import (
     FluencyType, DiagSessionStatus, Difficulty, TextGenre, TargetArea, BettsLevel,
     ReliabilityFlag, Level3, FluencySource, FluencyUnit, Label5,
@@ -13,7 +15,7 @@ from app.models.core import (
 
 
 # ---- 학생 프로필 (설문 → 독자유형) ----------------------------------------
-class ProfileCreate(BaseModel):
+class ProfileCreate(ResponseModel):
     """MVP1 학생 설문 (필수 9 + 조건부 2). 선지 검증은 문항 정의가 한다."""
     # 필수 9문항
     grade: int                                   # B-1 학년 4~7 (7=중1)
@@ -37,40 +39,37 @@ class ProfileCreate(BaseModel):
     predicted_correct: Optional[int] = None      # D-2
 
 
-class ReaderTypeProbe(BaseModel):
+class ReaderTypeProbe(ResponseModel):
     """A-2·A-3 만으로 1차 유형을 미리 물어보는 요청."""
     reading_freq: Optional[int] = None
     reading_attitude: Optional[int] = None
 
 
-class ReaderTypeProbeResponse(BaseModel):
+class ReaderTypeProbeResponse(ResponseModel):
     type_1: ReaderType1
     # 조건부 문항(A-5·A-6)을 띄워야 하는지. 화면이 분류 규칙을 스스로
     # 해석하지 않도록 판단 결과만 내려준다.
     show_non_reader_questions: bool
 
 
-class ProfileResponse(BaseModel):
+class ProfileResponse(ResponseModel):
     id: int
     user_id: int
     grade: Optional[int]
     type_1: Optional[ReaderType1]
-    interest_topics: Optional[list]
-
-    class Config:
-        from_attributes = True
+    interest_topics: Optional[List[str]]
 
 
 # ---- 회차 콘텐츠 (지문 + 문항, 정답 제외) ---------------------------------
-class QuestionPublic(BaseModel):
+class QuestionPublic(ResponseModel):
     """학생에게 내려보내는 문항 (answer_index·evidence·explanation 제외)."""
     id: int
     target_area: TargetArea
     question_text: str
-    choices: list
+    choices: List[str]
 
 
-class RoundContentResponse(BaseModel):
+class RoundContentResponse(ResponseModel):
     round_id: int
     text_id: int
     title: str
@@ -82,13 +81,13 @@ class RoundContentResponse(BaseModel):
 
 
 # ---- 세션 ----------------------------------------------------------------
-class SessionCreate(BaseModel):
-    profile_id: Optional[int] = None
-    silent_mode: bool = True
-    text_id: Optional[int] = None          # 전환기 호환(1회차 텍스트 단축)
+class SessionCreate(Contract):
+    profile_id: Optional[Int] = None
+    silent_mode: Bool = True
+    text_id: Optional[Int] = None          # 전환기 호환(1회차 텍스트 단축)
 
 
-class SessionResponse(BaseModel):
+class SessionResponse(ResponseModel):
     id: int
     session_uuid: Optional[str]
     student_id: int
@@ -100,20 +99,17 @@ class SessionResponse(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
-
 
 # ---- 회차 (적응형 단위) ---------------------------------------------------
-class RoundCreate(BaseModel):
-    diagnosis_session_id: int
-    round_number: int
-    text_id: Optional[int] = None
+class RoundCreate(Contract):
+    diagnosis_session_id: Int
+    round_number: Count
+    text_id: Optional[Int] = None
     difficulty_level: Difficulty
     genre: TextGenre
 
 
-class RoundResponse(BaseModel):
+class RoundResponse(ResponseModel):
     id: int
     diagnosis_session_id: int
     round_number: int
@@ -123,12 +119,9 @@ class RoundResponse(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
-
 
 # ---- 유창성 (기존 유지) ---------------------------------------------------
-class OralFluencySubmit(BaseModel):
+class OralFluencySubmit(ResponseModel):
     """음독 유창성 제출 (B안 — 타이머 자동 + 오류 수 감독자 입력).
 
     total_syllables 를 받지 않는다. 지문의 음절 수는 서버가 알고 있고,
@@ -148,7 +141,7 @@ class OralFluencySubmit(BaseModel):
 # 묵독 제출 형식은 contracts.measurement.SilentReadingSubmit 이다.
 
 
-class FluencyResultResponse(BaseModel):
+class FluencyResultResponse(ResponseModel):
     id: int
     session_id: int
     round_id: int
@@ -164,15 +157,12 @@ class FluencyResultResponse(BaseModel):
     error_count: Optional[int] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # ---- 독해 문항 응답 (규칙 채점, AI-05) ------------------------------------
 # 문항 응답 제출 형식은 contracts.measurement.AnswerSubmit 이다.
 
 
-class QuestionResponseResult(BaseModel):
+class QuestionResponseResult(ResponseModel):
     id: int
     round_id: int
     question_id: Optional[int]
@@ -181,13 +171,10 @@ class QuestionResponseResult(BaseModel):
     target_area: TargetArea
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # ---- 회차 집계 + 적응형 판단 (Phase B 엔진) -------------------------------
 # 형식: contracts.measurement.RoundAggregateView · AdaptiveDecision
-class RoundCompleteResponse(BaseModel):
+class RoundCompleteResponse(ResponseModel):
     comprehension: RoundAggregateView
     decision: AdaptiveDecision
     next_round: Optional[RoundResponse] = None
@@ -196,7 +183,7 @@ class RoundCompleteResponse(BaseModel):
 
 
 # ---- SYS-01 판정+처방 (Phase C) ------------------------------------------
-class JudgmentResultResponse(BaseModel):
+class JudgmentResultResponse(ResponseModel):
     id: int
     diagnosis_session_id: int
     fluency_level: Level3
@@ -219,11 +206,8 @@ class JudgmentResultResponse(BaseModel):
     reliability_flag: ReliabilityFlag
     disclaimer_flags: Disclaimers
 
-    class Config:
-        from_attributes = True
 
-
-class PrescriptionResultResponse(BaseModel):
+class PrescriptionResultResponse(ResponseModel):
     id: int
     judgment_id: int
     prescription_type: PrescriptionType
@@ -232,16 +216,13 @@ class PrescriptionResultResponse(BaseModel):
     type_tone: ToneCode
     next_session_difficulty: Optional[Difficulty]
 
-    class Config:
-        from_attributes = True
 
-
-class FinalizeResponse(BaseModel):
+class FinalizeResponse(ResponseModel):
     judgment: JudgmentResultResponse
     prescription: PrescriptionResultResponse
 
 
-class ReportResponse(BaseModel):
+class ReportResponse(ResponseModel):
     id: int
     judgment_id: int
     report_type: str
@@ -250,12 +231,9 @@ class ReportResponse(BaseModel):
     llm_polished: bool
     review_status: str
 
-    class Config:
-        from_attributes = True
-
 
 # ---- 결과 조회 -----------------------------------------------------------
-class DiagnosisResultResponse(BaseModel):
+class DiagnosisResultResponse(ResponseModel):
     session: SessionResponse
     rounds: List[RoundResponse]
     fluency_results: List[FluencyResultResponse]
@@ -264,7 +242,7 @@ class DiagnosisResultResponse(BaseModel):
 
 
 # ---- 본인 진단 이력 (학생 홈·이력 화면) -----------------------------------
-class MySessionItem(BaseModel):
+class MySessionItem(ResponseModel):
     """이력 목록 한 줄. 판정 전(미완료) 세션은 판정 필드가 전부 None."""
     session_id: int
     status: DiagSessionStatus
@@ -280,7 +258,7 @@ class MySessionItem(BaseModel):
     reliability_flag: Optional[ReliabilityFlag] = None
 
 
-class MySummaryResponse(BaseModel):
+class MySummaryResponse(ResponseModel):
     """학생 홈 요약. 진단 이력이 없으면 completed_count=0, latest=None."""
     completed_count: int
     in_progress_session_id: Optional[int] = None   # 이어하기 배너용
@@ -288,11 +266,11 @@ class MySummaryResponse(BaseModel):
 
 
 # ---- 중단 세션 이어하기 ---------------------------------------------------
-class ResumeResponse(BaseModel):
+class ResumeResponse(ResponseModel):
     """이어할 지점. 프론트는 phase 에 따라 읽기/문항 화면으로 복귀한다."""
     session_id: int
     round: RoundResponse
     round_number: int
     phase: str                       # 'reading' | 'questions'
-    answered: dict                   # {question_id: student_answer} — 복원용
+    answered: Dict[int, int]         # {question_id: student_answer} — 복원용
     text_reissued: bool              # 읽기 시간 미측정이라 지문을 교체했는지

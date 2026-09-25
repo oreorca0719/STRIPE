@@ -6,10 +6,11 @@
 from datetime import datetime
 from typing import Optional
 
+from app.contracts.base import ResponseModel
 from pydantic import BaseModel
 
 
-class ParentSurveyIn(BaseModel):
+class ParentSurveyIn(ResponseModel):
     """보호자 설문 제출.
 
     전 문항 선택 사항이다. 보호자가 중간에 그만두어도 받아 두고, 덜 채워진
@@ -35,7 +36,7 @@ class ParentSurveyIn(BaseModel):
     bookstore_library_visits: Optional[int] = None
 
 
-class ParentSurveyOut(BaseModel):
+class ParentSurveyOut(ResponseModel):
     id: int
     profile_id: int
     parent_user_id: Optional[int]
@@ -55,6 +56,3 @@ class ParentSurveyOut(BaseModel):
     # B-3~B-6 이 모두 채워졌을 때만 값이 있다(4~16). 부분 응답이면 null.
     home_environment_score: Optional[int]
     created_at: datetime
-
-    class Config:
-        from_attributes = True
