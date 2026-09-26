@@ -24,6 +24,8 @@ start.sh 는 컨테이너가 뜰 때 `alembic upgrade head` 를 돌린다. 016~0
 [실행] 새 코드(schema-first)와 운영 DB 접속이 둘 다 있는 곳에서:
     DATABASE_URL=postgresql+asyncpg://... python scripts/precheck_schema_first.py
     DATABASE_URL=... python scripts/precheck_schema_first.py --json   # 기계용 출력
+    DATABASE_URL=... python scripts/precheck_schema_first.py --redact # 값 없이 id·건수·오류 위치만
+                                                                      # (공개 로그에 남길 때)
 
 종료 코드: 0 = 막는 것 없음 · 1 = [유지] 쪽 실패 있음 · 2 = [진단] 쪽만 실패(비우면 통과)
           · 3 = 전제가 맞지 않음(현재 리비전이 015 가 아님 등)
@@ -62,6 +64,9 @@ from app.schemas.column import SchemaJSONB  # noqa: E402
 
 EXPECTED_REVISION = "015"
 SAMPLE_LIMIT = 5
+# --redact 일 때 샘플에서 남기는 키 — 행 식별자·건수·스키마 오류 위치뿐. 칸의 값은 버린다.
+REDACT_KEEP = {"id", "ids", "rows", "error", "session_id", "round_id", "type", "question_id",
+               "judgment_id", "diagnosis_session_id", "typname"}
 
 # 배포 전 비우기 대상(016·017 docstring 의 "진단 결과 테이블"). 나머지는 유지 대상.
 DIAGNOSIS_TABLES = {
@@ -338,8 +343,13 @@ def _print_report(result: dict) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--json", action="store_true", help="JSON 으로 출력")
+    ap.add_argument("--redact", action="store_true",
+                    help="샘플에서 칸의 값을 빼고 id·건수·오류 위치만 남긴다")
     args = ap.parse_args()
     result = asyncio.run(run())
+    if args.redact:
+        for f in result.get("findings", []):
+            f["samples"] = [{k: v for k, v in s.items() if k in REDACT_KEEP} for s in f["samples"]]
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     else:
