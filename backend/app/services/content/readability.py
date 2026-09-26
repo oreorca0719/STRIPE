@@ -22,8 +22,10 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict
-from typing import Dict, List
+from typing import List
+
+from app.schemas.content import ReadabilityMetrics
+from app.enums import VocabularyLevel
 
 # 종결 부호 기준 문장 분리. 말줄임표·따옴표 뒤 종결을 함께 처리한다.
 _SENT_SPLIT = re.compile(r'(?<=[.!?。])\s+|\n+')
@@ -40,24 +42,6 @@ _CLAUSE_ENDINGS = (
 # 어휘 대리 지표 경계 (음절). 한국어에서 3음절 이상 어절은 한자어 개념어·복합명사일
 # 확률이 높아진다. 절대 기준이 아니라 텍스트 간 상대 비교용이다.
 _LONG_WORD_SYLLABLES = 5
-
-
-@dataclass
-class TextMetrics:
-    """지문 1편의 표면 구조 지표."""
-    sentence_count: int
-    word_count: int                 # 어절 수
-    syllable_count: int             # 한글 음절 수
-    avg_sentence_words: float       # 문장당 어절 — 가장 견고한 난도 예측 지표
-    avg_word_syllables: float       # 어절당 음절 — 개념어 밀도의 대리 지표
-    long_word_ratio: float          # 5음절 이상 어절 비율
-    clause_density: float           # 문장당 연결어미 수 — 복문 정도
-    lexical_variety: float          # 어절 종류/전체 (조사 미분리 → 과대 추정됨)
-    readability_score: float        # 합성 지표(높을수록 어려움). 잠정 가중치
-    vocabulary_level: str           # basic | intermediate | advanced
-
-    def as_dict(self) -> Dict:
-        return asdict(self)
 
 
 def _sentences(text: str) -> List[str]:
@@ -91,20 +75,20 @@ def _clause_count(sentence: str) -> int:
     return sum(_count_clause_endings(w) for w in words[:-1])
 
 
-def _vocabulary_level(avg_word_syllables: float, long_word_ratio: float) -> str:
+def _vocabulary_level(avg_word_syllables: float, long_word_ratio: float) -> VocabularyLevel:
     """길이 기반 어휘 대리 등급.
 
     어휘의 '어려움'이 아니라 '길이 분포'를 본다는 점을 분명히 해 둔다.
     경계값은 현재 콘텐츠 풀 48편의 분포를 보고 잡은 잠정값이다.
     """
     if avg_word_syllables >= 3.0 or long_word_ratio >= 0.12:
-        return "advanced"
+        return VocabularyLevel.advanced
     if avg_word_syllables >= 2.6 or long_word_ratio >= 0.06:
-        return "intermediate"
-    return "basic"
+        return VocabularyLevel.intermediate
+    return VocabularyLevel.basic
 
 
-def analyze(text: str) -> TextMetrics:
+def analyze(text: str) -> ReadabilityMetrics:
     """지문 본문 → 표면 구조 지표.
 
     빈 문자열이나 한글이 없는 입력에도 0으로 안전하게 응답한다(시드 검증 중
@@ -117,14 +101,18 @@ def analyze(text: str) -> TextMetrics:
     n_syl = _syllables(text or "")
 
     if n_sent == 0 or n_word == 0:
-        return TextMetrics(0, 0, n_syl, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "basic")
+        return ReadabilityMetrics(
+            sentence_count=n_sent, word_count=n_word, syllable_count=n_syl,
+            avg_sentence_words=0.0, avg_word_syllables=0.0, long_word_ratio=0.0,
+            clause_density=0.0, lexical_variety_ratio=0.0, readability_score=0.0,
+            vocabulary_level=VocabularyLevel.basic)
 
     avg_sentence_words = n_word / n_sent
     avg_word_syllables = n_syl / n_word
     long_words = sum(1 for w in words if _syllables(w) >= _LONG_WORD_SYLLABLES)
     long_word_ratio = long_words / n_word
     clause_density = sum(_clause_count(s) for s in sents) / n_sent
-    lexical_variety = len({w.strip('.,!?"\'’”') for w in words}) / n_word
+    lexical_variety_ratio = len({w.strip('.,!?"\'’”') for w in words}) / n_word
 
     # 합성 지표 — 각 항을 대략 0~100 범위로 정규화한 뒤 가중 합산한다.
     # 가중치 근거: 문장 길이가 가장 견고한 예측 지표라는 점을 반영해 절반을 준다.
@@ -135,7 +123,7 @@ def analyze(text: str) -> TextMetrics:
         + min(clause_density / 2.0, 1.0) * 20.0
     )
 
-    return TextMetrics(
+    return ReadabilityMetrics(
         sentence_count=n_sent,
         word_count=n_word,
         syllable_count=n_syl,
@@ -143,7 +131,7 @@ def analyze(text: str) -> TextMetrics:
         avg_word_syllables=round(avg_word_syllables, 2),
         long_word_ratio=round(long_word_ratio, 4),
         clause_density=round(clause_density, 2),
-        lexical_variety=round(lexical_variety, 4),
+        lexical_variety_ratio=round(lexical_variety_ratio, 4),
         readability_score=round(score, 2),
         vocabulary_level=_vocabulary_level(avg_word_syllables, long_word_ratio),
     )

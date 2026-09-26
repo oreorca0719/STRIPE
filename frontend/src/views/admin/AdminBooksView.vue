@@ -29,7 +29,7 @@
             <span class="cov-grade">{{ g.label }}</span>
             <span v-for="c in COMBOS" :key="c.key"
                   class="cell" :class="cellClass(g.key, c.key)">
-              {{ data.coverage[g.key][c.key] || '-' }}
+              {{ coverageCount(g.key, c.key) || '-' }}
             </span>
           </div>
         </div>
@@ -40,8 +40,8 @@
         <div class="panel-head">
           <h2>
             도서 목록
-            <span class="count-chip">{{ data?.total ?? 0 }}권</span>
-            <span class="count-chip ok">승인 {{ data?.approved ?? 0 }}</span>
+            <span class="count-chip">{{ data?.book_count ?? 0 }}권</span>
+            <span class="count-chip ok">승인 {{ data?.approved_count ?? 0 }}</span>
           </h2>
         </div>
 
@@ -89,13 +89,14 @@ python scripts/load_books.py --file scripts/generated/books.json</pre>
 </template>
 
 <script setup lang="ts">
+import type { BookDifficultySource, BooksCatalog } from '@/api-types'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
 import { api } from '@/api'
 
 const router = useRouter()
-const data = ref<any>(null)
+const data = ref<BooksCatalog | null>(null)
 
 const GRADES = [
   { key: 'G4_G6', label: '초4~초6' },
@@ -114,18 +115,26 @@ function diffKo(d: string) {
   return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d
 }
 // 난도를 어디서 가져왔는지 — 추천이 어긋났을 때 어느 출처가 부정확했는지 추적한다
-function srcKo(s: string | null) {
-  return ({ publisher: '출판사 표기', curriculum_list: '권장도서 목록',
-            manual: '직접 판단', readability: '자체 산출' } as any)[s || ''] || (s || '—')
+// 서버 값 목록(BookDifficultySource)과 같은 키만 둔다. 예전에는 서버에 없는
+// 'readability'(자체 산출)가 있었다.
+const SRC_KO: Record<BookDifficultySource, string> = {
+  publisher: '출판사 표기', curriculum_list: '권장도서 목록', manual: '직접 판단',
+}
+function srcKo(s?: BookDifficultySource | null) { return s ? SRC_KO[s] : '—' }
+// 커버리지는 학년군 × 장르 × 난도 12칸 목록이다. combo 키는 '장르_난도'.
+function coverageCount(gg: string, combo: string): number {
+  const [genre, difficulty] = combo.split('_')
+  return data.value?.coverage.find(c =>
+    c.grade_group === gg && c.genre === genre && c.difficulty === difficulty)?.book_count ?? 0
 }
 function cellClass(gg: string, combo: string) {
-  return (data.value?.coverage?.[gg]?.[combo] || 0) > 0 ? 'filled' : 'empty'
+  return coverageCount(gg, combo) > 0 ? 'filled' : 'empty'
 }
 
 function handleLogout() { router.push('/login') }
 
 onMounted(async () => {
-  try { data.value = (await api.get('/api/admin/books')).data }
+  try { data.value = (await api.get<BooksCatalog>('/api/admin/books')).data }
   catch { data.value = null }
 })
 </script>

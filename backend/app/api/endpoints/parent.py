@@ -25,12 +25,13 @@ from app.models.core import (
     ParentResponse, StudentProfile, UserRelation, compute_home_environment_score,
 )
 from app.models.user import User, UserRole
-from app.schemas.parent import ParentSurveyIn, ParentSurveyOut
+from app.schemas.survey import ParentSurveyIn, ParentSurveyOut
+from app.schemas.survey import SurveyQuestions
 from app.services.survey import definition as D
 
 router = APIRouter()
 
-# 문항 코드 → 저장 필드. 검증을 정의 한 곳에서만 하기 위해 여기서 역으로 쓴다.
+# 문항 코드 → 저장 칸. 제출 스키마의 칸과 같다(tests/test_survey_definition.py).
 _FIELD_BY_CODE = D.storage_map("parent")
 
 
@@ -82,20 +83,10 @@ async def _resolve_profile(db: AsyncSession, profile_id: int | None, user: User)
     return prof
 
 
-def _validate(data: ParentSurveyIn) -> None:
-    """선지 범위 검사. 규칙은 문항 정의 한 곳에만 둔다."""
-    for code, field in _FIELD_BY_CODE.items():
-        try:
-            D.validate("parent", code, getattr(data, field, None))
-        except D.AnswerError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                detail=str(e))
-
-
-@router.get("/survey/definition")
+@router.get("/survey/definition", response_model=SurveyQuestions)
 async def survey_definition():
     """보호자 설문 문항 정의. 화면은 이것을 받아 렌더링만 한다."""
-    return {"questions": D.questions("parent")}
+    return SurveyQuestions(questions=D.questions("parent"))
 
 
 @router.get("/survey/latest", response_model=Optional[ParentSurveyOut])
@@ -133,7 +124,6 @@ async def submit_parent_survey(
     같은 회차에 다시 제출하면 새 행이 쌓이고 판정은 최신 행을 쓴다. 덮어쓰지
     않는 이유는 이전 응답도 파일럿 분석에서 의미가 있기 때문이다.
     """
-    _validate(data)
     profile = await _resolve_profile(db, data.profile_id, user)
 
     row = ParentResponse(

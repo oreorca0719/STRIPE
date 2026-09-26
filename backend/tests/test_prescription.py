@@ -5,6 +5,7 @@ from app.models.core import (
     ReaderType1, ReaderType2, TargetArea, TextGenre,
 )
 from app.services.diagnosis import prescription as P
+from tests.factories import profile
 
 
 # ---- §5-1 ① 난도 범위 ----------------------------------------------------
@@ -64,34 +65,38 @@ def test_tone_code_type2_priority():
 
 
 # ---- §5-2 약점 훈련 ------------------------------------------------------
+# 입력은 6칸 약점 프로필(정답 수, 문항 수). 적지 않은 칸은 측정 안 함(0/0).
 def test_weakness_plan_none_when_all_ok():
-    wp = {"A5_narrative": 0.9, "A5_expository": 0.8, "A6_narrative": None}
+    wp = profile(A5_narrative=(9, 10), A5_expository=(8, 10))
     plan = P.weakness_training_plan(wp, ReaderType1.intermittent)
     assert plan.needed is False
-    assert plan.cells == []
+    assert plan.targets == []
 
 
 def test_weakness_plan_hierarchy_and_activity():
-    # A5 약점(0.5) + A6 약점(0.4) → 계층 A5 먼저, 최대 2셀
-    wp = {
-        "A5_expository": 0.5,
-        "A6_narrative": 0.4,
-        "A7_narrative": None,
-    }
+    # A5 약점(1/2=0.5) + A6 약점(2/5=0.4) → 계층 A5 먼저, 최대 2칸
+    wp = profile(A5_expository=(1, 2), A6_narrative=(2, 5))
     plan = P.weakness_training_plan(wp, ReaderType1.intermittent)
     assert plan.needed is True
-    assert [c.area for c in plan.cells] == [TargetArea.A5, TargetArea.A6]
-    assert "누가, 언제" in plan.cells[0].activity      # A5 활동
+    assert [t.area for t in plan.targets] == [TargetArea.A5, TargetArea.A6]
+    # 활동 안내 문장은 처방 결과에 담지 않고 영역에서 찾는다
+    assert "누가, 언제" in P.activity(plan.targets[0].area)
 
 
 def test_weakness_plan_tie_expository_first():
     # 같은 영역·정답률 동률 → 설명글(expository) 우선
-    wp = {"A5_narrative": 0.5, "A5_expository": 0.5}
+    wp = profile(A5_narrative=(1, 2), A5_expository=(1, 2))
     plan = P.weakness_training_plan(wp, ReaderType1.intermittent, max_cells=2)
-    assert plan.cells[0].genre == TextGenre.expository
+    assert plan.targets[0].genre == TextGenre.expository
 
 
 def test_weakness_plan_enthusiast_prioritizes_a7():
-    wp = {"A5_narrative": 0.5, "A7_narrative": 0.5}
+    wp = profile(A5_narrative=(1, 2), A7_narrative=(1, 2))
     plan = P.weakness_training_plan(wp, ReaderType1.enthusiast, max_cells=1)
-    assert plan.cells[0].area == TargetArea.A7
+    assert plan.targets[0].area == TargetArea.A7
+
+
+def test_측정하지_않은_칸은_약점이_아니다():
+    """문항이 0개인 칸의 정답률은 None 이다. 0 으로 보면 전부 약점이 된다."""
+    plan = P.weakness_training_plan(profile(), ReaderType1.intermittent)
+    assert plan.needed is False

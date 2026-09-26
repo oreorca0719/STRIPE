@@ -12,7 +12,7 @@
             @click="activeTab = tab.value; loadUsers()"
           >
             {{ tab.icon }} {{ tab.label }}
-            <span class="tab-count">{{ counts[tab.value] ?? 0 }}</span>
+            <span class="tab-count">{{ counts?.[tab.countKey] ?? 0 }}</span>
           </button>
         </div>
         <div class="search-bar">
@@ -264,6 +264,7 @@
 </template>
 
 <script setup lang="ts">
+import type { BulkIssued, IssuedCredential, UserCounts, UserResponse } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -273,14 +274,14 @@ const router = useRouter()
 
 const activeTab = ref('student')
 const search = ref('')
-const users = ref<any[]>([])
-const counts = ref<Record<string, number>>({})
+const users = ref<UserResponse[]>([])
+const counts = ref<UserCounts | null>(null)
 const loading = ref(false)
 
-const tabs = [
-  { value: 'student', label: '학생', icon: '👨‍🎓' },
-  { value: 'parent', label: '학부모', icon: '👨‍👩‍👧' },
-  { value: 'teacher', label: '교사', icon: '👩‍🏫' },
+const tabs: { value: string; label: string; icon: string; countKey: keyof UserCounts }[] = [
+  { value: 'student', label: '학생', icon: '👨‍🎓', countKey: 'student_count' },
+  { value: 'parent', label: '학부모', icon: '👨‍👩‍👧', countKey: 'parent_count' },
+  { value: 'teacher', label: '교사', icon: '👩‍🏫', countKey: 'teacher_count' },
 ]
 
 const gradeMap: Record<string, string> = {
@@ -355,7 +356,7 @@ async function submitIssue() {
     }
     if (form.value.role === 'student') payload.grade = form.value.grade
 
-    const res = await api.post('/api/auth/admin/users', payload)
+    const res = await api.post<IssuedCredential>('/api/auth/admin/users', payload)
     issueOpen.value = false
     credential.value = {
       title: '계정이 발급되었습니다',
@@ -377,7 +378,7 @@ const bulkOpen = ref(false)
 const bulkIssuing = ref(false)
 const bulkError = ref('')
 const csvSaved = ref(false)
-const bulkResult = ref<{ grade: string; count: number; credentials: any[] } | null>(null)
+const bulkResult = ref<BulkIssued | null>(null)
 
 const bulk = ref({ grade: 'elem5', start: 1, count: 30, must_change_password: false })
 
@@ -400,7 +401,7 @@ async function submitBulk() {
   bulkError.value = ''
   bulkIssuing.value = true
   try {
-    const res = await api.post('/api/auth/admin/users/bulk', {
+    const res = await api.post<BulkIssued>('/api/auth/admin/users/bulk', {
       grade: bulk.value.grade,
       start: bulk.value.start,
       count: bulk.value.count,
@@ -422,7 +423,7 @@ function downloadBulkCsv() {
   if (!bulkResult.value) return
   const rows = [
     ['username', 'name', 'grade', 'temp_password'],
-    ...bulkResult.value.credentials.map((c: any) => [
+    ...bulkResult.value.credentials.map((c) => [
       c.user.username, c.user.name, c.user.grade, c.temp_password,
     ]),
   ]
@@ -449,11 +450,11 @@ function confirmCloseBulkResult() {
 }
 
 // ── 행 액션 ───────────────────────────────────────────────────────────
-async function resetPassword(user: any) {
+async function resetPassword(user: UserResponse) {
   if (!confirm(`${user.username} 계정의 비밀번호를 초기화합니다.\n기존 비밀번호는 즉시 사용할 수 없습니다.`)) return
   busyId.value = user.id
   try {
-    const res = await api.post(`/api/auth/admin/users/${user.id}/reset-password`)
+    const res = await api.post<IssuedCredential>(`/api/auth/admin/users/${user.id}/reset-password`)
     credential.value = {
       title: '비밀번호가 초기화되었습니다',
       username: res.data.user.username,
@@ -468,7 +469,7 @@ async function resetPassword(user: any) {
   }
 }
 
-async function toggleActive(user: any) {
+async function toggleActive(user: UserResponse) {
   const next = !user.is_active
   const msg = next
     ? `${user.username} 계정을 다시 활성화합니다.`
@@ -477,7 +478,7 @@ async function toggleActive(user: any) {
 
   busyId.value = user.id
   try {
-    await api.patch(`/api/auth/admin/users/${user.id}/active`, { is_active: next })
+    await api.patch<UserResponse>(`/api/auth/admin/users/${user.id}/active`, { is_active: next })
     await loadUsers()
   } catch (e: any) {
     alert(apiError(e, '상태 변경에 실패했습니다.'))
@@ -500,7 +501,7 @@ async function copyCredential() {
 async function loadUsers() {
   loading.value = true
   try {
-    const res = await api.get(`/api/admin/users`, {
+    const res = await api.get<UserResponse[]>(`/api/admin/users`, {
       params: { role: activeTab.value }
     })
     users.value = res.data
@@ -513,7 +514,7 @@ async function loadUsers() {
 
 async function loadCounts() {
   try {
-    const res = await api.get(`/api/admin/users/count`)
+    const res = await api.get<UserCounts>(`/api/admin/users/count`)
     counts.value = res.data
   } catch (e) {
     console.error(e)

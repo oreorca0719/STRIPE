@@ -20,34 +20,13 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, asdict
 from statistics import mean
-from typing import Dict, List, Sequence
+from typing import List, Sequence
 
-N_CHOICES = 4
+from app.schemas.content import N_CHOICES, QualityReport, SeedQuestion
 CHANCE = 1.0 / N_CHOICES          # 0.25
 STRATEGY_LIMIT = 0.40             # 이 이상이면 '찍기가 통한다'로 본다
 LENGTH_RATIO_LIMIT = 1.25         # 정답/오답 평균 길이비 상한
-
-
-@dataclass
-class QualityReport:
-    n_questions: int
-    position_counts: Dict[int, int]
-    position_guess_rate: float        # 가장 흔한 위치만 찍었을 때 정답률
-    longest_is_answer_rate: float     # 최장 선지만 찍었을 때 정답률
-    mean_length_ratio: float          # 정답 길이 / 오답 평균 길이
-    texts_with_uniform_answer: int    # 6문항이 전부 같은 번호인 지문 수
-    problems: List[str]
-
-    @property
-    def ok(self) -> bool:
-        return not self.problems
-
-    def as_dict(self) -> dict:
-        d = asdict(self)
-        d["ok"] = self.ok
-        return d
 
 
 def _longest_strategy_hit(choices: Sequence[str], answer_index: int) -> float:
@@ -75,31 +54,30 @@ def _answer_len_ratio(choices: Sequence[str], answer_index: int) -> float:
     return (a / m) if m else 1.0
 
 
-def analyze(items: Sequence[dict]) -> QualityReport:
-    """items: [{'questions': [{'choices': [...], 'answer_index': n}, ...]}, ...]
-
-    지문 단위 묶음을 받는다(전부 같은 번호인 지문을 세야 하므로).
-    """
+def analyze(texts: Sequence[Sequence[SeedQuestion]]) -> QualityReport:
+    """지문별 문항 묶음을 받는다(정답이 전부 같은 번호인 지문을 세야 하므로)."""
     positions: Counter = Counter()
     longest_hits = 0.0
     ratios: List[float] = []
     uniform_texts = 0
     n = 0
 
-    for item in items:
-        qs = item.get("questions", [])
-        if qs and len({q["answer_index"] for q in qs}) == 1:
+    for qs in texts:
+        if qs and len({q.answer_index for q in qs}) == 1:
             uniform_texts += 1
         for q in qs:
             n += 1
-            ai = q["answer_index"]
-            choices = q["choices"]
+            ai = q.answer_index
+            choices = q.choices
             positions[ai] += 1
             longest_hits += _longest_strategy_hit(choices, ai)
             ratios.append(_answer_len_ratio(choices, ai))
 
     if n == 0:
-        return QualityReport(0, {}, 0.0, 0.0, 1.0, 0, ["문항이 없습니다."])
+        return QualityReport(
+            question_count=0, position_counts={k: 0 for k in range(1, N_CHOICES + 1)},
+            position_guess_ratio=0.0, longest_is_answer_ratio=0.0, mean_length_ratio=1.0,
+            uniform_answer_text_count=0, problems=["문항이 없습니다."])
 
     pos_rate = max(positions.values()) / n
     long_rate = longest_hits / n
@@ -122,23 +100,23 @@ def analyze(items: Sequence[dict]) -> QualityReport:
         problems.append(f"6문항이 전부 같은 번호인 지문 {uniform_texts}편")
 
     return QualityReport(
-        n_questions=n,
+        question_count=n,
         position_counts={k: positions.get(k, 0) for k in range(1, N_CHOICES + 1)},
-        position_guess_rate=round(pos_rate, 4),
-        longest_is_answer_rate=round(long_rate, 4),
+        position_guess_ratio=round(pos_rate, 4),
+        longest_is_answer_ratio=round(long_rate, 4),
         mean_length_ratio=round(ratio, 3),
-        texts_with_uniform_answer=uniform_texts,
+        uniform_answer_text_count=uniform_texts,
         problems=problems,
     )
 
 
 def format_report(r: QualityReport) -> str:
-    lines = [f"문항 {r.n_questions}개"]
+    lines = [f"문항 {r.question_count}개"]
     for k, v in r.position_counts.items():
-        pct = v / r.n_questions * 100 if r.n_questions else 0
+        pct = v / r.question_count * 100 if r.question_count else 0
         lines.append(f"  {k}번 {v:>4}개 {pct:5.1f}%  {'█' * int(pct / 2)}")
-    lines.append(f"  '가장 흔한 번호 찍기' 정답률 : {r.position_guess_rate:.3f}")
-    lines.append(f"  '가장 긴 선지 찍기'  정답률 : {r.longest_is_answer_rate:.3f}")
+    lines.append(f"  '가장 흔한 번호 찍기' 정답률 : {r.position_guess_ratio:.3f}")
+    lines.append(f"  '가장 긴 선지 찍기'  정답률 : {r.longest_is_answer_ratio:.3f}")
     lines.append(f"  정답/오답 평균 길이비        : {r.mean_length_ratio:.2f}배")
     if r.problems:
         lines.append("  [문제]")

@@ -73,7 +73,7 @@
               </div>
             </div>
             <p class="metric-main">{{ levelKo(judgment.comprehension_level) }}</p>
-            <p class="sub">{{ judgment.total_questions }}문제 중 <strong>{{ judgment.total_correct }}문제</strong> 맞혔어요</p>
+            <p class="sub">{{ judgment.question_count }}문제 중 <strong>{{ judgment.correct_count }}문제</strong> 맞혔어요</p>
           </div>
         </div>
 
@@ -121,6 +121,7 @@
 </template>
 
 <script setup lang="ts">
+import type { FinalizeResponse, JudgmentResultResponse, PrescriptionResultResponse, ReportResponse } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -132,9 +133,9 @@ const route = useRoute()
 
 const loading = ref(true)
 const error = ref('')
-const judgment = ref<any>(null)
-const prescription = ref<any>(null)
-const report = ref<any>(null)
+const judgment = ref<JudgmentResultResponse | null>(null)
+const prescription = ref<PrescriptionResultResponse | null>(null)
+const report = ref<ReportResponse | null>(null)
 
 // 등급 표현은 홈·이력 화면과 공유한다(@/utils/diagnosis). 화면마다 다른 말이 나오면 안 된다.
 
@@ -147,9 +148,11 @@ const donutStyle = computed(() => ({
 const levelInfo = computed(() => labelInfo(judgment.value?.label_5))
 const studentLabel = computed(() => report.value?.report_content?.layer1?.label || levelInfo.value.ko)
 const strengths = computed<string[]>(() => report.value?.report_content?.layer1?.strengths || [])
-const weaknessCells = computed<string[]>(() => report.value?.report_content?.layer2?.weakness_training || [])
-const recommended = computed<any[]>(() =>
-  prescription.value?.recommended_texts || report.value?.report_content?.layer1?.recommended_preview || [])
+// 리포트 문서가 학생에게 보여 줄 값을 갖고 있다. 처방은 지문 id 만 갖는다.
+const weaknessCells = computed<{ area: string; genre: string; activity: string }[]>(
+  () => report.value?.report_content?.layer2?.weakness_training || [])
+const recommended = computed<{ text_id: number; title: string }[]>(
+  () => report.value?.report_content?.layer1?.recommended_preview || [])
 
 function levelKo(l: string) { return ({ low: '낮음', mid: '보통', high: '높음' } as any)[l] || l }
 function metacogKo(m: string) {
@@ -157,28 +160,24 @@ function metacogKo(m: string) {
             overestimate: '실제보다 조금 높게 봤어요. 겸손하게 한 번 더 확인해봐요.',
             underestimate: '생각보다 훨씬 잘했어요! 자신감을 가져도 좋아요 ✨' } as any)[m] || m
 }
-function cellKo(cell: any) {
-  const area = typeof cell === 'string' ? cell.split('_')[0] : cell?.area
-  const genre = typeof cell === 'string' ? cell.split('_')[1] : cell?.genre
+function cellKo(cell: { area: string; genre: string }) {
+  const { area, genre } = cell
   const a = ({ A5: '사실 찾기', A6: '추론하기', A7: '비판적으로 읽기' } as any)[area] || area
   const g = ({ narrative: '이야기글', expository: '설명글' } as any)[genre] || genre
   return genre ? `${g} · ${a}` : a
 }
-function recTitle(t: any) {
-  if (typeof t === 'string') return t
-  return t?.title || t?.text_code || t?.id || '추천 글'
-}
+function recTitle(t: { title: string }) { return t.title }
 
 async function load() {
   const sid = route.query.session
   if (!sid) { loading.value = false; return }
   loading.value = true; error.value = ''      // 재시도 시 이전 오류를 지운다
   try {
-    const j = await api.get(`/api/diagnosis/session/${sid}/judgment`)
+    const j = await api.get<FinalizeResponse>(`/api/diagnosis/session/${sid}/judgment`)
     judgment.value = j.data.judgment
     prescription.value = j.data.prescription
     try {
-      const r = await api.get(`/api/diagnosis/session/${sid}/report`)
+      const r = await api.get<ReportResponse>(`/api/diagnosis/session/${sid}/report`)
       report.value = r.data
     } catch { /* 리포트 없으면 판정만 표시 */ }
   } catch (e: any) {

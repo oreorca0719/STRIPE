@@ -2,6 +2,8 @@ from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.schemas.ops import Health, Readiness, ReadinessChecks
+from app.enums import HealthStatus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.api.router import api_router
@@ -69,17 +71,17 @@ def _as_int(v):
         return None
 
 
-@app.get("/api/health")
+@app.get("/api/health", response_model=Health)
 async def health_check():
     """살아 있는가 (liveness). 의존성을 건드리지 않는다.
 
     프로세스가 응답할 수 있는지만 본다. DB 가 죽었을 때 이 경로까지 실패하면
     컨테이너가 재시작을 반복하는데, 재시작으로 고쳐지는 문제가 아니다.
     """
-    return {"status": "ok", "env": settings.ENV}
+    return Health(status=HealthStatus.ok, env=settings.ENV)
 
 
-@app.get("/api/health/ready")
+@app.get("/api/health/ready", response_model=Readiness)
 async def readiness_check(response: Response):
     """일을 할 수 있는가 (readiness). **DB 를 실제로 찔러 본다.**
 
@@ -106,4 +108,5 @@ async def readiness_check(response: Response):
     ok = all(checks.values())
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "ok" if ok else "degraded", "checks": checks}
+    return Readiness(status=HealthStatus.ok if ok else HealthStatus.degraded,
+                     checks=ReadinessChecks(**checks))

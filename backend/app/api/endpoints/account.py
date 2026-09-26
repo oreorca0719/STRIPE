@@ -19,11 +19,15 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.schemas.privacy import (
+    CodeLabel, DeletionReasons, DeletionRequestIn, DeletionRequestReceipt, DeletionRequestView,
+    MyDeletionRequests,
+)
+from app.enums import DeletionReason
 from app.core.database import get_db
 from app.models.core import DeletionRequest, DeletionRequestStatus, UserRelation
 from app.models.user import User, UserRole
@@ -33,11 +37,12 @@ router = APIRouter()
 # 정보주체가 고르는 사유. 관리자 파기 사유(disposal.REASONS)와는 다른 목록이다 —
 # 저쪽은 운영자 관점(보관기간 만료·파일럿 종료)이고 여기는 본인 관점이다.
 REQUEST_REASONS = {
-    "withdraw": "참여를 그만두고 싶어요",
-    "privacy": "개인정보가 남는 것이 걱정돼요",
-    "mistake": "잘못 응시했어요",
-    "other": "기타",
+    DeletionReason.withdraw: "참여를 그만두고 싶어요",
+    DeletionReason.privacy: "개인정보가 남는 것이 걱정돼요",
+    DeletionReason.mistake: "잘못 응시했어요",
+    DeletionReason.other: "기타",
 }
+assert set(REQUEST_REASONS) == set(DeletionReason), "삭제 요청 사유 문구가 enum 과 어긋났다"
 
 BACKUP_NOTICE = (
     "삭제가 처리되면 진단 기록과 계정이 모두 지워지며 되돌릴 수 없습니다. "
@@ -48,29 +53,27 @@ BACKUP_NOTICE = (
 _OPEN = DeletionRequestStatus.pending
 
 
-class DeletionRequestIn(BaseModel):
-    # 보호자가 자녀를 대신해 요청할 때만 지정한다. 본인 요청이면 생략.
-    subject_user_id: Optional[int] = None
-    reason: str = Field(..., description=f"다음 중 하나: {', '.join(REQUEST_REASONS)}")
-    note: Optional[str] = None
+def request_view(r: DeletionRequest) -> DeletionRequestView:
+    """삭제 요청 한 건 — 요청자·관리자 화면이 같은 스키마를 쓴다.
 
-
-def _out(r: DeletionRequest) -> dict:
-    return {
-        "id": r.id,
-        "subject_user_id": r.subject_user_id,
-        "subject_code": r.subject_code,
-        "requester_code": r.requester_code,
-        "requester_role": r.requester_role,
-        "reason": r.reason,
-        "reason_label": REQUEST_REASONS.get(r.reason, r.reason),
-        "note": r.note,
-        "status": r.status.value,
-        "requested_at": r.requested_at.isoformat() if r.requested_at else None,
-        "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
-        "resolution_note": r.resolution_note,
-        "backup_notice": BACKUP_NOTICE,
-    }
+    백업 안내 문구는 목록 쪽에 한 번만 싣는다(예전에는 건마다 반복했다).
+    """
+    return DeletionRequestView(
+        id=r.id,
+        subject_user_id=r.subject_user_id,
+        subject_code=r.subject_code,
+        requester_code=r.requester_code,
+        requester_role=r.requester_role,
+        reason=r.reason,
+        reason_label=REQUEST_REASONS[r.reason],
+        note=r.note,
+        status=r.status,
+        requested_at=r.requested_at,
+        resolved_at=r.resolved_at,
+        resolved_by_code=r.resolved_by_code,
+        resolution_note=r.resolution_note,
+        disposal_log_id=r.disposal_log_id,
+    )
 
 
 async def _resolve_subject(db: AsyncSession, subject_id: Optional[int], user: User) -> User:
@@ -113,16 +116,14 @@ async def _resolve_subject(db: AsyncSession, subject_id: Optional[int], user: Us
     return subject
 
 
-@router.post("/deletion-request", status_code=status.HTTP_201_CREATED)
+@router.post("/deletion-request", status_code=status.HTTP_201_CREATED,
+             response_model=DeletionRequestReceipt)
 async def create_deletion_request(
     data: DeletionRequestIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """삭제 요청 접수. 실제 파기는 관리자가 확인 후 실행한다."""
-    if data.reason not in REQUEST_REASONS:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail=f"알 수 없는 사유: {data.reason}")
 
     subject = await _resolve_subject(db, data.subject_user_id, user)
 
@@ -143,7 +144,7 @@ async def create_deletion_request(
         subject_code=subject.username,
         requester_user_id=user.id,
         requester_code=user.username,
-        requester_role=user.role.value,
+        requester_role=user.role,
         reason=data.reason,
         note=data.note,
         status=_OPEN,
@@ -151,10 +152,10 @@ async def create_deletion_request(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    return _out(row)
+    return DeletionRequestReceipt(**request_view(row).model_dump(), backup_notice=BACKUP_NOTICE)
 
 
-@router.get("/deletion-request")
+@router.get("/deletion-request", response_model=MyDeletionRequests)
 async def my_deletion_requests(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -171,10 +172,10 @@ async def my_deletion_requests(
         .where(DeletionRequest.subject_user_id.in_(subject_ids))
         .order_by(DeletionRequest.id.desc())
     )).scalars().all()
-    return {"items": [_out(r) for r in rows], "backup_notice": BACKUP_NOTICE}
+    return MyDeletionRequests(items=[request_view(r) for r in rows], backup_notice=BACKUP_NOTICE)
 
 
-@router.post("/deletion-request/{request_id}/cancel")
+@router.post("/deletion-request/{request_id}/cancel", response_model=DeletionRequestView)
 async def cancel_deletion_request(
     request_id: int,
     db: AsyncSession = Depends(get_db),
@@ -206,13 +207,13 @@ async def cancel_deletion_request(
     row.resolved_by_code = user.username
     await db.commit()
     await db.refresh(row)
-    return _out(row)
+    return request_view(row)
 
 
-@router.get("/deletion-request/reasons")
+@router.get("/deletion-request/reasons", response_model=DeletionReasons)
 async def list_request_reasons():
     """사유 목록. 화면 선택지용."""
-    return {
-        "reasons": [{"code": k, "label": v} for k, v in REQUEST_REASONS.items()],
-        "backup_notice": BACKUP_NOTICE,
-    }
+    return DeletionReasons(
+        reasons=[CodeLabel(code=k.value, label=v) for k, v in REQUEST_REASONS.items()],
+        backup_notice=BACKUP_NOTICE,
+    )

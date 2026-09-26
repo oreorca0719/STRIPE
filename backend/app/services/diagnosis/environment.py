@@ -20,10 +20,10 @@ P33/P67 은 정의상 실제 학생 분포의 하위·상위 3분의 1 지점이
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, Optional
 
-from app.models.core import GradeGroup, ReaderType2
+from app.schemas.prescription import EnvironmentAdjustment, EnvironmentResult
+from app.models.core import EnvironmentSkipReason, GradeGroup, Level3, ReaderType2
 
 # 가정환경 점수 범위 — B-3~B-6 네 문항의 합 (문항당 1~4점)
 ENV_SCORE_MIN, ENV_SCORE_MAX = 4, 16
@@ -49,21 +49,7 @@ GUIDANCE = {
 FIXED_LOW_SYLLABLE_LIMIT = 200
 
 
-@dataclass
-class EnvironmentResult:
-    """§5-4 산출물. 셋 다 None 이면 이 기능이 건너뛰어진 것이다."""
-    environment_level: Optional[str] = None          # high | mid | low
-    parent_guidance_tone: Optional[str] = None
-    environment_adjustment: Optional[dict] = None
-    # 건너뛴 사유. 화면·로그에서 '아직 안 켜진 것'과 '데이터가 없는 것'을 구분한다.
-    skipped_reason: Optional[str] = None             # no_score | no_thresholds
-
-    @property
-    def applied(self) -> bool:
-        return self.environment_level is not None
-
-
-def guidance_tone(level: Optional[str], weakness_area: Optional[str] = None) -> Optional[str]:
+def guidance_tone(level: Optional[Level3], weakness_area: Optional[str] = None) -> Optional[str]:
     """환경 수준 → 보호자 안내 문구.
 
     문구는 prescription_results 에 저장하지 않는다(문준석 지정 컬럼은 2개).
@@ -72,61 +58,56 @@ def guidance_tone(level: Optional[str], weakness_area: Optional[str] = None) -> 
     """
     if level is None:
         return None
-    if level == "high":
+    if level == Level3.high:
         return (GUIDANCE["high"].format(weakness_area=weakness_area)
                 if weakness_area else GUIDANCE["high_no_weakness"])
-    return GUIDANCE[level]
+    return GUIDANCE[level.value]
 
 
-def _level(score: int, p33: int, p67: int) -> str:
+def _level(score: int, p33: int, p67: int) -> Level3:
     if score <= p33:
-        return "low"
+        return Level3.low
     if score >= p67:
-        return "high"
-    return "mid"
+        return Level3.high
+    return Level3.mid
 
 
-def _adjustment(level: str, type_2: Optional[ReaderType2]) -> dict:
+def _adjustment(level: Level3, type_2: Optional[ReaderType2]) -> EnvironmentAdjustment:
     """환경 하위 + 유형별 미세 조절 (처리 ④)."""
-    adj: dict = {"success_emphasis": False}
-    if level != "low":
-        return adj
-
+    if level != Level3.low:
+        return EnvironmentAdjustment(success_emphasis=False)
     if type_2 == ReaderType2.fixed:
-        adj["syllable_limit"] = FIXED_LOW_SYLLABLE_LIMIT
-        adj["success_emphasis"] = True
-    elif type_2 in (ReaderType2.sharp_decline, ReaderType2.gradual_decline):
-        adj["success_emphasis"] = True
-    return adj
+        return EnvironmentAdjustment(success_emphasis=True, syllable_limit=FIXED_LOW_SYLLABLE_LIMIT)
+    if type_2 in (ReaderType2.sharp_decline, ReaderType2.gradual_decline):
+        return EnvironmentAdjustment(success_emphasis=True)
+    return EnvironmentAdjustment(success_emphasis=False)
 
 
 def judge_environment(
     home_environment_score: Optional[int],
     grade_group: GradeGroup,
     type_2: Optional[ReaderType2] = None,
-    weakness_area: Optional[str] = None,
     percentiles: Optional[Dict[GradeGroup, tuple]] = None,
 ) -> EnvironmentResult:
-    """가정환경 점수 → 환경 수준 · 보호자 안내 톤 · 추천 조절값.
+    """가정환경 점수 → 환경 수준 · 추천 조절값. 결과 스키마: schemas.prescription.EnvironmentResult
 
-    weakness_area 는 high 안내 문구에 들어갈 약점 영역명이다(예: '추론하기').
-    없으면 영역을 언급하지 않는 문구로 대체한다 — 빈칸이 그대로 나가면 안 된다.
+    보호자 안내 문구는 결과에 담지 않는다. 수준에서 정해지는 문구라
+    guidance_tone(수준, 약점 영역명) 으로 쓸 때 만든다(원칙 5).
     """
     if home_environment_score is None:
         # 학교 맥락이거나 보호자 미응답. 오류가 아니다.
-        return EnvironmentResult(skipped_reason="no_score")
+        return EnvironmentResult(skipped_reason=EnvironmentSkipReason.no_score)
 
     table = ENV_PERCENTILES if percentiles is None else percentiles
     bounds = table.get(grade_group)
     if not bounds:
         # 경계값 미확정 — 임시값으로 판정하지 않는다(근거 없는 값이 저장되면 안 됨).
-        return EnvironmentResult(skipped_reason="no_thresholds")
+        return EnvironmentResult(skipped_reason=EnvironmentSkipReason.no_thresholds)
 
     p33, p67 = bounds
     level = _level(home_environment_score, p33, p67)
 
     return EnvironmentResult(
         environment_level=level,
-        parent_guidance_tone=guidance_tone(level, weakness_area),
         environment_adjustment=_adjustment(level, type_2),
     )

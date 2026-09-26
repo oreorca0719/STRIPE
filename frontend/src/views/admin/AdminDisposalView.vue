@@ -170,6 +170,7 @@
 </template>
 
 <script setup lang="ts">
+import type { CodeLabel, DeletedCounts, DeletionRequestList, DeletionRequestView, DisposalLogItem, DisposalPreview, DisposalResult, UserResponse } from '@/api-types'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
@@ -177,37 +178,44 @@ import { api } from '@/api'
 
 const router = useRouter()
 
-const students = ref<any[]>([])
+const students = ref<UserResponse[]>([])
 const loadingUsers = ref(true)
 const picked = ref<number | null>(null)
-const preview = ref<any>(null)
+const preview = ref<DisposalPreview | null>(null)
 const previewing = ref(false)
-const reasons = ref<any[]>([])
+const reasons = ref<CodeLabel[]>([])
 const reason = ref('retention_expired')
 const note = ref('')
 const confirmCode = ref('')
 const disposing = ref(false)
-const logs = ref<any[]>([])
+const logs = ref<DisposalLogItem[]>([])
 const error = ref('')
 
-const COUNT_KO: Record<string, string> = {
-  student_profiles: '설문 프로필',
-  diagnosis_sessions: '진단 세션',
-  diagnosis_rounds: '회차',
-  question_responses: '문항 응답',
-  comprehension_results: '채점 결과',
-  fluency_results: '읽기 측정',
-  judgment_results: '판정',
-  reports: '리포트',
-  consent_records: '동의 기록',
+// 삭제 수 스키마(DeletedCounts)의 칸을 전부 적어야 컴파일된다 — 칸이 늘면 여기서 드러난다.
+// 예전에는 처방·보호자 설문·보호자 연결이 빠져 있었다(서버도 세지 않았다).
+const COUNT_KO: Record<keyof DeletedCounts, string> = {
+  student_profiles_count: '설문 프로필',
+  parent_responses_count: '보호자 설문',
+  diagnosis_sessions_count: '진단 세션',
+  diagnosis_rounds_count: '회차',
+  question_responses_count: '문항 응답',
+  comprehension_results_count: '채점 결과',
+  fluency_results_count: '읽기 측정',
+  judgment_results_count: '판정',
+  prescription_results_count: '처방',
+  reports_count: '리포트',
+  consent_records_count: '동의 기록',
+  user_relations_count: '보호자 연결',
 }
-function countKo(k: string | number) { return COUNT_KO[String(k)] || String(k) }
+function countKo(k: string | number) { return COUNT_KO[k as keyof DeletedCounts] || String(k) }
 
-function summarize(c: Record<string, number>) {
-  const parts = Object.entries(c || {})
-    .filter(([, v]) => v > 0)
-    .map(([k, v]) => `${countKo(k)} ${v}`)
-  return parts.length ? parts.join(' · ') : '없음'
+// null 은 '그때 세지 않음'(2026-09-25 이전 기록)이다. 0 과 구분해 표시한다.
+function summarize(c: DeletedCounts) {
+  const entries = Object.entries(c) as [keyof DeletedCounts, number | null][]
+  const parts = entries.filter(([, v]) => v !== null && v > 0).map(([k, v]) => `${COUNT_KO[k]} ${v}`)
+  const unknown = entries.filter(([, v]) => v === null).map(([k]) => COUNT_KO[k])
+  const text = parts.length ? parts.join(' · ') : '없음'
+  return unknown.length ? `${text} (세지 않음: ${unknown.join('·')})` : text
 }
 
 function fmtDate(iso?: string | null) {
@@ -220,7 +228,7 @@ async function loadPreview() {
   if (!picked.value) return
   previewing.value = true; error.value = ''; preview.value = null; confirmCode.value = ''
   try {
-    const r = await api.get(`/api/admin/disposals/preview/${picked.value}`)
+    const r = await api.get<DisposalPreview>(`/api/admin/disposals/preview/${picked.value}`)
     preview.value = r.data
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '대상 정보를 불러오지 못했습니다.'
@@ -231,7 +239,7 @@ async function execute() {
   if (!preview.value) return
   disposing.value = true; error.value = ''
   try {
-    await api.post('/api/admin/disposals', {
+    await api.post<DisposalResult>('/api/admin/disposals', {
       user_id: preview.value.user_id,
       reason: reason.value,
       confirm_code: confirmCode.value.trim(),
@@ -247,14 +255,14 @@ async function execute() {
 async function loadUsers() {
   loadingUsers.value = true
   try {
-    const r = await api.get('/api/admin/users')
+    const r = await api.get<UserResponse[]>('/api/admin/users')
     // 관리자는 이 경로로 파기할 수 없다(서버에서도 차단). 목록에서 아예 뺀다.
-    students.value = r.data.filter((u: any) => u.role !== 'admin')
+    students.value = r.data.filter((u) => u.role !== 'admin')
   } finally { loadingUsers.value = false }
 }
 
 async function loadLogs() {
-  const r = await api.get('/api/admin/disposals')
+  const r = await api.get<DisposalLogItem[]>('/api/admin/disposals')
   logs.value = r.data
 }
 
@@ -264,32 +272,32 @@ const REQ_STATUS_KO: Record<string, string> = {
   pending: '처리 대기', completed: '처리 완료', rejected: '반려', cancelled: '요청자 취소',
 }
 
-const requests = ref<any[]>([])
+const requests = ref<DeletionRequestView[]>([])
 const pendingCount = ref(0)
-const rejecting = ref<any | null>(null)
+const rejecting = ref<DeletionRequestView | null>(null)
 const rejectNote = ref('')
 
 async function loadRequests() {
-  const r = await api.get('/api/admin/disposals/requests')
+  const r = await api.get<DeletionRequestList>('/api/admin/disposals/requests')
   requests.value = r.data.items
   pendingCount.value = r.data.pending_count
 }
 
 // 요청 행에서 바로 파기 대상으로 넘긴다. 아이디를 눈으로 옮겨 적다가
 // 다른 학생을 고르는 사고를 줄인다(확인 문자열은 그대로 입력해야 한다).
-function pickForDisposal(r: any) {
+function pickForDisposal(r: DeletionRequestView) {
   picked.value = r.subject_user_id
   reason.value = 'subject_request'
   loadPreview()
 }
 
-function startReject(r: any) { rejecting.value = r; rejectNote.value = '' }
+function startReject(r: DeletionRequestView) { rejecting.value = r; rejectNote.value = '' }
 
 async function confirmReject() {
   if (!rejecting.value) return
   error.value = ''
   try {
-    await api.post(`/api/admin/disposals/requests/${rejecting.value.id}/reject`,
+    await api.post<DeletionRequestView>(`/api/admin/disposals/requests/${rejecting.value.id}/reject`,
                    { resolution_note: rejectNote.value.trim() })
     rejecting.value = null
     await loadRequests()
@@ -302,7 +310,7 @@ function handleLogout() { router.push('/login') }
 
 onMounted(async () => {
   const [, , , rs] = await Promise.all([
-    loadUsers(), loadLogs(), loadRequests(), api.get('/api/admin/disposals/reasons'),
+    loadUsers(), loadLogs(), loadRequests(), api.get<CodeLabel[]>('/api/admin/disposals/reasons'),
   ])
   reasons.value = rs.data
 })

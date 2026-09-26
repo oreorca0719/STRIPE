@@ -198,7 +198,7 @@ def test_부분_응답도_받되_점수는_내지_않는다():
 
 
 def test_척도_밖의_값은_거부한다():
-    """검증 규칙은 문항 정의 한 곳에만 둔다 (survey_questions.json)."""
+    """값 범위는 설문 파일에서 만든 제출 스키마가 막는다 (schemas/survey.py)."""
     async def go():
         s = await _seed()
         async with AsyncClient(transport=ASGITransport(app=_app()),
@@ -208,9 +208,9 @@ def test_척도_밖의_값은_거부한다():
                                   json={"parent_reading_support": bad})
                 assert r.status_code == 422, f"B-3={bad}: {r.text}"
             # E-3 은 0~10 이라 5 가 정상이다 — 문항마다 범위가 다르다
-            r = await ac.post("/api/parent/survey", json={"parent_predicted_correct": 5})
+            r = await ac.post("/api/parent/survey", json={"parent_predicted_correct_count": 5})
             assert r.status_code == 201, r.text
-            r = await ac.post("/api/parent/survey", json={"parent_predicted_correct": 11})
+            r = await ac.post("/api/parent/survey", json={"parent_predicted_correct_count": 11})
             assert r.status_code == 422, r.text
     _with_dispose(go)
 

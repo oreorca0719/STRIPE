@@ -64,18 +64,44 @@ def test_어느_기능도_쓰지_않는_모듈을_드러낸다():
     assert not 뜻밖, f"어느 기능에도 안 잡힌 모듈: {뜻밖} — 선언 누락인지 사용처 없는지 확인"
 
 
+def test_흐름도_배치표가_레지스트리를_모두_담는다():
+    """흐름도는 좌표를 손으로 정한 표(NODE·ROUTE)로 그린다.
+
+    레지스트리에 모듈·연결을 추가하고 배치표를 안 고치면 그 블록·선이
+    화면에서 조용히 빠진다. 같은 개념이 두 곳에 적혀 있으니 여기서 맞춘다.
+    """
+    import re
+    html = (Path(R.__file__).parent / "flow_dashboard.html").read_text(encoding="utf-8")
+    node_block = html.split("const NODE={", 1)[1].split("};", 1)[0]
+    route_block = html.split("const ROUTE={", 1)[1].split("};", 1)[0]
+    배치된_모듈 = set(re.findall(r"'([\w.]+)':\s*\[", node_block))
+    배치된_연결 = set(re.findall(r"'([\w.]+>[\w.]+)':", route_block))
+
+    빠진_모듈 = sorted(set(R.modules()) - 배치된_모듈)
+    빠진_연결 = sorted({f"{e.src}>{e.dst}" for e in R.edges()} - 배치된_연결)
+    assert not 빠진_모듈, f"흐름도 NODE 에 좌표가 없다: {빠진_모듈}"
+    assert not 빠진_연결, f"흐름도 ROUTE 에 경로가 없다: {빠진_연결}"
+    # 반대 방향 — 지워진 모듈·연결의 좌표가 남으면 표가 낡는다
+    assert not 배치된_모듈 - set(R.modules()), "NODE 에 없는 모듈의 좌표가 남아 있다"
+    assert not 배치된_연결 - {f"{e.src}>{e.dst}" for e in R.edges()}, \
+        "ROUTE 에 없는 연결의 경로가 남아 있다"
+
+
 def test_기능이_실재하는_엔드포인트를_가리킨다():
-    """경로를 고치고 레지스트리를 안 고치면 대시보드가 옛 경로를 보여 준다."""
-    src = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in (Path(__file__).resolve().parents[1] / "app" / "api" / "endpoints").glob("*.py")
-    )
+    """경로를 고치고 레지스트리를 안 고치면 대시보드가 옛 경로를 보여 준다.
+
+    실제 등록된 라우트와 메서드·경로를 정확히 대조한다. 이전에는 소스에
+    경로 첫 조각이 있는지만 봐서, 존재하지 않는 `/api/review/text/{id}/approve`
+    가 'text' 라는 글자 덕에 통과했다(2026-09-25 발견).
+    """
+    import re
+    from main import app
+
+    norm = lambda p: re.sub(r"\{[^}]+\}", "{}", p)   # 경로 변수 이름은 따지지 않는다
+    등록된것 = {(m, norm(r.path)) for r in app.routes if hasattr(r, "methods")
+               for m in r.methods}
     for f in R.features():
         for entry in f.api:
             method, path = entry.split(" ", 1)
-            # prefix 는 라우터 등록에서 붙으므로 마지막 조각으로 확인한다.
-            tail = path.replace("/api/diagnosis", "").replace("/api/audio", "") \
-                       .replace("/api/parent", "").replace("/api/review", "")
-            tail = tail.replace("{id}", "{session_id}")
-            assert tail.strip("/").split("/")[0] in src or tail in src, \
-                f"{f.key}: {entry} 에 해당하는 라우트를 찾지 못했다"
+            assert (method, norm(path)) in 등록된것, \
+                f"{f.key}: {entry} 에 해당하는 라우트가 없다"

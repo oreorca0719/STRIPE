@@ -7,26 +7,36 @@ from app.models.core import (
     ComprehensionResult, StudentProfile, TextContent,
     JudgmentResult, PrescriptionResult, Report,
     DiagSessionStatus, FluencyType, ReaderType1, ReviewStatus,
-    Book, Difficulty, Label5, ConsentRecord, Gender,
+    Book, Difficulty, Label5, ConsentRecord,
+    AdaptiveAction, ReliabilityFlag, TargetArea,
+)
+from app.schemas.judgment import CellResponse
+from app.schemas.student import BookBasis, BooksForMe
+from app.enums import BooksUnavailableReason, FINISHED_SESSION_STATUSES
+from app.schemas.measurement import (
+    AdaptiveDecision, AnswerSubmit, AwayEvents, SilentReadingSubmit,
 )
 from app.core.config import settings
-from app.schemas.diagnosis import (
+from app.schemas.session import (
     SessionCreate, SessionResponse,
     RoundCreate, RoundResponse,
-    OralFluencySubmit, SilentFluencySubmit, FluencyResultResponse,
-    QuestionResponseSubmit, QuestionResponseResult,
-    RoundAggregateOut, AdaptiveDecisionOut, RoundCompleteResponse,
+    FluencyResultResponse,
+    QuestionResponseResult,
+    RoundCompleteResponse,
     JudgmentResultResponse, PrescriptionResultResponse, FinalizeResponse,
     ReportResponse, DiagnosisResultResponse,
-    ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
     RoundContentResponse, QuestionPublic,
-    MySessionItem, MySummaryResponse, ResumeResponse,
+    MySessionItem, MySummaryResponse, ResumePhase, ResumeResponse,
+)
+from app.schemas.survey import (
+    ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
-from app.services.diagnosis import attention as attention_svc
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
 from app.services.stt import analyzer as oral_analyzer
+from app.schemas.oral import OralFluencySubmit
+from app.schemas.survey import SurveyQuestions
 from app.services.survey import definition as D
 from app.services.survey import reader_type as RT
 from app.api.deps import get_current_user
@@ -99,31 +109,14 @@ async def _owned_round(db: AsyncSession, round_id: int, user: User) -> Diagnosis
     return round_
 
 
-# 학생 설문 문항 코드 → ProfileCreate 필드. 검증 규칙은 문항 정의 한 곳에만 둔다.
-_SURVEY_FIELDS = D.storage_map("student")
-
-
-def _validate_survey(data: ProfileCreate) -> None:
-    """선지·범위·개수 검증. 정의(survey_questions.json)에 위임한다."""
-    for code, field in _SURVEY_FIELDS.items():
-        value = getattr(data, field, None)
-        # 필수 문항이라도 여기서 미응답을 막지 않는다 — 화면이 막고,
-        # 서버는 '들어온 값이 정의와 맞는가'만 본다.
-        try:
-            D.validate("student", code, value)
-        except D.AnswerError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                detail=str(e))
-
-
-@router.get("/survey/definition")
+@router.get("/survey/definition", response_model=SurveyQuestions)
 async def survey_definition():
     """학생 설문 문항 정의. 화면은 이것을 받아 렌더링만 한다.
 
     문구가 잠정본이라 계속 바뀐다. 화면에 박아두면 문구 한 줄에 프론트를 다시
     빌드해야 하고, 서버 검증 규칙과 화면 선지가 따로 놀 여지가 생긴다.
     """
-    return {"questions": D.questions("student")}
+    return SurveyQuestions(questions=D.questions("student"))
 
 
 def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
@@ -145,7 +138,7 @@ def classify_reader_type1(reading_freq, reading_attitude) -> ReaderType1:
 # 별도 소유권 검증이 필요 없다(쿼리에 student_id를 강제로 건다).
 
 # 판정이 끝난 세션만 '결과 있음'으로 본다. 판정 전 세션은 진행 중이거나 중단된 것.
-_JUDGED_STATUSES = (DiagSessionStatus.completed, DiagSessionStatus.early_stop)
+_JUDGED_STATUSES = FINISHED_SESSION_STATUSES
 
 
 def _to_my_item(session: DiagnosisSession, judgment: Optional[JudgmentResult]) -> MySessionItem:
@@ -154,7 +147,7 @@ def _to_my_item(session: DiagnosisSession, judgment: Optional[JudgmentResult]) -
         status=session.status,
         started_at=session.started_at,
         completed_at=session.completed_at,
-        total_rounds=session.total_rounds,
+        round_count=session.round_count,
         label_5=judgment.label_5 if judgment else None,
         prescription_group=judgment.prescription_group if judgment else None,
         fluency_level=judgment.fluency_level if judgment else None,
@@ -190,7 +183,7 @@ async def my_sessions(
     return [_to_my_item(s, j) for s, j in rows]
 
 
-@router.get("/my/books")
+@router.get("/my/books", response_model=BooksForMe)
 async def my_books(
     limit: int = 5,
     db: AsyncSession = Depends(get_db),
@@ -208,8 +201,8 @@ async def my_books(
     rows = await _my_sessions(db, user)
     judged = [(s, j) for s, j in rows if j is not None and s.status in _JUDGED_STATUSES]
     if not judged:
-        return {"ready": False, "reason": "no_diagnosis", "books": [],
-                "based_on": None, "catalog_empty": False}
+        return BooksForMe(books=[], reason=BooksUnavailableReason.no_diagnosis,
+                          catalog_empty=False, based_on=None)
 
     session, judgment = judged[0]
 
@@ -223,8 +216,8 @@ async def my_books(
     )
     profile = prof_q.scalar_one_or_none()
     if not profile or profile.grade is None:
-        return {"ready": False, "reason": "no_profile", "books": [],
-                "based_on": None, "catalog_empty": False}
+        return BooksForMe(books=[], reason=BooksUnavailableReason.no_profile,
+                          catalog_empty=False, based_on=None)
 
     grade_group = text_selection.grade_to_group(profile.grade)
     anchor = judgment.anchor_difficulty or Difficulty.normal
@@ -254,20 +247,20 @@ async def my_books(
     )
     catalog_empty = (total_q.scalar_one() or 0) == 0
 
-    return {
-        "ready": bool(books),
-        "reason": None if books else ("catalog_empty" if catalog_empty else "no_match"),
-        "catalog_empty": catalog_empty,
-        "based_on": {
-            "session_id": session.id,
-            "label_5": judgment.label_5.value,
-            "prescription_group": judgment.prescription_group.value,
-            "difficulties": [d.value for d in difficulties],
-            "interest_topics": profile.interest_topics or [],
-            "prefer_short": prefer_short,
-        },
-        "books": [book_recommend.to_dict(b, profile.interest_topics) for b in books],
-    }
+    return BooksForMe(
+        books=[book_recommend.to_view(b, profile.interest_topics) for b in books],
+        reason=None if books else (BooksUnavailableReason.catalog_empty if catalog_empty
+                                   else BooksUnavailableReason.no_match),
+        catalog_empty=catalog_empty,
+        based_on=BookBasis(
+            session_id=session.id,
+            label_5=judgment.label_5,
+            prescription_group=judgment.prescription_group,
+            difficulties=difficulties,
+            interest_topics=profile.interest_topics or [],
+            prefer_short=prefer_short,
+        ),
+    )
 
 
 @router.get("/my/summary", response_model=MySummaryResponse)
@@ -378,10 +371,9 @@ async def resume_session(
             if new_text is not None and new_text.id != round_.text_id:
                 round_.text_id = new_text.id
                 text_reissued = True
-                if repeated:
-                    cv = dict(round_.changed_variables or {})
-                    cv["text_repeated"] = True
-                    round_.changed_variables = cv
+                # 새 지문 기준으로 다시 정한다. 예전에는 합치기만 해서, 반복이 아닌
+                # 지문으로 바꿔도 이전 지문 때 붙은 '반복' 표시가 남았다.
+                round_.text_repeated = repeated
                 await db.commit()
                 await db.refresh(round_)
 
@@ -397,7 +389,7 @@ async def resume_session(
         session_id=session.id,
         round=round_,
         round_number=round_.round_number,
-        phase="questions" if has_fluency else "reading",
+        phase=ResumePhase.questions if has_fluency else ResumePhase.reading,
         answered=answered,
         text_reissued=text_reissued,
     )
@@ -436,7 +428,6 @@ async def create_profile(
     # 설문 응답도 개인정보 수집이다. 세션 생성 전에 여기서 먼저 막아야
     # 미동의 학생의 설문 데이터가 저장되는 것을 방지할 수 있다 (STR-97).
     await _require_consent(db, user)
-    _validate_survey(data)
 
     type_1 = classify_reader_type1(data.reading_freq, data.reading_attitude)
     is_non_reader = type_1 == ReaderType1.non_reader
@@ -448,18 +439,15 @@ async def create_profile(
     profile = StudentProfile(
         user_id=user.id,
         grade=data.grade,
-        gender=Gender(data.gender) if data.gender else None,
+        gender=data.gender,
         reading_freq=data.reading_freq,
         reading_attitude=data.reading_attitude,
-        # A-1 은 권수(0~99)인데 컬럼이 String(50)이다. 숫자 의미를 잃지 않도록
-        # 문자열로 넣되, 분석에서 캐스팅이 필요하다 — 타입 정정은 문준석 확인 대기.
-        voluntary_reading=str(data.voluntary_reading) if data.voluntary_reading is not None else None,
+        voluntary_reading_count=data.voluntary_reading_count,
         life_reading_graph=data.life_reading_graph,
         interest_topics=data.interest_topics,
         free_text_interest=data.free_text_interest,
         preferred_genres=data.preferred_genres,
         self_reading_level=data.self_reading_level,
-        predicted_correct=data.predicted_correct,
         type_1=type_1,
         type_2=type_2,
         # 비독자가 아닌 학생은 이 문항을 보지 않았으므로 값이 없다.
@@ -566,7 +554,7 @@ async def create_round(
         genre=data.genre,
     )
     db.add(round_)
-    session.total_rounds = (session.total_rounds or 0) + 1
+    session.round_count = (session.round_count or 0) + 1
     await db.commit()
     await db.refresh(round_)
     return round_
@@ -601,51 +589,29 @@ async def submit_oral_fluency(
     if not text:
         raise HTTPException(status_code=404, detail="지문을 찾을 수 없습니다.")
 
+    dup = await db.execute(select(FluencyResult.id).where(
+        FluencyResult.round_id == round_.id, FluencyResult.type == FluencyType.oral))
+    if dup.first() is not None:
+        raise HTTPException(status_code=409, detail="이 회차의 음독 결과는 이미 저장되었습니다.")
+
     # 계약(패키지 #1 L3)의 scored_time_ms 는 recording_start~end 다.
-    # 이 엔드포인트는 초 단위를 받으므로 ms 로 환산해 넘긴다.
+    # 전사는 채점에만 쓰고 저장하지 않는다(아동 발화의 원문).
     a = oral_analyzer.analyze_oral_reading(
         original_text=text.content,
         transcript=data.transcript or "",
-        scored_time_ms=int(round(data.reading_time_seconds * 1000)),
-        supervisor_error_count=data.error_count,
+        scored_time_ms=data.reading_time_ms,
+        supervisor_error_count=data.supervisor_error_count,
     )
 
-    raw = dict(data.raw_data or {})
-    raw.update({
-        "input_mode": "supervisor",          # B안 경로임을 남긴다
-        "score_status": a.score_status,
-        "score_unavailable_reason": a.score_unavailable_reason,
-        "quality_gate": a.quality_gate,
-        "transcript_length_ratio": a.transcript_length_ratio,
-        "scored_time_ms": a.scored_time_ms,
-        "scoring_rule_version": oral_analyzer.SCORING_RULE_VERSION,
-    })
-    if a.score_status == "scored":
-        # 사람이 센 값과 자동 산출값의 대조 — A안 타당성의 근거가 된다.
-        # 계약 필드명을 그대로 쓴다(스키마 신설 시 그대로 옮겨진다).
-        raw["auto"] = {
-            "A1_correct_syllables_per_minute": a.a1_correct_syllables_per_minute,
-            "A2_target_syllable_accuracy": a.a2_target_syllable_accuracy,
-            "scored_M": a.scored_m, "scored_S": a.scored_s,
-            "scored_D": a.scored_d, "scored_I": a.scored_i,
-            "oral_syllable_count": a.oral_syllable_count,
-            "continuation_source_offset": a.continuation_source_offset,
-            "alignment_mode": a.alignment_mode,   # 60초에 걸렸으면 prefix_global
-            "alignment_deviations": a.alignment_deviations,
-        }
-
-    # 감독자가 센 오류 수가 정본이다(B안). 자동 산출은 raw 에 나란히 둔다.
-    # unscorable 이면 A1/A2 는 null 로 남긴다 — 0 으로 채우지 않는다.
+    # 감독자가 센 오류 수가 SSOT다(B안). 자동 채점은 나란히 둔다 — 이 대조가
+    # A안 타당성의 근거가 된다. 채점 불가면 A1·A2 는 null 이다(0 아님).
     result = FluencyResult(
         session_id=data.session_id,
         round_id=round_.id,
         type=FluencyType.oral,
-        reading_time_seconds=data.reading_time_seconds,
-        total_syllables=a.text_syllable_count,
-        error_count=data.error_count,
-        automaticity_score=a.a1_correct_syllables_per_minute,
-        accuracy_score=a.a2_target_syllable_accuracy,
-        raw_data=raw,
+        reading_time_ms=data.reading_time_ms,
+        supervisor_error_count=data.supervisor_error_count,
+        oral_analysis=a,
     )
     db.add(result)
     await db.commit()
@@ -655,37 +621,42 @@ async def submit_oral_fluency(
 
 @router.post("/fluency/silent", response_model=FluencyResultResponse, status_code=status.HTTP_201_CREATED)
 async def submit_silent_fluency(
-    data: SilentFluencySubmit,
+    data: SilentReadingSubmit,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """묵독 유창성 결과 저장 (MVP1 기본 경로). round_id 주어지면 A4(음절/초) 산출."""
+    """묵독 한 번의 측정 저장 (MVP1 기본 경로). A4(음절/초)를 산출한다.
+
+    스키마: schemas.measurement.SilentReadingSubmit — 읽기 시간은 두 버튼 사이의
+    실제 시각 차이(ms), 이탈 이벤트는 시간순 원본.
+
+    [회차당 한 번]
+    같은 회차에 다시 보내면 409. 응답을 못 받고 재전송한 경우 화면은 409 를
+    '이미 저장됨'으로 받아 넘어간다. 두 줄이 생기면 A4 중앙값이 틀어진다.
+    """
     await _owned_session(db, data.session_id, user)
-    if data.round_id is not None:
-        await _owned_round(db, data.round_id, user)
-    a4 = None
-    if data.round_id is not None and data.silent_reading_time and data.silent_reading_time > 0:
-        rt_q = await db.execute(
-            select(TextContent.syllable_count)
-            .join(DiagnosisRound, DiagnosisRound.text_id == TextContent.id)
-            .where(DiagnosisRound.id == data.round_id)
-        )
-        row = rt_q.first()
-        if row and row[0]:
-            a4 = round(row[0] / data.silent_reading_time, 3)
+    round_ = await _owned_round(db, data.round_id, user)
+    if round_.diagnosis_session_id != data.session_id:
+        raise HTTPException(status_code=400, detail="회차가 이 세션에 속하지 않습니다.")
+    if round_.text_id is None:
+        raise HTTPException(status_code=400, detail="회차에 지문이 없습니다.")
+    dup = await db.execute(select(FluencyResult.id).where(
+        FluencyResult.round_id == round_.id, FluencyResult.type == FluencyType.silent))
+    if dup.first() is not None:
+        raise HTTPException(status_code=409, detail="이 회차의 읽기 시간은 이미 저장되었습니다.")
 
-    # 화면 이탈·복귀 기록 (STR-79). 보정은 하지 않고 원본과 집계를 남긴다 —
-    # 얼마를 빼는 것이 맞는지는 기획·파일럿으로 정할 문제다.
-    attention = attention_svc.summarize(data.away_events, data.silent_reading_time)
+    t_q = await db.execute(select(TextContent.syllable_count).where(TextContent.id == round_.text_id))
+    syllables = t_q.scalar_one()
+    a4 = round(syllables / (data.reading_time_ms / 1000), 3)
 
+    # 이탈 원본만 저장한다. 집계는 attention.summarize 로 필요할 때 계산한다(원칙 4).
     result = FluencyResult(
         session_id=data.session_id,
-        round_id=data.round_id,
+        round_id=round_.id,
         type=FluencyType.silent,
-        silent_reading_time=data.silent_reading_time,
+        reading_time_ms=data.reading_time_ms,
         a4_syllable_per_sec=a4,
-        comprehension_check_score=data.comprehension_check_score,
-        raw_data={"attention": attention},
+        away_events=AwayEvents(events=data.away_events),
     )
     db.add(result)
     await db.commit()
@@ -695,7 +666,7 @@ async def submit_silent_fluency(
 
 @router.post("/comprehension", response_model=QuestionResponseResult, status_code=status.HTTP_201_CREATED)
 async def submit_question_response(
-    data: QuestionResponseSubmit,
+    data: AnswerSubmit,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -709,11 +680,16 @@ async def submit_question_response(
     풀 수 있기 때문이다. 행이 중복되면 정답률이 문항 수보다 큰 분모로 계산돼
     판정이 통째로 틀어진다.
     """
-    await _owned_round(db, data.round_id, user)
+    round_ = await _owned_round(db, data.round_id, user)
     q = await db.execute(select(Question).where(Question.id == data.question_id))
     question = q.scalar_one_or_none()
     if not question:
         raise HTTPException(status_code=404, detail="문항을 찾을 수 없습니다.")
+    # 이 회차 지문의 문항만 받는다. 다른 지문의 문항이 섞이면 이 회차 채점이 틀어진다.
+    if question.text_id != round_.text_id:
+        raise HTTPException(status_code=422, detail="이 회차 지문의 문항이 아닙니다.")
+    if data.student_answer > len(question.choices):
+        raise HTTPException(status_code=422, detail="선지 번호가 선지 수를 넘습니다.")
 
     is_correct = data.student_answer == question.answer_index
 
@@ -783,11 +759,11 @@ async def start_diagnosis(
         text_id=text.id,
         difficulty_level=adaptive.FIRST_ROUND_DIFFICULTY,
         genre=adaptive.FIRST_ROUND_GENRE,
-        changed_variables={"text_repeated": True} if repeated else None,
+        text_repeated=repeated,
     )
     db.add(round_)
     session.text_id = text.id
-    session.total_rounds = 1
+    session.round_count = 1
     await db.commit()
     await db.refresh(round_)
     return round_
@@ -805,23 +781,32 @@ async def complete_round(
     """
     round_ = await _owned_round(db, round_id, user)
     session = await _owned_session(db, round_.diagnosis_session_id, user)
+    # 회차 하나에 집계 하나. 두 번 부르면 Betts 이력이 중복돼 적응형 판단이
+    # 틀어지고 다음 회차가 두 개 생긴다.
+    if round_.completed_at is not None:
+        raise HTTPException(status_code=409, detail="이미 완료된 회차입니다.")
 
-    # 1) 회차 집계 + Betts
+    # 1) 회차 집계 (영역 3칸의 정답 수·문항 수) + Betts
     resp_q = await db.execute(
         select(QuestionResponse).where(QuestionResponse.round_id == round_id)
     )
     responses = resp_q.scalars().all()
-    agg = scoring.aggregate_round(responses)
+    agg = scoring.aggregate_round([
+        CellResponse(target_area=r.target_area, genre=round_.genre, is_correct=r.is_correct)
+        for r in responses
+    ])
+    betts = scoring.round_betts(agg)
 
+    # 명세의 집계 칸(§1-14). 값은 전부 위 집계 한 곳에서 계산한다.
     comp = ComprehensionResult(
         round_id=round_id,
-        total_questions=agg.total_questions,
+        question_count=agg.question_count,
         correct_count=agg.correct_count,
-        round_accuracy=agg.round_accuracy,
-        betts_level=agg.betts_level,
-        a5_factual_accuracy=agg.a5_factual_accuracy,
-        a6_inferential_accuracy=agg.a6_inferential_accuracy,
-        a7_critical_accuracy=agg.a7_critical_accuracy,
+        round_accuracy=agg.accuracy,
+        betts_level=betts,
+        a5_factual_accuracy=agg.area(TargetArea.A5).accuracy,
+        a6_inferential_accuracy=agg.area(TargetArea.A6).accuracy,
+        a7_critical_accuracy=agg.area(TargetArea.A7).accuracy,
     )
     db.add(comp)
     await db.flush()  # comp.id 확보
@@ -838,7 +823,7 @@ async def complete_round(
     )
     betts_history = [b for (b,) in hist_q.all() if b is not None]
 
-    # 3) 적응형 판단
+    # 3) 적응형 판단 — 스키마: schemas.measurement.AdaptiveDecision
     decision = adaptive.decide(
         round_number=round_.round_number,
         betts_history=betts_history,
@@ -849,7 +834,7 @@ async def complete_round(
     next_round = None
     text_shortage = False
 
-    if decision.action == "continue":
+    if decision.action == AdaptiveAction.continue_:
         # 다음 텍스트 선택 (사용한 텍스트 제외)
         used_q = await db.execute(
             select(DiagnosisRound.text_id).where(
@@ -881,11 +866,11 @@ async def complete_round(
         if next_text is None:
             # §4 ⑥ 텍스트 후보 0편 → 현재 영점으로 종료 + reliability=low
             text_shortage = True
-            decision = adaptive.AdaptiveDecision(
-                action="stop",
+            decision = AdaptiveDecision(
+                action=AdaptiveAction.stop,
                 status=DiagSessionStatus.completed,
                 anchor_difficulty=round_.difficulty_level,
-                reliability_flag=adaptive.ReliabilityFlag.low,
+                reliability_flag=ReliabilityFlag.low,
             )
         else:
             nr = DiagnosisRound(
@@ -894,15 +879,15 @@ async def complete_round(
                 text_id=next_text.id,
                 difficulty_level=decision.next_difficulty,
                 genre=decision.next_genre,
-                changed_variables={"text_repeated": True} if next_repeated else None,
+                text_repeated=next_repeated,
             )
             db.add(nr)
-            session.total_rounds = (session.total_rounds or 0) + 1
+            session.round_count = (session.round_count or 0) + 1
             await db.flush()
             await db.refresh(nr)
             next_round = nr
 
-    if decision.action == "stop":
+    if decision.action == AdaptiveAction.stop:
         session.status = decision.status
         session.anchor_difficulty = decision.anchor_difficulty
         session.anchor_level = decision.anchor_difficulty.value if decision.anchor_difficulty else None
@@ -913,23 +898,8 @@ async def complete_round(
     await db.refresh(session)
 
     return RoundCompleteResponse(
-        comprehension=RoundAggregateOut(
-            total_questions=agg.total_questions,
-            correct_count=agg.correct_count,
-            round_accuracy=agg.round_accuracy,
-            betts_level=agg.betts_level,
-            a5_factual_accuracy=agg.a5_factual_accuracy,
-            a6_inferential_accuracy=agg.a6_inferential_accuracy,
-            a7_critical_accuracy=agg.a7_critical_accuracy,
-        ),
-        decision=AdaptiveDecisionOut(
-            action=decision.action,
-            status=decision.status,
-            anchor_difficulty=decision.anchor_difficulty,
-            reliability_flag=decision.reliability_flag,
-            next_difficulty=decision.next_difficulty,
-            next_genre=decision.next_genre,
-        ),
+        comprehension=scoring.view(agg),
+        decision=decision,
         next_round=next_round,
         text_shortage=text_shortage,
         session=session,
@@ -961,8 +931,19 @@ async def finalize_session(
     """SYS-01: 판정+처방 산출·저장 (§3+§5). 세션 종료 후 호출.
 
     채점·판정·처방 전부 규칙 기반(LLM 미사용). 리포트 생성(AI-07)은 C-3.
+
+    [세션당 한 번, 끝난 세션만]
+    예전에는 상태를 보지 않아 진행 중인 세션도 판정됐고, 두 번 부르면 판정이
+    두 줄 생겨 파일럿 분포에 그 학생이 두 번 잡혔다. 둘 다 409 로 막는다.
+    화면은 응답을 못 받고 다시 보낸 경우의 409 를 '이미 판정됨'으로 받아 넘어간다.
     """
     session = await _owned_session(db, session_id, user)
+    if session.status not in FINISHED_SESSION_STATUSES:
+        raise HTTPException(status_code=409, detail="진단이 아직 끝나지 않았습니다.")
+    done = await db.execute(select(JudgmentResult.id).where(
+        JudgmentResult.diagnosis_session_id == session.id))
+    if done.first() is not None:
+        raise HTTPException(status_code=409, detail="이미 판정된 진단입니다.")
     try:
         judgment, prescription = await pipeline.run_sys01(db, session)
     except ValueError as e:
@@ -1071,13 +1052,9 @@ async def get_result(
         )
         responses = resp_q.scalars().all()
 
-    fluency_scores = [r.automaticity_score for r in fluency_results if r.automaticity_score is not None]
-    total_fluency = round(sum(fluency_scores) / len(fluency_scores), 2) if fluency_scores else None
-
     return DiagnosisResultResponse(
         session=session,
         rounds=rounds,
         fluency_results=fluency_results,
         question_responses=responses,
-        total_fluency_score=total_fluency,
     )

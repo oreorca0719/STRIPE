@@ -18,6 +18,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.student import BookRecommendation
 from app.models.core import (
     Book, Difficulty, GradeGroup, ReviewStatus, TextGenre,
 )
@@ -80,26 +81,18 @@ async def recommend_books(
     return rank_books(candidates, interest_topics, prefer_short)[:limit]
 
 
-def to_dict(b: Book, interest_topics: Optional[Sequence] = None) -> dict:
-    """화면·리포트에 넘길 형태. 왜 추천했는지를 함께 실어 준다.
+def to_view(b: Book, interest_topics: Optional[Sequence] = None) -> BookRecommendation:
+    """화면에 넘길 스키마(schemas.student.BookRecommendation). 추천 사유를 함께 싣는다.
 
     아동에게 '이 책이 왜 너에게 맞는지' 보여주는 것이 §5-1 의 취지다.
     근거 없이 목록만 주면 '추천도서'와 다를 바 없다.
     """
     matched = sorted(set(b.topic_tags or []) & set(interest_topics or []))
-    return {
-        "id": b.id,
-        "isbn13": b.isbn13,
-        "title": b.title,
-        "author": b.author,
-        "publisher": b.publisher,
-        "published_year": b.published_year,
-        "page_count": b.page_count,
-        "cover_url": b.cover_url,
-        "description": b.description,
-        "genre": b.genre.value,
-        "difficulty": b.difficulty_level.value,
-        "topic_tags": b.topic_tags,
-        "matched_topics": matched,          # 관심사와 겹친 주제 — 추천 사유
-        "difficulty_source": b.difficulty_source,
-    }
+    return BookRecommendation(
+        id=b.id, isbn13=b.isbn13, title=b.title, author=b.author,
+        publisher=b.publisher, published_year=b.published_year,
+        page_count=b.page_count, cover_url=b.cover_url, description=b.description,
+        genre=b.genre, difficulty=b.difficulty_level, topic_tags=b.topic_tags,
+        matched_topics=matched,             # 관심사와 겹친 주제 — 추천 사유
+        difficulty_source=b.difficulty_source,
+    )

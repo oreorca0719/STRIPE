@@ -108,7 +108,7 @@ async def run(write: bool) -> None:
                 t.sentence_complexity = m.avg_sentence_words
                 t.vocabulary_level = m.vocabulary_level
                 t.readability_score = m.readability_score
-                t.readability_metrics = m.as_dict()
+                t.readability_metrics = m
                 # kread_index 는 건드리지 않는다 — 외부 지수
 
         if write:

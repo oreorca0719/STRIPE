@@ -87,7 +87,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 155
   },
@@ -179,7 +179,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 123
   },
@@ -271,7 +271,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 271
   },
@@ -363,7 +363,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 219
   },
@@ -455,7 +455,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 319
   },
@@ -547,7 +547,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 306
   },
@@ -639,7 +639,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 142
   },
@@ -731,7 +731,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 123
   },
@@ -823,7 +823,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 239
   },
@@ -915,7 +915,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 236
   },
@@ -1007,7 +1007,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 291
   },
@@ -1099,7 +1099,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 327
   },
@@ -1191,7 +1191,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "ADVENTURE"
+      "adventure"
     ],
     "syllable_count": 203
   },
@@ -1283,7 +1283,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "FAMILY"
+      "family"
     ],
     "syllable_count": 116
   },
@@ -1375,7 +1375,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "FANTASY"
+      "fantasy"
     ],
     "syllable_count": 149
   },
@@ -1467,7 +1467,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 171
   },
@@ -1559,7 +1559,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "ADVENTURE"
+      "adventure"
     ],
     "syllable_count": 250
   },
@@ -1651,7 +1651,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "FAMILY"
+      "family"
     ],
     "syllable_count": 231
   },
@@ -1743,7 +1743,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "FANTASY"
+      "fantasy"
     ],
     "syllable_count": 249
   },
@@ -1835,7 +1835,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 253
   },
@@ -1927,7 +1927,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "ADVENTURE"
+      "adventure"
     ],
     "syllable_count": 375
   },
@@ -2019,7 +2019,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "FAMILY"
+      "family"
     ],
     "syllable_count": 379
   },
@@ -2111,7 +2111,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "FANTASY"
+      "fantasy"
     ],
     "syllable_count": 342
   },
@@ -2203,7 +2203,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 273
   },
@@ -2295,7 +2295,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "SPACE"
+      "space"
     ],
     "syllable_count": 153
   },
@@ -2387,7 +2387,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "HISTORY"
+      "history"
     ],
     "syllable_count": 138
   },
@@ -2479,7 +2479,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "DAILY"
+      "daily"
     ],
     "syllable_count": 159
   },
@@ -2571,7 +2571,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 125
   },
@@ -2663,7 +2663,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "SPACE"
+      "space"
     ],
     "syllable_count": 210
   },
@@ -2755,7 +2755,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "HISTORY"
+      "history"
     ],
     "syllable_count": 232
   },
@@ -2847,7 +2847,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "DAILY"
+      "daily"
     ],
     "syllable_count": 243
   },
@@ -2939,7 +2939,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 233
   },
@@ -3031,7 +3031,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "SPACE"
+      "space"
     ],
     "syllable_count": 333
   },
@@ -3123,7 +3123,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "HISTORY"
+      "history"
     ],
     "syllable_count": 301
   },
@@ -3215,7 +3215,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "DAILY"
+      "daily"
     ],
     "syllable_count": 301
   },
@@ -3307,7 +3307,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 294
   },
@@ -3399,7 +3399,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 217
   },
@@ -3491,7 +3491,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 359
   },
@@ -3583,7 +3583,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "ANIMAL"
+      "animal"
     ],
     "syllable_count": 447
   },
@@ -3675,7 +3675,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 236
   },
@@ -3767,7 +3767,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 335
   },
@@ -3859,7 +3859,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "SCIENCE"
+      "science"
     ],
     "syllable_count": 453
   },
@@ -3951,7 +3951,7 @@
     "genre": "narrative",
     "difficulty_level": "easy",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 219
   },
@@ -4043,7 +4043,7 @@
     "genre": "narrative",
     "difficulty_level": "normal",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 349
   },
@@ -4135,7 +4135,7 @@
     "genre": "narrative",
     "difficulty_level": "hard",
     "topic_tags": [
-      "FRIENDSHIP"
+      "friendship"
     ],
     "syllable_count": 425
   },
@@ -4227,7 +4227,7 @@
     "genre": "expository",
     "difficulty_level": "easy",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 234
   },
@@ -4319,7 +4319,7 @@
     "genre": "expository",
     "difficulty_level": "normal",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 344
   },
@@ -4411,7 +4411,7 @@
     "genre": "expository",
     "difficulty_level": "hard",
     "topic_tags": [
-      "NATURE"
+      "nature"
     ],
     "syllable_count": 451
   }

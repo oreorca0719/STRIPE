@@ -1,4 +1,4 @@
-"""지문 주제 태그 정본·검증 (STR-125).
+"""지문 주제 태그 allowlist·검증 (STR-125).
 
 [이 파일이 지키는 것]
 지문 태그와 학생의 C-1 응답은 **같은 어휘**여야 한다. 텍스트 선택(§7)이 두
@@ -19,9 +19,9 @@ from app.services.content import topic_tags as TT
 from app.services.diagnosis.text_selection import topic_match_score
 
 
-# ── 정본 ─────────────────────────────────────────────────────────────────
+# ── allowlist ─────────────────────────────────────────────────────────────────
 
-def test_정본은_C1_선지에서_온다():
+def test_allowlist는_C1_선지에서_온다():
     """태그 목록을 따로 적으면 사본이 늘고, 사본은 갈린다."""
     from app.services.survey import definition as D
     c1 = [v for v in D.option_values("student", "C-1") if v != "other"]
@@ -90,9 +90,9 @@ def test_뜻을_바꾸는_치환은_하지_않는다():
         TT.validate(["NATURE"])                       # 통과시키지는 않는다
 
 
-# ── 생성 스크립트가 정본을 벗어나지 않는가 ───────────────────────────────
+# ── 생성 스크립트가 allowlist를 벗어나지 않는가 ───────────────────────────────
 
-def test_생성_스크립트_태그가_전건_정본이다():
+def test_생성_스크립트_태그가_전건_allowlist_안이다():
     """근본 원인이 여기였다 — 생성기가 자체 taxonomy 를 쓰고 있었다."""
     import importlib.util
     from pathlib import Path
@@ -105,4 +105,4 @@ def test_생성_스크립트_태그가_전건_정본이다():
     allowed = set(TT.canonical())
     for genre, tags in mod.TOPIC_TAGS.items():
         unknown = [t for t in tags if t not in allowed]
-        assert not unknown, f"{genre} 에 정본 밖 태그: {unknown}"
+        assert not unknown, f"{genre} 에 allowlist 밖 태그: {unknown}"

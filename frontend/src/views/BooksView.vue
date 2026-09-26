@@ -89,13 +89,14 @@
 </template>
 
 <script setup lang="ts">
+import type { BooksForMe } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import { api } from '@/api'
 
 const router = useRouter()
-const data = ref<any>(null)
+const data = ref<BooksForMe | null>(null)
 const loading = ref(true)
 const error = ref(false)
 
@@ -126,7 +127,7 @@ const basisText = computed(() => {
 
 async function load() {
   try {
-    data.value = (await api.get('/api/diagnosis/my/books')).data
+    data.value = (await api.get<BooksForMe>('/api/diagnosis/my/books')).data
   } catch {
     error.value = true
   } finally {

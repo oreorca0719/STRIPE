@@ -7,177 +7,58 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
+from app.schemas.column import SchemaJSONB
+from app.schemas.judgment import Disclaimers, WeaknessProfile
+from app.schemas.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
+from app.schemas.report import ReportContent, TemplateIds
+from app.schemas.measurement import AwayEvents
+from app.schemas.privacy import ConsentSnapshot, DeletedCounts
+from app.schemas.review import Checklist
+from app.schemas.content import Choices, ReadabilityMetrics
+from app.schemas.oral import OralReadingAnalysis
+from app.schemas.survey import (
+    BookImages, GenrePreferences, LifeReadingGraph, NonReadingReasons, TopicCodes,
+)
+from app.enums import (
+    BookDifficultySource, BookSource, ContentAuthor, DeletionReason, DisposalReason, GradeLevel,
+    ReviewDecision, ReviewTarget, UserRole, VocabularyLevel,
+)
 
 
-# =========================================================================
-# Enums — v1.2 기획상세명세 §1, §10 기준
-# 결정사항: PK는 Integer 유지(기존 코드 관례). text/question은 코드체계를
-#          별도 VARCHAR 보조 unique 키(text_code/question_code)로 보존.
-# =========================================================================
-
-class GradeGroup(str, enum.Enum):
-    G4_G6 = "G4_G6"   # 초4~초6
-    G7 = "G7"         # 중1
-
-
-class TextGenre(str, enum.Enum):
-    narrative = "narrative"     # 이야기글
-    expository = "expository"   # 설명글
-
-
-class Difficulty(str, enum.Enum):
-    easy = "easy"
-    normal = "normal"
-    hard = "hard"
-
-
-class ReviewStatus(str, enum.Enum):
-    """texts/questions/item_sets 공통 3단(실질 5단) 승인 상태."""
-    draft = "draft"
-    ai_generated = "ai_generated"
-    auto_checked = "auto_checked"
-    jun_reviewed = "jun_reviewed"
-    approved = "approved"
-
-
-class TextStructure(str, enum.Enum):
-    chronological = "chronological"
-    compare_contrast = "compare_contrast"
-    cause_effect = "cause_effect"
-    problem_solution = "problem_solution"
-
-
-class TargetArea(str, enum.Enum):
-    A5 = "A5"   # 사실적 이해
-    A6 = "A6"   # 추론적 이해
-    A7 = "A7"   # 비판적 이해
-
-
-class QuestionFormat(str, enum.Enum):
-    multiple_choice = "multiple_choice"
-    true_false = "true_false"
-
-
-class Gender(str, enum.Enum):
-    M = "M"
-    F = "F"
-    other = "other"
-
-
-class ReaderType1(str, enum.Enum):
-    enthusiast = "enthusiast"       # 애독자
-    intermittent = "intermittent"   # 간헐적
-    non_reader = "non_reader"       # 비독자
-
-
-class ReaderType2(str, enum.Enum):
-    sharp_decline = "sharp_decline"     # 급락형
-    gradual_decline = "gradual_decline" # 하락형
-    fixed = "fixed"                     # 고정형
-
-
-class DiagSessionStatus(str, enum.Enum):
-    in_progress = "in_progress"
-    completed = "completed"
-    early_stop = "early_stop"
-    indeterminate = "indeterminate"
-    # 학생이 중단하고 새로 시작한 세션. 데이터는 보존한다(중도이탈 집계 근거).
-    abandoned = "abandoned"
-
-
-class ReliabilityFlag(str, enum.Enum):
-    normal = "normal"
-    low = "low"
-    unstable = "unstable"
-
-
-class BettsLevel(str, enum.Enum):
-    independent = "independent"     # ≥0.90
-    instructional = "instructional" # 0.70~0.89
-    frustration = "frustration"     # <0.70
-
-
-# --- Phase C 판정·처방 도메인 (v1.2 §3, §5, §1-16/§1-17) -----------------
-class Level3(str, enum.Enum):
-    """유창성/독해 수준 3분할."""
-    low = "low"
-    mid = "mid"
-    high = "high"
-
-
-class FluencySource(str, enum.Enum):
-    oral = "oral"
-    silent = "silent"
-    unavailable = "unavailable"
-
-
-class FluencyUnit(str, enum.Enum):
-    CWPM = "CWPM"
-    SPS = "SPS"
-    none = "none"
-
-
-class Label5(str, enum.Enum):
-    excellent = "excellent"
-    observe = "observe"
-    caution = "caution"
-    risk = "risk"
-    urgent = "urgent"
-
-
-class PrescriptionGroup(str, enum.Enum):
-    G1 = "G1"   # 양호
-    G2 = "G2"   # 독해보강
-    G3 = "G3"   # 유창보강
-    G4 = "G4"   # 독해집중
-    G5 = "G5"   # 이중집중
-    G6 = "G6"   # 기초개입
-
-
-class PrescriptionType(str, enum.Enum):
-    A_only = "A_only"
-    B_only = "B_only"
-    A_and_B = "A_and_B"
-    basic_intervention = "basic_intervention"
-
-
-class ToneCode(str, enum.Enum):
-    challenge = "challenge"
-    encourage = "encourage"
-    autonomy = "autonomy"
-    scaffold = "scaffold"
-    success_first = "success_first"
-
-
-class Metacognition(str, enum.Enum):
-    accurate = "accurate"
-    overestimate = "overestimate"
-    underestimate = "underestimate"
-
-
-# --- 변경하지 않는 기존 테이블용 enum (Phase A 범위 밖) -----------------
-class FluencyType(str, enum.Enum):
-    oral = "oral"
-    silent = "silent"
-
-
-class ReaderType(str, enum.Enum):
-    avid = "avid"
-    intermittent = "intermittent"
-    non_reader = "non_reader"
-
-
-class ReadingLevel(str, enum.Enum):
-    low = "low"
-    mid = "mid"
-    high = "high"
-
-
-class ReportRole(str, enum.Enum):
-    student = "student"
-    parent = "parent"
-    teacher = "teacher"
-
+# 값 목록은 app/enums.py 에 있다. 기존 import 경로를 위해 여기서 다시 내보낸다.
+from app.enums import (  # noqa: F401
+    GradeGroup,
+    TextGenre,
+    Difficulty,
+    ReviewStatus,
+    TextStructure,
+    TargetArea,
+    QuestionFormat,
+    Gender,
+    ReaderType1,
+    ReaderType2,
+    DiagSessionStatus,
+    ReliabilityFlag,
+    BettsLevel,
+    Level3,
+    FluencySource,
+    FluencyUnit,
+    Label5,
+    PrescriptionGroup,
+    PrescriptionType,
+    ToneCode,
+    Metacognition,
+    FluencyType,
+    ReaderType,
+    ReadingLevel,
+    ReportRole,
+    DisclaimerCode,
+    EnvironmentSkipReason,
+    AwayEventType,
+    AdaptiveAction,
+    ConsentConfirmMethod,
+    DeletionRequestStatus,
+)
 
 # =========================================================================
 # user_relations — 부모-학생 연동 (기존 유지)
@@ -212,15 +93,15 @@ class TextContent(Base):
     # 외부 기관 지수. 우리가 산출할 수 없어 NULL 로 둔다 — 자체 계산값을 넣으면
     # 외부 표준으로 오인된다. 자체 지표는 readability_* 를 쓴다.
     kread_index = Column(Float, nullable=True)
-    vocabulary_level = Column(String(20), nullable=True)   # 길이 기반 대리 등급
+    vocabulary_level = Column(Enum(VocabularyLevel), nullable=True)   # 길이 기반 대리 등급
     sentence_complexity = Column(Float, nullable=True)     # 문장당 평균 어절 수
     text_structure = Column(Enum(TextStructure), nullable=True)
     # 표면 구조 합성 지표(0~100)와 산출 근거. STR-103, 마이그레이션 009.
     readability_score = Column(Float, nullable=True)
-    readability_metrics = Column(JSONB, nullable=True)
+    readability_metrics = Column(SchemaJSONB(ReadabilityMetrics), nullable=True)
     text_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    created_by_role = Column(String(20), nullable=True)  # 'jun' | 'ai'
+    created_by_role = Column(Enum(ContentAuthor), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -240,7 +121,7 @@ class ItemSet(Base):
     genre = Column(Enum(TextGenre), nullable=False)
     difficulty_level = Column(Enum(Difficulty), nullable=False)
     item_set_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
-    total_questions = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -262,7 +143,7 @@ class Question(Base):
     target_area = Column(Enum(TargetArea), nullable=False)
     question_type = Column(Enum(QuestionFormat), nullable=False)
     question_text = Column(Text, nullable=False)
-    choices = Column(JSONB, nullable=False)              # 4지선다 선지 배열
+    choices = Column(SchemaJSONB(Choices), nullable=False)   # 4지선다 선지 4개
     answer_index = Column(Integer, nullable=False)       # 정답 인덱스 (1-based)
     evidence_text = Column(Text, nullable=False)         # 정답 근거 지문 문장
     explanation = Column(Text, nullable=False)
@@ -293,21 +174,21 @@ class StudentProfile(Base):
     # 행동 (A-1~A-3, A-7, A-8, C-7, A-4)
     reading_freq = Column(Integer, nullable=True)        # A-2 (1~6)
     reading_attitude = Column(Integer, nullable=True)    # A-3 (1~6)
-    voluntary_reading = Column(String(50), nullable=True)# A-1
+    voluntary_reading_count = Column(Integer, nullable=True)  # A-1 최근 한 달 권수 (0~99)
     voluntary_ratio = Column(Integer, nullable=True)     # A-8 (0~100)
     reading_fondness = Column(Integer, nullable=True)    # A-7 (1~5)
     smartphone_hours = Column(Float, nullable=True)      # C-7
-    life_reading_graph = Column(JSONB, nullable=True)    # A-4 (3시점×0~10)
+    life_reading_graph = Column(SchemaJSONB(LifeReadingGraph), nullable=True)  # A-4 학년별 7칸
     # 환경 (A-5, A-6, C-2, C-4, C-5)
-    book_image = Column(JSONB, nullable=True)            # A-5
-    non_reading_reason = Column(JSONB, nullable=True)    # A-6
+    book_image = Column(SchemaJSONB(BookImages), nullable=True)                # A-5
+    non_reading_reason = Column(SchemaJSONB(NonReadingReasons), nullable=True)  # A-6
     media_genre = Column(JSONB, nullable=True)           # C-2
     enjoyed_book = Column(String(200), nullable=True)    # C-4
     abandoned_book_reason = Column(JSONB, nullable=True) # C-5
     # 관심 (C-1, C-3, C-6, C-8, D-5)
-    interest_topics = Column(JSONB, nullable=True)       # C-1 (B7 태그 코드 배열)
+    interest_topics = Column(SchemaJSONB(TopicCodes), nullable=True)           # C-1
     free_text_interest = Column(String(100), nullable=True)  # C-1 기타
-    preferred_genres = Column(JSONB, nullable=True)      # C-3
+    preferred_genres = Column(SchemaJSONB(GenrePreferences), nullable=True)    # C-3
     leisure_ranking = Column(JSONB, nullable=True)       # C-6
     info_media = Column(String(50), nullable=True)       # C-8
     unknown_word_strategy = Column(String(50), nullable=True)  # D-5
@@ -336,7 +217,7 @@ class DiagnosisSession(Base):
     # nullable로 잠정 보존(1회차 텍스트 단축). 신규 흐름은 diagnosis_rounds 사용.
     text_id = Column(Integer, ForeignKey('texts.id', ondelete='SET NULL'), nullable=True)
     silent_mode = Column(Boolean, nullable=False, default=True)
-    total_rounds = Column(Integer, nullable=False, default=0)
+    round_count = Column(Integer, nullable=False, default=0)
     anchor_level = Column(String(20), nullable=True)
     anchor_difficulty = Column(Enum(Difficulty), nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
@@ -360,7 +241,10 @@ class DiagnosisRound(Base):
     text_id = Column(Integer, ForeignKey('texts.id', ondelete='SET NULL'), nullable=True)
     difficulty_level = Column(Enum(Difficulty), nullable=False)
     genre = Column(Enum(TextGenre), nullable=False)
-    changed_variables = Column(JSONB, nullable=True)
+    # 이 학생이 예전에 읽은 지문이 다시 나왔나 (STR-95). 참/거짓 사실 하나라
+    # 자유 JSON(changed_variables)에서 칸으로 옮겼다. 명세의 changed_variables
+    # (회차 사이에 바뀐 변수)는 앞뒤 회차의 난도·장르에서 계산되므로 두지 않는다(원칙 5).
+    text_repeated = Column(Boolean, nullable=False, default=False, server_default='false')
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -377,7 +261,7 @@ class ComprehensionResult(Base):
     __tablename__ = "comprehension_results"
     id = Column(Integer, primary_key=True, index=True)
     round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='CASCADE'), nullable=False)
-    total_questions = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
     correct_count = Column(Integer, nullable=False, default=0)
     round_accuracy = Column(Float, nullable=True)        # correct/total
     betts_level = Column(Enum(BettsLevel), nullable=True)
@@ -385,6 +269,9 @@ class ComprehensionResult(Base):
     a6_inferential_accuracy = Column(Float, nullable=True)
     a7_critical_accuracy = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차 하나에 집계 하나. 회차 완료가 두 번 불리면 Betts 이력이 중복돼
+    # 적응형 판단이 틀어진다.
+    __table_args__ = (UniqueConstraint('round_id', name='uq_comprehension_round'),)
 
     round = relationship("DiagnosisRound", back_populates="comprehension_result")
     question_responses = relationship("QuestionResponse", back_populates="comp_result")
@@ -405,31 +292,39 @@ class QuestionResponse(Base):
     response_time_ms = Column(Integer, nullable=True)
     target_area = Column(Enum(TargetArea), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차·문항당 응답 하나. 답을 고치면 행을 갱신한다(분모가 부풀지 않게).
+    __table_args__ = (UniqueConstraint('round_id', 'question_id', name='uq_response_round_question'),)
 
     round = relationship("DiagnosisRound", back_populates="question_responses")
     comp_result = relationship("ComprehensionResult", back_populates="question_responses")
 
 
 # =========================================================================
-# fluency_results — 유창성 (기존 유지, Phase A 범위 밖)
-# MVP1 묵독은 silent_reading_time 사용. A4(음절/초) 산출은 Phase B에서 정식화.
+# fluency_results — 유창성. 회차·측정 종류(묵독/음독)당 한 줄.
+# 묵독: reading_time_ms + 지문 음절 수 → A4(음절/초). 이탈 원본은 away_events.
 # =========================================================================
 class FluencyResult(Base):
     __tablename__ = "fluency_results"
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(Integer, ForeignKey('diagnosis_sessions.id', ondelete='CASCADE'), nullable=False)
-    round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='SET NULL'), nullable=True)
+    round_id = Column(Integer, ForeignKey('diagnosis_rounds.id', ondelete='CASCADE'), nullable=False)
     type = Column(Enum(FluencyType), nullable=False)
-    reading_time_seconds = Column(Float, nullable=True)
-    total_syllables = Column(Integer, nullable=True)
-    error_count = Column(Integer, nullable=True)
-    automaticity_score = Column(Float, nullable=True)
-    accuracy_score = Column(Float, nullable=True)
-    silent_reading_time = Column(Float, nullable=True)
+    # 읽기 시간 — 음독·묵독 공통, 두 버튼 사이의 실제 시각 차이(ms).
+    # 예전에는 묵독(silent_reading_time)·음독(reading_time_seconds)이 서로 다른
+    # 칸에 초 단위로 들어갔다(원칙 1·5).
+    reading_time_ms = Column(Integer, nullable=False)
     a4_syllable_per_sec = Column(Float, nullable=True)   # 묵독 자동성 (음절/초, §1-13)
-    comprehension_check_score = Column(Float, nullable=True)
-    raw_data = Column(JSONB, nullable=True)
+    # 묵독 중 화면 이탈 원본. 집계는 attention.summarize 로 계산한다(원칙 4).
+    away_events = Column(SchemaJSONB(AwayEvents), nullable=True)
+    # ── 음독 전용 ──
+    # 감독자가 센 오류 수(B안)가 원본이고, 자동 채점은 그 옆의 계산값이다(원칙 4).
+    # 예전에는 A1·A2 가 automaticity_score·accuracy_score 칸과 raw_data 안에 두 번
+    # 들어갔고(원칙 5), 지문 음절 수도 texts 와 여기 두 곳에 있었다.
+    supervisor_error_count = Column(Integer, nullable=True)
+    oral_analysis = Column(SchemaJSONB(OralReadingAnalysis), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 회차·측정 종류당 하나. 재전송으로 두 줄이 생기면 A4 중앙값이 틀어진다.
+    __table_args__ = (UniqueConstraint('round_id', 'type', name='uq_fluency_round_type'),)
 
     session = relationship("DiagnosisSession", back_populates="fluency_results")
 
@@ -450,9 +345,10 @@ class JudgmentResult(Base):
     # 독해 (§3-2)
     comprehension_level = Column(Enum(Level3), nullable=False)
     overall_accuracy = Column(Float, nullable=True)
-    total_correct = Column(Integer, nullable=False, default=0)
-    total_questions = Column(Integer, nullable=False, default=0)
-    weakness_profile_12 = Column(JSONB, nullable=False)   # area×genre 셀 정답률
+    correct_count = Column(Integer, nullable=False, default=0)
+    question_count = Column(Integer, nullable=False, default=0)
+    # 스키마: schemas.judgment.WeaknessProfile (6칸, 칸마다 정답 수·문항 수)
+    weakness_profile_12 = Column(SchemaJSONB(WeaknessProfile), nullable=False)
     # 매트릭스 (§3-3)
     matrix_position = Column(String(40), nullable=False)
     label_5 = Column(Enum(Label5), nullable=False)
@@ -461,11 +357,13 @@ class JudgmentResult(Base):
     anchor_level = Column(String(20), nullable=True)
     anchor_difficulty = Column(Enum(Difficulty), nullable=True)
     metacognition = Column(Enum(Metacognition), nullable=True)
-    d2_gap = Column(Integer, nullable=True)
-    actual_10 = Column(Integer, nullable=True)
+    metacognition_gap_count = Column(Integer, nullable=True)
+    actual_correct_count_of_10 = Column(Integer, nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
-    disclaimer_flags = Column(JSONB, nullable=True)
+    disclaimer_flags = Column(SchemaJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # 세션당 판정 하나. 두 줄이면 파일럿 분포에 그 학생이 두 번 잡힌다.
+    __table_args__ = (UniqueConstraint('diagnosis_session_id', name='uq_judgment_session'),)
 
     prescription = relationship("PrescriptionResult", back_populates="judgment", uselist=False)
 
@@ -478,13 +376,15 @@ class PrescriptionResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     prescription_type = Column(Enum(PrescriptionType), nullable=False)
-    recommended_texts = Column(JSONB, nullable=False)
-    weakness_training_plan = Column(JSONB, nullable=True)
+    recommended_texts = Column(SchemaJSONB(RecommendedTexts), nullable=False)
+    weakness_training_plan = Column(SchemaJSONB(TrainingPlan), nullable=True)
     type_tone = Column(Enum(ToneCode), nullable=False)
     next_session_difficulty = Column(Enum(Difficulty), nullable=True)
-    environment_level = Column(String(10), nullable=True)      # §5-4 (미구현, nullable)
-    environment_adjustment = Column(JSONB, nullable=True)
+    # 가정환경 판정을 건너뛰면 둘 다 null 이다 (보호자 미응답·경계값 미확정)
+    environment_level = Column(Enum(Level3), nullable=True)
+    environment_adjustment = Column(SchemaJSONB(EnvironmentAdjustment), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint('judgment_id', name='uq_prescription_judgment'),)
 
     judgment = relationship("JudgmentResult", back_populates="prescription")
 
@@ -497,9 +397,9 @@ class Report(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     report_type = Column(Enum(ReportRole), nullable=False)   # MVP1: student
-    report_content = Column(JSONB, nullable=False)           # 3층 구조
-    disclaimer_flags = Column(JSONB, nullable=True)
-    template_ids_used = Column(JSONB, nullable=True)
+    report_content = Column(SchemaJSONB(ReportContent), nullable=False)
+    disclaimer_flags = Column(SchemaJSONB(Disclaimers), nullable=False)
+    template_ids_used = Column(SchemaJSONB(TemplateIds), nullable=True)
     llm_polished = Column(Boolean, nullable=False, default=False)
     review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -530,10 +430,6 @@ class ReportTemplate(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
-class ConsentConfirmMethod(str, enum.Enum):
-    """동의 확인 방법. 파일럿은 서면, 정식 오픈은 휴대전화 본인인증(STR-88)."""
-    written = "written"
-    phone_verification = "phone_verification"
 
 
 # =========================================================================
@@ -585,19 +481,19 @@ class DataDisposalLog(Base):
     # 파기 대상 (FK 없음 — 행이 사라짐)
     subject_user_id = Column(Integer, nullable=False, index=True)
     subject_code = Column(String(50), nullable=False)      # 식별코드 elem5-017
-    subject_grade = Column(String(20), nullable=True)
+    subject_grade = Column(Enum(GradeLevel), nullable=True)
 
     disposed_at = Column(DateTime(timezone=True), server_default=func.now(),
                          nullable=False, index=True)
     disposed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     disposed_by_code = Column(String(50), nullable=True)   # 관리자 계정이 지워져도 남도록
-    reason = Column(String(40), nullable=False)
+    reason = Column(Enum(DisposalReason), nullable=False)
     note = Column(Text, nullable=True)
 
-    deleted_counts = Column(JSONB, nullable=False)
+    deleted_counts = Column(SchemaJSONB(DeletedCounts), nullable=False)
     # consent_records 가 CASCADE 라 파기와 함께 사라진다. 파기 이전 처리가
     # 정당했음을 보이려면 동의 사실을 여기 옮겨 두어야 한다.
-    consent_snapshot = Column(JSONB, nullable=True)
+    consent_snapshot = Column(SchemaJSONB(ConsentSnapshot), nullable=True)
 
 
 # =========================================================================
@@ -617,19 +513,19 @@ class ContentReview(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    target_type = Column(String(20), nullable=False)   # text | item_set | question
+    target_type = Column(Enum(ReviewTarget), nullable=False)
     target_id = Column(Integer, nullable=False)
     target_code = Column(String(60), nullable=True)    # 조회 편의용 스냅샷
 
-    from_status = Column(String(20), nullable=False)
-    to_status = Column(String(20), nullable=False)
-    decision = Column(String(20), nullable=False)      # advance | approve | reject
+    from_status = Column(Enum(ReviewStatus), nullable=False)
+    to_status = Column(Enum(ReviewStatus), nullable=False)
+    decision = Column(Enum(ReviewDecision), nullable=False)
 
     reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     reviewer_code = Column(String(50), nullable=True)
 
     # 이은주(2026) 7원칙 체크 결과. 원칙별 반려가 쌓이면 생성 프롬프트를 고칠 근거.
-    checklist = Column(JSONB, nullable=True)
+    checklist = Column(SchemaJSONB(Checklist), nullable=True)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -670,8 +566,8 @@ class Book(Base):
 
     # 난도를 무엇을 근거로 매겼는가. 추천이 어긋났을 때 어느 출처가 부정확했는지
     # 추적하는 경로 — STR-108 의 핵심 쟁점이다.
-    difficulty_source = Column(String(30), nullable=True)
-    source = Column(String(30), nullable=True)          # api | manual | curriculum_list ...
+    difficulty_source = Column(Enum(BookDifficultySource), nullable=True)
+    source = Column(Enum(BookSource), nullable=True)
 
     # 운영 — 부적절한 책이 아동에게 추천되면 안 되므로 지문과 같은 검수를 거친다
     review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
@@ -711,7 +607,7 @@ class ParentResponse(Base):
     # 보호자 인식 (E-1~E-6)
     parent_freq_estimate = Column(Integer, nullable=True)      # E-1 자발적 독서 빈도 (1~6)
     parent_reading_level = Column(Integer, nullable=True)      # E-2 또래 대비 이해력 (1~5)
-    parent_predicted_correct = Column(Integer, nullable=True)  # E-3 예상 정답 수 (0~10)
+    parent_predicted_correct_count = Column(Integer, nullable=True)  # E-3 예상 정답 수 (0~10)
     parent_recommend_freq = Column(Integer, nullable=True)     # E-4 권유 빈도 (1~4)
     parent_info_source = Column(String(30), nullable=True)     # E-5 참고 정보원
     parent_book_criteria = Column(String(30), nullable=True)   # E-6 도서 선택 기준
@@ -749,11 +645,6 @@ def compute_home_environment_score(
 # =========================================================================
 # deletion_requests (STR-115) — 정보주체의 삭제 요청
 # =========================================================================
-class DeletionRequestStatus(str, enum.Enum):
-    pending = "pending"        # 접수, 관리자 처리 대기
-    completed = "completed"    # 파기 완료 (disposal log 와 연결)
-    rejected = "rejected"      # 반려 (본인 확인 실패 등)
-    cancelled = "cancelled"    # 요청자가 철회
 
 
 class DeletionRequest(Base):
@@ -780,9 +671,9 @@ class DeletionRequest(Base):
     # 요청자. 본인이면 subject 와 같고, 보호자 대리 요청이면 다르다.
     requester_user_id = Column(Integer, nullable=False)
     requester_code = Column(String(50), nullable=False)
-    requester_role = Column(String(20), nullable=False)
+    requester_role = Column(Enum(UserRole), nullable=False)
 
-    reason = Column(String(40), nullable=False)
+    reason = Column(Enum(DeletionReason), nullable=False)
     note = Column(Text, nullable=True)
 
     status = Column(Enum(DeletionRequestStatus), nullable=False,

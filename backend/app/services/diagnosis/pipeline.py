@@ -12,14 +12,12 @@ from app.models.core import (
     StudentProfile, JudgmentResult, PrescriptionResult, ParentResponse,
     FluencyType, Difficulty, ReliabilityFlag, ToneCode,
 )
+from app.schemas.judgment import CellResponse, Disclaimers
+from app.schemas.prescription import RecommendedTexts, TrainingPlan
 from app.services.diagnosis import environment as E
 from app.services.diagnosis import judgment as J
 from app.services.diagnosis import prescription as P
 from app.services.diagnosis import text_selection as T
-
-# 보호자 안내 문구에 쓰는 영역명. report._AREA_NAME 과 같은 표를 쓰되,
-# 리포트 모듈을 파이프라인이 끌어오지 않도록 여기에 둔다.
-_AREA_NAME = {"A5": "사실 찾기", "A6": "추론하기", "A7": "비판적으로 읽기"}
 
 _RELIABILITY_RANK = {
     ReliabilityFlag.normal: 0,
@@ -49,29 +47,6 @@ async def _home_environment_score(db: AsyncSession, profile_id: int) -> Optional
     return row.home_environment_score if row else None
 
 
-def _weakness_area_name(plan: P.WeaknessPlan) -> Optional[str]:
-    """환경 상위 학생의 보호자 안내 문구에 넣을 약점 영역명.
-
-    plan.cells 는 훈련 우선순위 순이므로 첫 셀이 주 대상이다.
-    약점이 없으면 None — 문구가 영역을 언급하지 않는 쪽으로 갈린다.
-    """
-    if not plan.needed or not plan.cells:
-        return None
-    code = plan.cells[0].area.value
-    return _AREA_NAME.get(code, code)
-
-
-def _serialize_plan(plan: P.WeaknessPlan) -> dict:
-    return {
-        "needed": plan.needed,
-        "cells": [
-            {"area": c.area.value, "genre": c.genre.value,
-             "accuracy": c.accuracy, "activity": c.activity}
-            for c in plan.cells
-        ],
-    }
-
-
 async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[JudgmentResult, PrescriptionResult]:
     """세션의 진단 데이터로 판정+처방을 산출·저장하고 (judgment, prescription) 반환."""
     if not session.profile_id:
@@ -98,7 +73,8 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         .join(DiagnosisRound, DiagnosisRound.id == QuestionResponse.round_id)
         .where(DiagnosisRound.diagnosis_session_id == session.id)
     )
-    cells = [J.CellResponse(area, genre, correct) for (area, genre, correct) in cell_q.all()]
+    cells = [CellResponse(target_area=area, genre=genre, is_correct=correct)
+             for (area, genre, correct) in cell_q.all()]
     cj = J.judge_comprehension(cells, grade_group)
 
     placement = J.matrix_lookup(fj.fluency_level, cj.comprehension_level)
@@ -111,15 +87,15 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     # 이전에 읽은 지문이 다시 나온 회차가 있으면 그 독해 점수는 기억의 영향을 받는다
     # (STR-95). 풀이 말라 중복을 감수한 경우이므로 결과를 버리지는 않되, 신뢰도를
     # 낮추고 사유를 남긴다.
-    disclaimers = list(fj.disclaimer_flags or [])
+    disclaimer_codes = list(fj.disclaimers.codes)
     rep_q = await db.execute(
         select(DiagnosisRound.id).where(
             DiagnosisRound.diagnosis_session_id == session.id,
-            DiagnosisRound.changed_variables["text_repeated"].astext == "true",
+            DiagnosisRound.text_repeated.is_(True),
         )
     )
     if rep_q.first() is not None:
-        disclaimers.append("text_repeated")
+        disclaimer_codes.append("text_repeated")
         reliability = _worst(reliability, ReliabilityFlag.low)
 
     judgment = JudgmentResult(
@@ -130,20 +106,21 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         fluency_value=fj.fluency_value,
         fluency_value_unit=fj.fluency_value_unit,
         comprehension_level=cj.comprehension_level,
-        overall_accuracy=cj.overall_accuracy,
-        total_correct=cj.total_correct,
-        total_questions=cj.total_questions,
-        weakness_profile_12=cj.weakness_profile,
+        # 아래 세 칸은 명세의 조회용 칸이다. 값은 전부 약점 프로필 한 곳에서 계산한다.
+        overall_accuracy=None if cj.overall_accuracy is None else round(cj.overall_accuracy, 4),
+        correct_count=cj.profile.correct_count,
+        question_count=cj.profile.question_count,
+        weakness_profile_12=cj.profile,
         matrix_position=placement.matrix_position,
         label_5=placement.label_5,
         prescription_group=placement.prescription_group,
         anchor_level=session.anchor_level or anchor.value,
         anchor_difficulty=anchor,
         metacognition=meta.metacognition if meta else None,
-        d2_gap=meta.d2_gap if meta else None,
-        actual_10=meta.actual_10 if meta else None,
+        metacognition_gap_count=meta.gap_count if meta else None,
+        actual_correct_count_of_10=meta.actual_correct_count_of_10 if meta else None,
         reliability_flag=reliability,
-        disclaimer_flags=disclaimers or None,
+        disclaimer_flags=Disclaimers.of(disclaimer_codes),   # 없으면 빈 집합(null 아님)
     )
     db.add(judgment)
     await db.flush()  # judgment.id
@@ -152,7 +129,7 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
     group = placement.prescription_group
     type_1 = profile.type_1
     type_2 = profile.type_2
-    plan = P.weakness_training_plan(cj.weakness_profile, type_1, type_2) if type_1 else P.WeaknessPlan(needed=False)
+    plan = P.weakness_training_plan(cj.profile, type_1, type_2) if type_1 else TrainingPlan(targets=[])
     ptype = P.prescription_type(group, plan.needed)
     tone = P.tone_code(type_1, type_2) if type_1 else ToneCode.encourage
 
@@ -168,17 +145,8 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         db, grade_group=grade_group, difficulties=drange,
         used_text_ids=used_ids, interest_topics=profile.interest_topics, limit=5,
     )
-    recommended = [
-        {
-            "text_id": t.id,
-            "text_code": t.text_code,
-            "title": t.title,
-            "difficulty": t.difficulty_level.value,
-            "genre": t.genre.value,
-            "topic_tags": t.topic_tags,
-        }
-        for t in recs
-    ]
+    # 참조만 남긴다. 제목 등은 texts 한 곳에 있다(원칙 5).
+    recommended = RecommendedTexts(text_ids=[t.id for t in recs])
 
     # --- 환경 조정 (§5-4) -------------------------------------------------
     # 입력은 보호자 설문 B-3~B-6 합산값. 보호자 미응답이면 None 이고
@@ -187,14 +155,13 @@ async def run_sys01(db: AsyncSession, session: DiagnosisSession) -> Tuple[Judgme
         home_environment_score=await _home_environment_score(db, profile.id),
         grade_group=grade_group,
         type_2=type_2,
-        weakness_area=_weakness_area_name(plan),
     )
 
     prescription = PrescriptionResult(
         judgment_id=judgment.id,
         prescription_type=ptype,
         recommended_texts=recommended,
-        weakness_training_plan=_serialize_plan(plan),
+        weakness_training_plan=plan,
         type_tone=tone,
         next_session_difficulty=anchor,   # §5-FN-05 정교화는 후속
         environment_level=env.environment_level,

@@ -11,10 +11,11 @@
 혼재 시 reliability=low). 이 폴백 규칙은 Jun 검토 후 확정.
 """
 from collections import Counter
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
+
+from app.schemas.measurement import AdaptiveDecision   # 결과 스키마
 from app.models.core import (
-    Difficulty, TextGenre, BettsLevel, DiagSessionStatus, ReliabilityFlag,
+    AdaptiveAction, Difficulty, TextGenre, BettsLevel, DiagSessionStatus, ReliabilityFlag,
 )
 
 MAX_ROUNDS = 2  # config 분리 (MVP2에서 5로 확장)
@@ -46,14 +47,6 @@ def next_difficulty(current: Difficulty, betts: BettsLevel) -> Difficulty:
     return current  # instructional → 유지
 
 
-@dataclass
-class AdaptiveDecision:
-    action: str                                   # 'continue' | 'stop'
-    status: DiagSessionStatus
-    anchor_difficulty: Optional[Difficulty] = None
-    reliability_flag: Optional[ReliabilityFlag] = None
-    next_difficulty: Optional[Difficulty] = None
-    next_genre: Optional[TextGenre] = None
 
 
 def decide(
@@ -73,7 +66,7 @@ def decide(
     # ① 정지: 2연속 instructional
     if round_number >= 2 and last_two == [BettsLevel.instructional, BettsLevel.instructional]:
         return AdaptiveDecision(
-            action="stop",
+            action=AdaptiveAction.stop,
             status=DiagSessionStatus.completed,
             anchor_difficulty=current_difficulty,
             reliability_flag=ReliabilityFlag.normal,
@@ -82,7 +75,7 @@ def decide(
     # ② 조기종료: 2연속 frustration
     if round_number >= 2 and last_two == [BettsLevel.frustration, BettsLevel.frustration]:
         return AdaptiveDecision(
-            action="stop",
+            action=AdaptiveAction.stop,
             status=DiagSessionStatus.early_stop,
             anchor_difficulty=current_difficulty,
             reliability_flag=ReliabilityFlag.low,
@@ -93,7 +86,7 @@ def decide(
         counts = Counter(betts_history)
         if len(counts) >= 3:  # 3구간 전부 출현 (MVP2에서만 가능)
             return AdaptiveDecision(
-                action="stop",
+                action=AdaptiveAction.stop,
                 status=DiagSessionStatus.indeterminate,
                 anchor_difficulty=current_difficulty,
                 reliability_flag=ReliabilityFlag.unstable,
@@ -103,7 +96,7 @@ def decide(
         # 동률 시 마지막 회차 결과 채택, 혼재 시 신뢰도 하향
         reliability = ReliabilityFlag.normal if len(tied) == 1 else ReliabilityFlag.low
         return AdaptiveDecision(
-            action="stop",
+            action=AdaptiveAction.stop,
             status=DiagSessionStatus.completed,
             anchor_difficulty=current_difficulty,
             reliability_flag=reliability,
@@ -112,7 +105,7 @@ def decide(
     # ④⑤ 계속: 난도 조절 + 장르 교대
     last = betts_history[-1]
     return AdaptiveDecision(
-        action="continue",
+        action=AdaptiveAction.continue_,
         status=DiagSessionStatus.in_progress,
         next_difficulty=next_difficulty(current_difficulty, last),
         next_genre=toggle_genre(current_genre),

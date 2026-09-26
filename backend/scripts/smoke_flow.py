@@ -57,7 +57,7 @@ async def main():
         # 1) 프로필 (설문 → type_1) — 학생 식별은 토큰에서
         r = await ac.post("/api/diagnosis/profile", json={
             "grade": 4, "reading_freq": 5, "reading_attitude": 5,
-            "interest_topics": ["ANIMAL"], "predicted_correct": 5,
+            "interest_topics": ["animal"],
         })
         r.raise_for_status(); prof = r.json()
         print(f"프로필 id={prof['id']}, type_1={prof['type_1']}")
@@ -82,7 +82,8 @@ async def main():
 
             # 5) 묵독 유창성 (읽기시간 임의 30초 → A4 산출)
             r = await ac.post("/api/diagnosis/fluency/silent",
-                              json={"session_id": sid, "silent_reading_time": 30, "round_id": rid})
+                              json={"session_id": sid, "round_id": rid,
+                                    "reading_time_ms": 30_000, "away_events": []})
             r.raise_for_status()
             print(f"      묵독 A4 저장 (읽기 30초)")
 
@@ -98,7 +99,7 @@ async def main():
             r = await ac.post(f"/api/diagnosis/round/{rid}/complete"); r.raise_for_status()
             body = r.json()
             comp, dec = body["comprehension"], body["decision"]
-            print(f"      정답 {comp['correct_count']}/{comp['total_questions']}, Betts={comp['betts_level']} → {dec['action']}")
+            print(f"      정답 {comp['correct_count']}/{comp['question_count']}, Betts={comp['betts_level']} → {dec['action']}")
             if dec["action"] == "stop" or not body.get("next_round"):
                 if body.get("text_shortage"):
                     print("      (text_shortage 종료)")

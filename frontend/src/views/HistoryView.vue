@@ -41,18 +41,18 @@
                 <span class="row-label">{{ labelInfo(it.label_5).ko }}</span>
               </div>
               <div class="row-meta">
-                <span>글 이해 {{ LEVEL_3_KO[it.comprehension_level] ?? '-' }}</span>
+                <span>글 이해 {{ it.comprehension_level ? LEVEL_3_KO[it.comprehension_level] : '-' }}</span>
                 <span class="dot">·</span>
                 <span>
                   읽기 속도
-                  {{ it.fluency_valid ? (LEVEL_3_KO[it.fluency_level] ?? '-') : '측정 안 됨' }}
+                  {{ it.fluency_valid && it.fluency_level ? LEVEL_3_KO[it.fluency_level] : '측정 안 됨' }}
                 </span>
                 <span v-if="it.overall_accuracy != null" class="dot">·</span>
                 <span v-if="it.overall_accuracy != null">
                   정답률 {{ Math.round(it.overall_accuracy * 100) }}%
                 </span>
               </div>
-              <p v-if="RELIABILITY_KO[it.reliability_flag]" class="row-note">
+              <p v-if="it.reliability_flag && RELIABILITY_KO[it.reliability_flag]" class="row-note">
                 {{ RELIABILITY_KO[it.reliability_flag] }}
               </p>
             </template>
@@ -80,6 +80,7 @@
 </template>
 
 <script setup lang="ts">
+import type { MySessionItem } from '@/api-types'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -89,7 +90,7 @@ import {
 } from '@/utils/diagnosis'
 
 const router = useRouter()
-const items = ref<any[]>([])
+const items = ref<MySessionItem[]>([])
 const loading = ref(true)
 const error = ref(false)
 
@@ -111,14 +112,14 @@ const error = ref(false)
  * comparability_established 가 열리면 그때 되살린다.
  */
 
-function open(it: any) {
+function open(it: MySessionItem) {
   if (!it.label_5) return          // 판정 없는 세션은 볼 결과가 없다
   router.push({ path: '/student/result', query: { session: it.session_id } })
 }
 
 async function load() {
   try {
-    const res = await api.get('/api/diagnosis/my/sessions')
+    const res = await api.get<MySessionItem[]>('/api/diagnosis/my/sessions')
     items.value = res.data
   } catch {
     error.value = true

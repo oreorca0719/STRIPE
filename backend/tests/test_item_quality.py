@@ -6,15 +6,18 @@
 """
 import pytest
 
+from app.schemas.content import SeedQuestion
+from app.enums import TargetArea
 from app.services.content import item_quality as Q
 
 
 def _q(choices, answer_index):
-    return {"choices": choices, "answer_index": answer_index}
+    return SeedQuestion(target_area=TargetArea.A5, question_text="발문", choices=choices,
+                        answer_index=answer_index, evidence_text="근거", explanation="해설")
 
 
 def _text(qs):
-    return {"questions": qs}
+    return qs
 
 
 # 길이가 같은 선지 4개 — 길이 단서를 없앤 상태
@@ -23,7 +26,7 @@ EVEN = ["가나다라마바사", "아자차카타파하", "거너더러머버서
 
 def test_empty_input():
     r = Q.analyze([])
-    assert r.n_questions == 0
+    assert r.question_count == 0
     assert not r.ok
 
 
@@ -32,8 +35,8 @@ def test_balanced_content_passes():
     qs = [_q(EVEN, i) for i in (1, 2, 3, 4, 1, 3)]
     r = Q.analyze([_text(qs)])
     assert r.ok, r.problems
-    assert r.position_guess_rate <= 0.40
-    assert r.longest_is_answer_rate <= 0.40
+    assert r.position_guess_ratio <= 0.40
+    assert r.longest_is_answer_ratio <= 0.40
 
 
 def test_position_bias_detected():
@@ -42,7 +45,7 @@ def test_position_bias_detected():
     r = Q.analyze([_text(qs)])
     assert not r.ok
     assert any("정답 위치 편향" in p for p in r.problems), r.problems
-    assert r.position_guess_rate == pytest.approx(0.8)
+    assert r.position_guess_ratio == pytest.approx(0.8)
 
 
 def test_length_bias_detected():
@@ -52,14 +55,14 @@ def test_length_bias_detected():
     r = Q.analyze([_text(qs)])
     assert not r.ok
     assert any("선지 길이 편향" in p for p in r.problems), r.problems
-    assert r.longest_is_answer_rate == 1.0
+    assert r.longest_is_answer_ratio == 1.0
     assert r.mean_length_ratio > Q.LENGTH_RATIO_LIMIT
 
 
 def test_uniform_answer_within_text_detected():
     """한 지문의 문항이 전부 같은 번호 — 실제로 48편 중 17편이 그랬다."""
     r = Q.analyze([_text([_q(EVEN, 2) for _ in range(6)])])
-    assert r.texts_with_uniform_answer == 1
+    assert r.uniform_answer_text_count == 1
     assert any("전부 같은 번호" in p for p in r.problems), r.problems
 
 
@@ -68,7 +71,7 @@ def test_longest_answer_alone_is_not_flagged_if_rare():
     long_answer = ["짧다", "짧다", "짧다", "조금 더 긴 선택지 하나"]
     qs = [_q(EVEN, i) for i in (1, 2, 3, 4, 1, 2, 3, 4)] + [_q(long_answer, 4)]
     r = Q.analyze([_text(qs)])
-    assert r.longest_is_answer_rate < 0.40
+    assert r.longest_is_answer_ratio < 0.40
     assert not any("길이 편향" in p for p in r.problems), r.problems
 
 

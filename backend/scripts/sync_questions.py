@@ -39,11 +39,17 @@ from sqlalchemy import select                                    # noqa: E402
 from app.core.database import AsyncSessionLocal, engine          # noqa: E402
 from app.models.core import Question, TextContent                # noqa: E402
 from app.services.content import item_quality as Q               # noqa: E402
+from app.schemas.content import SeedQuestion                   # noqa: E402
+
+
+def _question_groups(items: list) -> list:
+    """시드 파일의 지문별 문항을 스키마로 검사해 품질 점검에 넘긴다."""
+    return [[SeedQuestion.model_validate(q) for q in it["questions"]] for it in items]
 
 
 async def run(path: Path, apply: bool) -> None:
     items = json.loads(path.read_text(encoding="utf-8"))
-    print(Q.format_report(Q.analyze(items)))
+    print(Q.format_report(Q.analyze(_question_groups(items))))
 
     # (지문 제목, 문항 텍스트) → 시드 문항
     src = {

@@ -37,7 +37,7 @@
                     {{ d.status === 'completed' ? '완료' : d.status === 'in_progress' ? '진행중' : d.status }}
                   </span>
                 </td>
-                <td>{{ d.total_rounds }}회</td>
+                <td>{{ d.round_count }}회</td>
                 <td><span v-if="d.label_5" class="chip lab" :class="d.label_5">{{ labelKo(d.label_5) }}</span><span v-else class="dim">-</span></td>
                 <td>{{ d.prescription_group || '-' }}</td>
                 <td>{{ levelKo(d.fluency_level) }}</td>
@@ -45,7 +45,7 @@
                 <td>
                   <span v-if="d.overall_accuracy != null">
                     {{ Math.round(d.overall_accuracy * 100) }}%
-                    <span class="dim">({{ d.total_correct }}/{{ d.total_questions }})</span>
+                    <span class="dim">({{ d.correct_count }}/{{ d.question_count }})</span>
                   </span><span v-else class="dim">-</span>
                 </td>
                 <td class="dim">{{ fmtDate(d.completed_at || d.started_at) }}</td>
@@ -67,7 +67,7 @@
             <div>
               <h2 class="dt-title">{{ detail.student?.name }} <span class="dim">({{ detail.student?.username }})</span></h2>
               <p class="dt-sub">
-                세션 #{{ detail.session.id }} · {{ detail.session.total_rounds }}회차 ·
+                세션 #{{ detail.session.id }} · {{ detail.session.round_count }}회차 ·
                 {{ fmtDate(detail.session.completed_at || detail.session.started_at) }}
                 <span v-if="detail.session.reliability_flag !== 'normal'" class="warn">
                   · 신뢰도 {{ detail.session.reliability_flag }}
@@ -86,10 +86,10 @@
             <div class="kv-grid">
               <div class="kv"><span>유창성</span><b>{{ levelKo(detail.judgment.fluency_level) }}
                 <span v-if="detail.judgment.fluency_value" class="dim">
-                  ({{ detail.judgment.fluency_value }} {{ detail.judgment.fluency_unit }})</span></b></div>
+                  ({{ detail.judgment.fluency_value }} {{ detail.judgment.fluency_value_unit }})</span></b></div>
               <div class="kv"><span>독해</span><b>{{ levelKo(detail.judgment.comprehension_level) }}</b></div>
               <div class="kv"><span>정답률</span><b>{{ Math.round((detail.judgment.overall_accuracy || 0) * 100) }}%
-                <span class="dim">({{ detail.judgment.total_correct }}/{{ detail.judgment.total_questions }})</span></b></div>
+                <span class="dim">({{ detail.judgment.correct_count }}/{{ detail.judgment.question_count }})</span></b></div>
               <div class="kv"><span>매트릭스</span><b>{{ detail.judgment.matrix_position }}</b></div>
               <div class="kv"><span>메타인지</span><b>{{ metaKo(detail.judgment.metacognition) }}</b></div>
               <div class="kv"><span>신뢰도</span><b>{{ detail.judgment.reliability_flag }}</b></div>
@@ -119,11 +119,13 @@
                 <span class="dim">{{ genreKo(r.genre) }} · {{ diffKo(r.difficulty) }}</span>
                 <span class="rh-metrics">
                   <span v-if="r.betts_level" class="chip small">{{ bettsKo(r.betts_level) }}</span>
-                  <span v-if="r.round_accuracy != null">{{ Math.round(r.round_accuracy * 100) }}%
-                    ({{ r.correct_count }}/{{ r.total_questions }})</span>
-                  <span v-if="r.silent_reading_time" class="dim">읽기 {{ Math.round(r.silent_reading_time) }}초
+                  <span v-if="r.accuracy != null">{{ Math.round(r.accuracy * 100) }}%
+                    ({{ r.correct_count }}/{{ r.question_count }})</span>
+                  <span v-if="r.reading_time_ms" class="dim">읽기 {{ Math.round(r.reading_time_ms / 1000) }}초
                     <template v-if="r.a4_syllable_per_sec">· {{ r.a4_syllable_per_sec }}음절/초</template>
+                    <template v-if="r.away_count">· 화면 이탈 {{ r.away_count }}회 {{ Math.round((r.away_total_ms ?? 0) / 1000) }}초</template>
                   </span>
+                  <span v-if="r.text_repeated" class="warn">이전에 읽은 지문</span>
                 </span>
               </div>
               <div class="resp-list">
@@ -145,10 +147,10 @@
               <h3 class="p-title">처방</h3>
               <div class="kv"><span>유형</span><b>{{ detail.prescription.prescription_type }}</b></div>
               <div class="kv"><span>톤</span><b>{{ detail.prescription.type_tone }}</b></div>
+              <div class="kv"><span>추천 지문</span><b>{{ detail.prescription.recommended_texts?.text_ids?.length ?? 0 }}편</b></div>
+              <!-- 처방은 지문 id 만 갖는다. 제목은 리포트가 만든 시점의 미리보기(최대 3편)로 보여 준다. -->
               <div class="rec-list">
-                <div v-for="(t, i) in (detail.prescription.recommended_texts || [])" :key="i" class="rec">
-                  📖 {{ typeof t === 'string' ? t : (t.title || t.text_code || t.id) }}
-                </div>
+                <div v-for="t in recommendedPreview" :key="t.text_id" class="rec">📖 {{ t.title }}</div>
               </div>
             </div>
             <div v-if="detail.report" class="panel">
@@ -169,16 +171,18 @@
 </template>
 
 <script setup lang="ts">
+import type { DiagnosisDetail, DiagnosisListItem } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
 import { api } from '@/api'
+import { LABEL_5_KO, LEVEL_3_KO } from '@/utils/diagnosis'
 
 const router = useRouter()
-const list = ref<any[]>([])
+const list = ref<DiagnosisListItem[]>([])
 const loading = ref(true)
 const selected = ref<number | null>(null)
-const detail = ref<any>(null)
+const detail = ref<DiagnosisDetail | null>(null)
 const detailLoading = ref(false)
 const filterStatus = ref('')
 const search = ref('')
@@ -191,11 +195,9 @@ const filtered = computed(() => list.value.filter(d =>
 ))
 
 const AREA_KO: Record<string, string> = { A5: '사실', A6: '추론', A7: '비판' }
-const LABEL_KO: Record<string, string> = {
-  excellent: '아주 잘함', observe: '잘함', caution: '보통', risk: '조금 부족', urgent: '도움 필요',
-}
-function labelKo(l: string) { return LABEL_KO[l] || l || '-' }
-function levelKo(l: string) { return ({ low: '낮음', mid: '보통', high: '높음' } as any)[l] || '-' }
+// 라벨 이름은 LABEL_5_KO 한 곳에서 온다(예전에는 이 화면이 observe='잘함' 으로 따로 가졌다).
+function labelKo(l: string) { return LABEL_5_KO[l] || l || '-' }
+function levelKo(l: string | null) { return l ? LEVEL_3_KO[l] ?? '-' : '-' }
 function areaKo(a: string) { return AREA_KO[a] || a }
 function genreKo(g: string) { return g === 'narrative' ? '이야기글' : '설명글' }
 function diffKo(d: string) { return ({ easy: '쉬움', normal: '보통', hard: '어려움' } as any)[d] || d }
@@ -211,28 +213,28 @@ function fmtDate(s: string | null) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+// 약점 프로필: 6칸, 칸마다 정답 수·문항 수와 서버가 계산한 정답률(문항 없던 칸은 null)
 const weaknessCells = computed(() => {
-  const wp = detail.value?.judgment?.weakness_profile_12
-  if (!wp) return []
-  return Object.entries(wp).map(([k, v]) => {
-    const [area, genre] = k.split('_')
-    return {
-      key: k,
-      label: `${genreKo(genre)} · ${areaKo(area)}`,
-      acc: v as number | null,
-    }
-  })
+  const cells = detail.value?.judgment?.weakness_profile_12?.cells
+  if (!cells) return []
+  return cells.map((c) => ({
+    key: `${c.area}_${c.genre}`,
+    label: `${genreKo(c.genre)} · ${areaKo(c.area)} (${c.correct_count}/${c.question_count})`,
+    acc: c.accuracy as number | null,
+  }))
 })
+const recommendedPreview = computed<any[]>(() =>
+  detail.value?.report?.report_content?.layer1?.recommended_preview || [])
 
 async function load() {
-  try { list.value = (await api.get('/api/admin/diagnoses')).data }
+  try { list.value = (await api.get<DiagnosisListItem[]>('/api/admin/diagnoses')).data }
   catch { list.value = [] } finally { loading.value = false }
 }
 
 async function open(sessionId: number) {
   selected.value = sessionId
   detailLoading.value = true; detail.value = null
-  try { detail.value = (await api.get(`/api/admin/diagnoses/${sessionId}`)).data }
+  try { detail.value = (await api.get<DiagnosisDetail>(`/api/admin/diagnoses/${sessionId}`)).data }
   catch { detail.value = null } finally { detailLoading.value = false }
 }
 

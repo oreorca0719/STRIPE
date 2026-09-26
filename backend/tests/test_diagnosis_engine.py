@@ -10,6 +10,7 @@ from app.models.core import (
     BettsLevel, TargetArea, Difficulty, TextGenre,
     DiagSessionStatus, ReliabilityFlag,
 )
+from app.enums import AdaptiveAction
 from app.services.diagnosis import scoring, adaptive, text_selection
 
 
@@ -48,28 +49,34 @@ def test_aggregate_round_basic():
         Resp(TargetArea.A7, False),
     ]
     agg = scoring.aggregate_round(responses)
-    assert agg.total_questions == 5
+    assert agg.question_count == 5
     assert agg.correct_count == 3
-    assert agg.round_accuracy == pytest.approx(0.6)
-    assert agg.betts_level == BettsLevel.frustration   # 0.6 < 0.70
-    assert agg.a5_factual_accuracy == pytest.approx(1.0)
-    assert agg.a6_inferential_accuracy == pytest.approx(0.5)
-    assert agg.a7_critical_accuracy == pytest.approx(0.0)
+    assert agg.accuracy == pytest.approx(0.6)
+    assert scoring.round_betts(agg) == BettsLevel.frustration   # 0.6 < 0.70
+    assert agg.area(TargetArea.A5).accuracy == pytest.approx(1.0)
+    assert agg.area(TargetArea.A6).accuracy == pytest.approx(0.5)
+    assert agg.area(TargetArea.A7).accuracy == pytest.approx(0.0)
+    # 원본(정답 수·문항 수)이 남는다 — 정답률만 남기면 1/2 와 5/10 이 같아진다
+    assert (agg.area(TargetArea.A6).correct_count, agg.area(TargetArea.A6).question_count) == (1, 2)
 
 
 def test_aggregate_area_none_when_absent():
     """문항 없는 영역은 null(측정 안 됨), 0.0(약점) 아님."""
     agg = scoring.aggregate_round([Resp(TargetArea.A5, True)])
-    assert agg.a5_factual_accuracy == 1.0
-    assert agg.a6_inferential_accuracy is None
-    assert agg.a7_critical_accuracy is None
+    assert agg.area(TargetArea.A5).accuracy == 1.0
+    assert agg.area(TargetArea.A6).accuracy is None
+    assert agg.area(TargetArea.A7).accuracy is None
 
 
 def test_aggregate_empty():
     agg = scoring.aggregate_round([])
-    assert agg.total_questions == 0
-    assert agg.round_accuracy is None
-    assert agg.betts_level is None
+    assert agg.question_count == 0
+    assert agg.accuracy is None
+    assert scoring.round_betts(agg) is None
+    # 화면에 보내는 모양도 null 을 0 으로 바꾸지 않는다
+    v = scoring.view(agg)
+    assert v.accuracy is None and v.betts_level is None
+    assert all(a.accuracy is None for a in v.areas)
 
 
 # =========================================================================
@@ -98,7 +105,7 @@ def test_next_difficulty_rules():
 # =========================================================================
 def test_round1_always_continues():
     d = adaptive.decide(1, [BettsLevel.independent], Difficulty.normal, TextGenre.narrative)
-    assert d.action == "continue"
+    assert d.action == AdaptiveAction.continue_
     assert d.next_difficulty == Difficulty.hard          # independent → +1
     assert d.next_genre == TextGenre.expository           # 교대
 
@@ -106,7 +113,7 @@ def test_round1_always_continues():
 def test_stop_two_instructional():
     hist = [BettsLevel.instructional, BettsLevel.instructional]
     d = adaptive.decide(2, hist, Difficulty.normal, TextGenre.expository)
-    assert d.action == "stop"
+    assert d.action == AdaptiveAction.stop
     assert d.status == DiagSessionStatus.completed
     assert d.anchor_difficulty == Difficulty.normal
     assert d.reliability_flag == ReliabilityFlag.normal
@@ -115,7 +122,7 @@ def test_stop_two_instructional():
 def test_early_stop_two_frustration():
     hist = [BettsLevel.frustration, BettsLevel.frustration]
     d = adaptive.decide(2, hist, Difficulty.easy, TextGenre.narrative)
-    assert d.action == "stop"
+    assert d.action == AdaptiveAction.stop
     assert d.status == DiagSessionStatus.early_stop
     assert d.reliability_flag == ReliabilityFlag.low
 
@@ -124,7 +131,7 @@ def test_fallback_mixed_betts_round2():
     """[independent, frustration] → ①②에 안 걸림 → ③ 폴백 종료 (혼재 → low)."""
     hist = [BettsLevel.independent, BettsLevel.frustration]
     d = adaptive.decide(2, hist, Difficulty.hard, TextGenre.expository)
-    assert d.action == "stop"
+    assert d.action == AdaptiveAction.stop
     assert d.status == DiagSessionStatus.completed
     assert d.anchor_difficulty == Difficulty.hard
     assert d.reliability_flag == ReliabilityFlag.low
@@ -134,7 +141,7 @@ def test_fallback_same_betts_independent_round2():
     """[independent, independent] → ③ 폴백, 동률 단일 → normal."""
     hist = [BettsLevel.independent, BettsLevel.independent]
     d = adaptive.decide(2, hist, Difficulty.hard, TextGenre.narrative)
-    assert d.action == "stop"
+    assert d.action == AdaptiveAction.stop
     assert d.status == DiagSessionStatus.completed
     assert d.reliability_flag == ReliabilityFlag.normal
 
@@ -197,3 +204,36 @@ def test_adjacent_difficulties():
     assert text_selection._adjacent_difficulties(Difficulty.normal) == [Difficulty.easy, Difficulty.hard]
     assert text_selection._adjacent_difficulties(Difficulty.easy) == [Difficulty.normal]
     assert text_selection._adjacent_difficulties(Difficulty.hard) == [Difficulty.normal]
+
+
+# =========================================================================
+# 적응형 판단의 스키마 — 계속·종료의 칸이 섞이면 거부한다
+# =========================================================================
+from pydantic import ValidationError  # noqa: E402
+
+from app.schemas.measurement import AdaptiveDecision  # noqa: E402
+from app.models.core import DiagSessionStatus, ReliabilityFlag, TextGenre  # noqa: E402
+
+
+def test_계속인데_다음_난도가_없으면_거부한다():
+    with pytest.raises(ValidationError, match="계속이면"):
+        AdaptiveDecision(action=AdaptiveAction.continue_, status=DiagSessionStatus.in_progress,
+                         next_genre=TextGenre.narrative)
+
+
+def test_종료인데_영점이_없으면_거부한다():
+    with pytest.raises(ValidationError, match="종료면"):
+        AdaptiveDecision(action=AdaptiveAction.stop, status=DiagSessionStatus.completed,
+                         reliability_flag=ReliabilityFlag.normal)
+
+
+def test_종료인데_세션이_진행_중이면_거부한다():
+    with pytest.raises(ValidationError, match="종료면"):
+        AdaptiveDecision(action=AdaptiveAction.stop, status=DiagSessionStatus.in_progress,
+                         anchor_difficulty=Difficulty.normal, reliability_flag=ReliabilityFlag.normal)
+
+
+def test_모르는_행동은_거부한다():
+    with pytest.raises(ValidationError):
+        AdaptiveDecision(action="pause", status=DiagSessionStatus.in_progress,
+                         next_difficulty=Difficulty.normal, next_genre=TextGenre.narrative)

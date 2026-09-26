@@ -68,9 +68,9 @@
             <SurveyQuestion
               v-for="q in visibleQuestions" :key="q.code"
               :q="q"
-              :model-value="surveyAnswers[q.storage_field]"
-              :error="fieldErrors[q.storage_field]"
-              :current-grade="surveyAnswers.grade"
+              :model-value="surveyAnswers[field(q)]"
+              :error="fieldErrors[field(q)]"
+              :current-grade="surveyAnswers.grade as number | null"
               @update:model-value="setAnswer(q, $event)"
             />
 
@@ -200,6 +200,8 @@
 </template>
 
 <script setup lang="ts">
+import type { SurveyItem, SurveyValue } from '@/utils/survey'
+import type { FinalizeResponse, FluencyResultResponse, MySummaryResponse, ProfileResponse, QuestionPublic, QuestionResponseResult, ReaderTypeProbeResponse, ReportResponse, ResumeResponse, RoundCompleteResponse, RoundContentResponse, RoundResponse, SessionResponse, SurveyQuestions } from '@/api-types'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
@@ -232,9 +234,10 @@ const ACCOUNT_GRADE_TO_NUM: Record<string, number> = {
   elem4: 4, elem5: 5, elem6: 6, mid1: 7,
 }
 
-const questions = ref<any[]>([])
+const questions = ref<SurveyItem[]>([])
 const defError = ref(false)
-const surveyAnswers = reactive<Record<string, any>>({})
+// 화면에 뜨는 문항은 모두 저장 칸이 있다(서버 테스트가 보장) — 저장 칸 이름이 키다.
+const surveyAnswers = reactive<Record<string, SurveyValue>>({})
 const fieldErrors = reactive<Record<string, string>>({})
 const submitError = ref('')
 
@@ -245,11 +248,11 @@ const showNonReader = ref(false)
 async function loadDefinition() {
   defError.value = false
   try {
-    const r = await api.get('/api/diagnosis/survey/definition')
+    const r = await api.get<SurveyQuestions>('/api/diagnosis/survey/definition')
     questions.value = r.data.questions
     for (const q of questions.value) {
-      if (!(q.storage_field in surveyAnswers)) {
-        surveyAnswers[q.storage_field] =
+      if (!(field(q) in surveyAnswers)) {
+        surveyAnswers[field(q)] =
           q.response_type === 'multi_select' ? []
           : q.response_type === 'grade_history' ? new Array(q.grades.length).fill(null)
           : null
@@ -267,18 +270,24 @@ async function loadDefinition() {
 const visibleQuestions = computed(() =>
   questions.value.filter(q => q.status !== 'conditional' || showNonReader.value))
 
-const accountGradeNum = computed(() => ACCOUNT_GRADE_TO_NUM[auth.user?.grade] ?? null)
+const accountGradeNum = computed(() =>
+  auth.user?.grade ? ACCOUNT_GRADE_TO_NUM[auth.user.grade] ?? null : null)
 const accountGradeLabel = computed(() => {
   const b1 = questions.value.find(q => q.code === 'B-1')
-  return b1?.options.find((o: any) => o.value === accountGradeNum.value)?.label ?? ''
+  if (!b1 || !('options' in b1)) return ''
+  return b1.options.find(o => o.value === accountGradeNum.value)?.label ?? ''
 })
 const gradeMismatch = computed(() =>
   accountGradeNum.value !== null && surveyAnswers.grade != null
   && surveyAnswers.grade !== accountGradeNum.value)
 
-function setAnswer(q: any, v: any) {
-  surveyAnswers[q.storage_field] = v
-  delete fieldErrors[q.storage_field]
+function field(q: SurveyItem): string {
+  return q.storage_field ?? q.code
+}
+
+function setAnswer(q: SurveyItem, v: SurveyValue) {
+  surveyAnswers[field(q)] = v
+  delete fieldErrors[field(q)]
   submitError.value = ''
   // 학년을 바꾸면 A-4 에서 아직 오지 않은 학년의 응답을 지운다.
   // 남겨두면 화면에 보이지 않는 값이 그대로 전송된다.
@@ -287,11 +296,12 @@ function setAnswer(q: any, v: any) {
 
 function pruneGradeHistory() {
   const a4 = questions.value.find(q => q.response_type === 'grade_history')
-  if (!a4) return
-  const cur = surveyAnswers[a4.storage_field]
+  if (!a4 || a4.response_type !== 'grade_history') return
+  const cur = surveyAnswers[field(a4)]
   if (!Array.isArray(cur)) return
-  a4.grades.forEach((g: any, i: number) => {
-    if (surveyAnswers.grade == null || g.grade > surveyAnswers.grade) cur[i] = null
+  const grade = surveyAnswers.grade as number | null
+  a4.grades.forEach((g, i) => {
+    if (grade == null || g.grade > grade) cur[i] = null
   })
 }
 
@@ -299,7 +309,7 @@ function pruneGradeHistory() {
 watch(() => [surveyAnswers.reading_freq, surveyAnswers.reading_attitude], async ([f, a]) => {
   if (f == null || a == null) { showNonReader.value = false; return }
   try {
-    const r = await api.post('/api/diagnosis/reader-type',
+    const r = await api.post<ReaderTypeProbeResponse>('/api/diagnosis/reader-type',
                              { reading_freq: f, reading_attitude: a })
     showNonReader.value = !!r.data.show_non_reader_questions
   } catch {
@@ -310,22 +320,24 @@ watch(() => [surveyAnswers.reading_freq, surveyAnswers.reading_attitude], async 
     // 비독자가 아니게 되면 이미 고른 답을 지운다. 남겨두면 화면에 보이지 않는
     // 응답이 그대로 전송되고, 서버가 버려도 학생 입장에선 유령 응답이 된다.
     for (const q of questions.value) {
-      if (q.status === 'conditional') surveyAnswers[q.storage_field] = []
+      if (q.status === 'conditional') surveyAnswers[field(q)] = []
     }
   }
 })
 
-function isAnswered(q: any): boolean {
-  const v = surveyAnswers[q.storage_field]
+function isAnswered(q: SurveyItem): boolean {
+  const v = surveyAnswers[field(q)]
   if (q.response_type === 'multi_select') {
-    return Array.isArray(v) && v.length >= (q.min_select ?? 1)
+    return Array.isArray(v) && v.length >= (q.min_select_count ?? 1)
   }
   if (q.response_type === 'grade_history') {
     // 아직 오지 않은 학년은 묻지 않으므로, 물어본 칸이 다 차면 답한 것이다.
-    return q.grades.every((g: any, i: number) =>
-      surveyAnswers.grade == null || g.grade > surveyAnswers.grade || v?.[i] !== undefined)
-      && q.grades.some((g: any, i: number) =>
-        surveyAnswers.grade != null && g.grade <= surveyAnswers.grade && v?.[i] !== null)
+    const grade = surveyAnswers.grade as number | null
+    const cells = (v ?? []) as (number | null)[]
+    return q.grades.every((g, i) =>
+      grade == null || g.grade > grade || cells[i] !== undefined)
+      && q.grades.some((g, i) =>
+        grade != null && g.grade <= grade && cells[i] !== null)
   }
   return v !== null && v !== undefined && v !== ''
 }
@@ -339,10 +351,13 @@ const sessionId = ref<number | null>(null)
 const roundNumber = ref(1)
 const round = reactive<{
   roundId: number | null; title: string; content: string; genre: string
-  syllableCount: number; questions: any[]
+  syllableCount: number; questions: QuestionPublic[]
 }>({ roundId: null, title: '', content: '', genre: '', syllableCount: 0, questions: [] })
 const answers = reactive<Record<number, number>>({})
-const silentSeconds = ref(0)
+// 읽기 시간 — "읽기 시작"과 "다 읽었어" 사이의 실제 시각 차이(ms).
+// 화면 타이머(timerSeconds)는 보여주기용이다. 1초 단위라 거칠고, 탭이 가려지면
+// 브라우저가 늦춰 실제보다 짧게 잡힌다(→ A4 부풀림). 측정에 쓰지 않는다.
+const readingTimeMs = ref(0)
 
 const allAnswered = computed(() => round.questions.length > 0 && round.questions.every(q => answers[q.id]))
 const answeredCount = computed(() => round.questions.filter(q => !!answers[q.id]).length)
@@ -382,16 +397,16 @@ async function submitSurvey() {
     // 학생 식별은 서버가 토큰에서 판별한다 (student_id 파라미터 없음)
     // 화면에 뜨지 않은 문항은 보내지 않는다 — 노출되지 않은 문항의 응답이
     // 저장되면 분석에서 표본이 오염된다(서버도 유형을 다시 확인해 걸러낸다).
-    const payload: Record<string, any> = {}
+    const payload: Record<string, SurveyValue> = {}
     for (const q of visibleQuestions.value) {
-      payload[q.storage_field] = surveyAnswers[q.storage_field]
+      payload[field(q)] = surveyAnswers[field(q)]
     }
-    const prof = await api.post('/api/diagnosis/profile', payload)
-    const sess = await api.post('/api/diagnosis/session', {
+    const prof = await api.post<ProfileResponse>('/api/diagnosis/profile', payload)
+    const sess = await api.post<SessionResponse>('/api/diagnosis/session', {
       profile_id: prof.data.id, silent_mode: true,
     })
     sessionId.value = sess.data.id
-    const r = await api.post(`/api/diagnosis/session/${sessionId.value}/start`)
+    const r = await api.post<RoundResponse>(`/api/diagnosis/session/${sessionId.value}/start`)
     await loadRound(r.data.id)
   } catch (e: any) {
     // 재시도를 걸지 않는다 — 이 흐름은 프로필·세션을 생성하므로 그대로 다시 부르면
@@ -408,7 +423,7 @@ async function checkResume() {
   // 학년 기본값 채우기는 loadDefinition 이 맡는다 — 문항 정의가 와야
   // B-1 의 선지 값과 맞출 수 있다.
   try {
-    const res = await api.get('/api/diagnosis/my/summary')
+    const res = await api.get<MySummaryResponse>('/api/diagnosis/my/summary')
     if (res.data.in_progress_session_id) {
       resumeSessionId.value = res.data.in_progress_session_id
       phase.value = 'resume-choice'
@@ -424,7 +439,7 @@ async function doResume() {
   if (!resumeSessionId.value) { phase.value = 'survey'; return }
   busy.value = true; error.value = ''
   try {
-    const res = await api.post(`/api/diagnosis/session/${resumeSessionId.value}/resume`)
+    const res = await api.post<ResumeResponse>(`/api/diagnosis/session/${resumeSessionId.value}/resume`)
     const d = res.data
     sessionId.value = d.session_id
     roundNumber.value = d.round_number
@@ -449,7 +464,7 @@ async function doRestart() {
   busy.value = true; error.value = ''
   try {
     if (resumeSessionId.value) {
-      await api.post(`/api/diagnosis/session/${resumeSessionId.value}/abandon`)
+      await api.post<SessionResponse>(`/api/diagnosis/session/${resumeSessionId.value}/abandon`)
     }
     resumeSessionId.value = null
     phase.value = 'survey'
@@ -459,7 +474,7 @@ async function doRestart() {
 }
 
 async function loadRound(roundId: number) {
-  const r = await api.get(`/api/diagnosis/round/${roundId}/content`)
+  const r = await api.get<RoundContentResponse>(`/api/diagnosis/round/${roundId}/content`)
   round.roundId = r.data.round_id
   round.title = r.data.title
   round.content = r.data.content
@@ -468,7 +483,7 @@ async function loadRound(roundId: number) {
   round.questions = r.data.questions
   for (const k of Object.keys(answers)) delete answers[Number(k)]
   unsavedIds.clear()
-  timerSeconds.value = 0; timerRunning.value = false; silentSeconds.value = 0
+  timerSeconds.value = 0; timerRunning.value = false; readingTimeMs.value = 0
   hasRead.value = false; tooFastWarned.value = false
   phase.value = 'reading'
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -483,12 +498,15 @@ async function loadRound(roundId: number) {
 //
 // 보정은 서버에서도 하지 않는다 — 원본만 남기고 얼마를 뺄지는 나중에 정한다.
 const awayEvents = ref<{ type: 'hidden' | 'visible'; at_ms: number }[]>([])
+// performance.now() 는 시스템 시계를 바꿔도 뒤로 가지 않는 단조 시계다.
+// 읽기 시간과 이탈 시각을 같은 시계로 재야 서로 비교할 수 있다.
 let readingStartedAt = 0
+const elapsedMs = () => Math.round(performance.now() - readingStartedAt)
 
 function markAway(type: 'hidden' | 'visible') {
   // 읽기 중이 아닐 때의 탭 전환은 읽기 시간과 무관하다
-  if (!timerRunning.value || !readingStartedAt) return
-  awayEvents.value.push({ type, at_ms: Date.now() - readingStartedAt })
+  if (!timerRunning.value) return
+  awayEvents.value.push({ type, at_ms: elapsedMs() })
 }
 
 function onVisibility() {
@@ -501,7 +519,7 @@ function onFocus() { markAway('visible') }
 
 function startReading() {
   timerRunning.value = true; timerSeconds.value = 0
-  readingStartedAt = Date.now()
+  readingStartedAt = performance.now()
   awayEvents.value = []
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('blur', onBlur)
@@ -513,7 +531,6 @@ function stopAwayTracking() {
   document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('blur', onBlur)
   window.removeEventListener('focus', onFocus)
-  readingStartedAt = 0
 }
 
 // 지문을 실제로 읽었다고 보기 어려운 속도면 되묻는다.
@@ -523,27 +540,26 @@ const tooFastWarned = ref(false)
 const tooFastWarning = ref('')
 
 async function stopReading() {
-  const elapsed = Math.max(1, timerSeconds.value)
+  // 이탈 기록을 먼저 멈춘 뒤 시간을 잰다 — 이탈 시각이 읽기 시간을 넘지 않게.
+  timerRunning.value = false
+  stopAwayTracking()
+  const elapsed = Math.max(1, elapsedMs())
   const syllables = round.syllableCount || 0
-  const sps = syllables ? syllables / elapsed : 0
+  const sps = syllables ? syllables / (elapsed / 1000) : 0
 
   // 너무 빠른 첫 시도는 경고 후 되돌린다 (두 번째 시도는 학생 의사를 존중해 진행)
   if (syllables && sps > MAX_PLAUSIBLE_SPS && !tooFastWarned.value) {
     tooFastWarned.value = true
-    timerRunning.value = false
     if (timerInterval) clearInterval(timerInterval)
-    stopAwayTracking()
     tooFastWarning.value = '너무 빨라요! 글을 끝까지 읽었는지 확인하고 다시 읽어줘 📖'
     timerSeconds.value = 0
     return
   }
 
   if (timerInterval) clearInterval(timerInterval)
-  timerRunning.value = false
-  stopAwayTracking()
   hasRead.value = true
   tooFastWarning.value = ''
-  silentSeconds.value = elapsed
+  readingTimeMs.value = elapsed
   await sendSilentReading()
 }
 
@@ -554,12 +570,14 @@ async function stopReading() {
 async function sendSilentReading() {
   busy.value = true; error.value = ''
   try {
-    await api.post('/api/diagnosis/fluency/silent', {
-      session_id: sessionId.value, silent_reading_time: silentSeconds.value, round_id: round.roundId,
-      away_events: awayEvents.value,
+    await api.post<FluencyResultResponse>('/api/diagnosis/fluency/silent', {
+      session_id: sessionId.value, round_id: round.roundId,
+      reading_time_ms: readingTimeMs.value, away_events: awayEvents.value,
     })
     phase.value = 'questions'
   } catch (e: any) {
+    // 409 = 이 회차 읽기 시간이 이미 저장됐다(응답을 못 받고 다시 보낸 경우).
+    if (e?.response?.status === 409) { phase.value = 'questions'; return }
     failWithRetry(e, sendSilentReading)
   } finally { busy.value = false }
 }
@@ -608,7 +626,7 @@ async function saveAnswer(questionId: number) {
   const ans = answers[questionId]
   if (!ans || !round.roundId) return
   try {
-    await api.post('/api/diagnosis/comprehension', {
+    await api.post<QuestionResponseResult>('/api/diagnosis/comprehension', {
       round_id: round.roundId, question_id: questionId, student_answer: ans,
     })
     unsavedIds.delete(questionId)
@@ -623,13 +641,13 @@ async function submitAnswers() {
   try {
     // 즉시 저장에 실패했던 문항만 다시 보낸다(정상 흐름에선 비어 있다).
     for (const qid of Array.from(unsavedIds)) {
-      await api.post('/api/diagnosis/comprehension', {
+      await api.post<QuestionResponseResult>('/api/diagnosis/comprehension', {
         round_id: round.roundId, question_id: qid, student_answer: answers[qid],
       })
       unsavedIds.delete(qid)
       persistUnsaved()
     }
-    const res = await api.post(`/api/diagnosis/round/${round.roundId}/complete`)
+    const res = await api.post<RoundCompleteResponse>(`/api/diagnosis/round/${round.roundId}/complete`)
     const body = res.data
     if (body.decision.action === 'continue' && body.next_round) {
       roundNumber.value++
@@ -638,16 +656,36 @@ async function submitAnswers() {
       await finalize()
     }
   } catch (e: any) {
+    // 409 = 이 회차는 이미 완료됐다(응답을 못 받고 다시 보낸 경우). 서버는 이미
+    // 다음 회차를 만들었거나 세션을 끝냈다 — 그 지점을 찾아간다.
+    if (e?.response?.status === 409) { await recoverCompletedRound(); return }
     // 답안은 이미 서버에 있다. 처음부터 다시 시킬 이유가 없으므로 재시도를 건다.
     failWithRetry(e, submitAnswers)
   } finally { busy.value = false }
 }
 
+async function recoverCompletedRound() {
+  try {
+    const d = (await api.post<ResumeResponse>(`/api/diagnosis/session/${sessionId.value}/resume`)).data
+    roundNumber.value = d.round_number
+    await loadRound(d.round.id)
+  } catch (e: any) {
+    // 이어할 회차가 없다 = 세션이 이미 끝났다 → 판정으로
+    if (e?.response?.status === 409) { await finalize(); return }
+    failWithRetry(e, recoverCompletedRound)
+  }
+}
+
 async function finalize() {
   phase.value = 'processing'
   try {
-    await api.post(`/api/diagnosis/session/${sessionId.value}/finalize`)
-    await api.post(`/api/diagnosis/session/${sessionId.value}/report`)
+    try {
+      await api.post<FinalizeResponse>(`/api/diagnosis/session/${sessionId.value}/finalize`)
+    } catch (e: any) {
+      // 409 = 이미 판정됐다(응답을 못 받고 다시 보낸 경우). 리포트 단계로 넘어간다.
+      if (e?.response?.status !== 409) throw e
+    }
+    await api.post<ReportResponse>(`/api/diagnosis/session/${sessionId.value}/report`)
     clearUnsavedBackup()
     router.push({ name: 'result', query: { session: String(sessionId.value) } })
   } catch (e: any) {

@@ -20,22 +20,22 @@
         <div class="panel">
           <h2 class="panel-title">진단 판정 분포</h2>
           <div class="activity-list">
-            <div v-if="!statsData || statsData.judgments_total === 0" class="activity-item coming-soon-item">
+            <div v-if="!statsData || statsData.judgment_count === 0" class="activity-item coming-soon-item">
               <span>📊</span>
               <span>아직 완료된 진단이 없어요</span>
             </div>
             <template v-else>
-              <div v-for="(cnt, label) in statsData.label_distribution" :key="label" class="dist-row">
-                <span class="dist-name">{{ labelKo(label) }}</span>
+              <div v-for="d in statsData.label_distribution" :key="d.label_5" class="dist-row">
+                <span class="dist-name">{{ LABEL_5_KO[d.label_5] }}</span>
                 <div class="dist-bar">
-                  <div class="dist-fill" :style="{ width: pct(cnt) + '%' }"></div>
+                  <div class="dist-fill" :style="{ width: pct(d.judgment_count) + '%' }"></div>
                 </div>
-                <span class="dist-cnt">{{ cnt }}명</span>
+                <span class="dist-cnt">{{ d.judgment_count }}명</span>
               </div>
               <div class="dist-foot">
-                총 {{ statsData.judgments_total }}건
-                <span v-if="statsData.avg_accuracy != null">
-                  · 평균 정답률 {{ Math.round(statsData.avg_accuracy * 100) }}%
+                총 {{ statsData.judgment_count }}건
+                <span v-if="statsData.mean_accuracy != null">
+                  · 평균 정답률 {{ Math.round(statsData.mean_accuracy * 100) }}%
                 </span>
               </div>
             </template>
@@ -60,26 +60,28 @@
 </template>
 
 <script setup lang="ts">
+import type { Overview, Stats, SystemStatus } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AdminLayout from '@/components/admin/AdminLayout.vue'
 import { api } from '@/api'
+import { LABEL_5_KO } from '@/utils/diagnosis'
 
 const router = useRouter()
-const ov = ref<any>(null)
-const sys = ref<any>(null)
-const statsData = ref<any>(null)
+const ov = ref<Overview | null>(null)
+const sys = ref<SystemStatus | null>(null)
+const statsData = ref<Stats | null>(null)
 
 const stats = computed(() => [
-  { icon: '👨‍🎓', label: '학생', value: ov.value?.students ?? '-',
-    change: `교사 ${ov.value?.teachers ?? 0}명`, color: 'badge-mint' },
-  { icon: '📝', label: '진단 세션', value: ov.value?.diagnosis_sessions ?? '-',
-    change: `완료 ${ov.value?.diagnosis_completed ?? 0}건`, color: 'badge-yellow' },
-  { icon: '📚', label: '승인 지문', value: ov.value?.texts_approved ?? '-',
-    change: `문항 ${ov.value?.questions_approved ?? 0}개`, color: 'badge-coral' },
-  { icon: '🎯', label: '판정 완료', value: statsData.value?.judgments_total ?? '-',
-    change: statsData.value?.avg_accuracy != null
-      ? `평균 ${Math.round(statsData.value.avg_accuracy * 100)}%` : '집계 없음',
+  { icon: '👨‍🎓', label: '학생', value: ov.value?.student_count ?? '-',
+    change: `교사 ${ov.value?.teacher_count ?? 0}명`, color: 'badge-mint' },
+  { icon: '📝', label: '진단 세션', value: ov.value?.session_count ?? '-',
+    change: `완료 ${ov.value?.finished_session_count ?? 0}건`, color: 'badge-yellow' },
+  { icon: '📚', label: '승인 지문', value: ov.value?.approved_text_count ?? '-',
+    change: `문항 ${ov.value?.approved_question_count ?? 0}개`, color: 'badge-coral' },
+  { icon: '🎯', label: '판정 완료', value: statsData.value?.judgment_count ?? '-',
+    change: statsData.value?.mean_accuracy != null
+      ? `평균 ${Math.round(statsData.value.mean_accuracy * 100)}%` : '집계 없음',
     color: 'badge-mint' },
 ])
 
@@ -94,21 +96,19 @@ const systemStatus = computed(() => {
   ]
 })
 
-const LABEL_KO: Record<string, string> = {
-  excellent: '아주 잘함', observe: '잘함', caution: '보통', risk: '조금 부족', urgent: '도움 필요',
-}
-function labelKo(l: string | number) { return LABEL_KO[String(l)] || String(l) }
+// 라벨 이름은 utils/diagnosis 의 LABEL_5_KO 한 곳에서 온다. 예전에는 이 화면이
+// observe='잘함'·caution='보통' 으로 따로 갖고 있어, 학생 화면('보통이야')과 뜻이 갈렸다.
 function pct(cnt: number) {
-  const total = statsData.value?.judgments_total || 0
+  const total = statsData.value?.judgment_count || 0
   return total ? Math.round((cnt / total) * 100) : 0
 }
 
 async function load() {
   try {
     const [o, s, st] = await Promise.all([
-      api.get('/api/admin/overview'),
-      api.get('/api/admin/system'),
-      api.get('/api/admin/stats'),
+      api.get<Overview>('/api/admin/overview'),
+      api.get<SystemStatus>('/api/admin/system'),
+      api.get<Stats>('/api/admin/stats'),
     ])
     ov.value = o.data; sys.value = s.data; statsData.value = st.data
   } catch { /* 권한 없음/오류 시 기본값 표시 */ }

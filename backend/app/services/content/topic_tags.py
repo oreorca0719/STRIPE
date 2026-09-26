@@ -1,4 +1,4 @@
-"""지문 주제 태그 — 정본과 검증 (STR-125).
+"""지문 주제 태그 — allowlist와 검증 (STR-125).
 
 [왜 이 모듈이 필요한가]
 주제 태그는 **두 곳에서 같은 어휘를 써야** 의미가 있다.
@@ -16,9 +16,9 @@
 15종을 전부 골라도 매칭되는 지문이 **0/48 편**이었다. 오류가 나지 않고
 그냥 '관심 주제와 무관한 순서'로 떨어지기 때문에 드러나지 않았다.
 
-[정본을 설문 정의에 둔 이유]
+[allowlist를 설문 정의에 둔 이유]
 태그 목록을 이 파일에 또 적으면 세 번째 사본이 된다. 학생이 **고를 수 있는
-것**이 곧 매칭 가능한 어휘의 전부이므로, C-1 선지가 정본이다.
+것**이 곧 매칭 가능한 어휘의 전부이므로, C-1 선지가 allowlist다.
 '기타'(other)는 자유입력용이라 태그가 아니다 — 제외한다.
 
 [MVP1 은 태그 1개 고정]
@@ -26,29 +26,27 @@
 
     TXT_{학년군}_{장르}_{주제태그}_{번호}
 
-2개 이상이면 이 형식으로 식별자를 만들 수 없다. 저장 구조는 배열 그대로
+2개 이상이면 이 스키마로 식별자를 만들 수 없다. 저장 구조는 배열 그대로
 두어, 복수 전환이 필요해지면 이 검증만 풀면 된다(스키마 변경 없음).
 """
 from __future__ import annotations
 
 from typing import Iterable, List, Sequence
 
-from app.services.survey import definition as D
+from app.schemas.content import TopicTag
 
 # MVP1 에서 지문 하나가 가질 수 있는 태그 수. 늘리려면 식별자 형식부터 바꿔야 한다.
 MAX_TAGS = 1
 
-# 자유입력 항목. 파이프라인은 태그 코드만 쓰므로 매칭 어휘에서 뺀다.
-_NOT_A_TAG = {"other"}
 
 
 class TagError(ValueError):
-    """태그가 정본과 맞지 않는다. 메시지는 사람이 읽고 고칠 수 있어야 한다."""
+    """태그가 allowlist와 맞지 않는다. 메시지는 사람이 읽고 고칠 수 있어야 한다."""
 
 
 def canonical() -> List[str]:
     """학생이 고를 수 있는 주제 코드. 이것이 매칭 가능한 어휘의 전부다."""
-    return [v for v in D.option_values("student", "C-1") if v not in _NOT_A_TAG]
+    return [t.value for t in TopicTag]
 
 
 def normalize(tags: Iterable[str] | None) -> List[str]:

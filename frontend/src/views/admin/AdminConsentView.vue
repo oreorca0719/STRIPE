@@ -18,11 +18,11 @@
       <template v-else>
         <!-- 요약 -->
         <div class="summary-row">
-          <div class="sum"><span class="sum-k">전체 학생</span><span class="sum-v">{{ summary.total_students }}</span></div>
-          <div class="sum ok"><span class="sum-k">회수 완료</span><span class="sum-v">{{ summary.collected }}</span></div>
-          <div class="sum warn"><span class="sum-k">미회수</span><span class="sum-v">{{ summary.missing }}</span></div>
-          <div class="sum bad"><span class="sum-k">철회</span><span class="sum-v">{{ summary.revoked }}</span></div>
-          <div v-if="summary.refused" class="sum bad"><span class="sum-k">동의 거부</span><span class="sum-v">{{ summary.refused }}</span></div>
+          <div class="sum"><span class="sum-k">전체 학생</span><span class="sum-v">{{ summary.student_count }}</span></div>
+          <div class="sum ok"><span class="sum-k">회수 완료</span><span class="sum-v">{{ summary.collected_count }}</span></div>
+          <div class="sum warn"><span class="sum-k">미회수</span><span class="sum-v">{{ summary.missing_count }}</span></div>
+          <div class="sum bad"><span class="sum-k">철회</span><span class="sum-v">{{ summary.revoked_count }}</span></div>
+          <div v-if="summary.refused_count" class="sum bad"><span class="sum-k">동의 거부</span><span class="sum-v">{{ summary.refused_count }}</span></div>
         </div>
 
         <!-- 강제 여부 -->
@@ -149,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ConsentConfirmMethod, ConsentListResponse, ConsentRow, ConsentSummary } from '@/api-types'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -163,8 +164,8 @@ const formError = ref('')
 const missingOnly = ref(false)
 const search = ref('')
 
-const summary = ref<any>({})
-const items = ref<any[]>([])
+const summary = ref<Partial<ConsentSummary>>({})
+const items = ref<ConsentRow[]>([])
 const form = ref<any>(null)
 
 const filtered = computed(() => {
@@ -176,21 +177,21 @@ const filtered = computed(() => {
 function gradeKo(g: string | null) {
   return g ? ({ elem4: '초4', elem5: '초5', elem6: '초6', mid1: '중1' } as any)[g] || g : '—'
 }
-function methodKo(m: string) {
-  return m === 'written' ? '서면' : m === 'phone_verification' ? '휴대전화 인증' : m
+function methodKo(m: ConsentConfirmMethod | null) {
+  return m === 'written' ? '서면' : m === 'phone_verification' ? '휴대전화 인증' : '—'
 }
 function fmt(v: string | null) {
   return v ? new Date(v).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '—'
 }
 
-function statusOf(r: any) {
+function statusOf(r: ConsentRow) {
   if (!r.has_record) return { ko: '미회수', cls: 'warn' }
   if (r.revoked) return { ko: '철회', cls: 'bad' }
   if (!r.consent_required) return { ko: '동의 거부', cls: 'bad' }
   return { ko: '회수 완료', cls: 'ok' }
 }
 
-function openForm(r: any) {
+function openForm(r: ConsentRow) {
   formError.value = ''
   form.value = {
     user_id: r.user_id,
@@ -206,7 +207,7 @@ function openForm(r: any) {
 async function save() {
   saving.value = true; formError.value = ''
   try {
-    await api.post('/api/admin/consents', {
+    await api.post<ConsentRow>('/api/admin/consents', {
       user_id: form.value.user_id,
       confirm_method: form.value.confirm_method,
       consent_required: form.value.consent_required,
@@ -223,14 +224,14 @@ async function save() {
   }
 }
 
-async function revoke(r: any) {
+async function revoke(r: ConsentRow) {
   const note = prompt(
     `${r.username} 의 보호자 동의를 철회 처리합니다.\n` +
     `철회하면 응시가 차단됩니다. 기록은 지워지지 않습니다.\n\n사유(선택):`
   )
   if (note === null) return
   try {
-    await api.post(`/api/admin/consents/${r.user_id}/revoke`, { note: note || null })
+    await api.post<ConsentRow>(`/api/admin/consents/${r.user_id}/revoke`, { note: note || null })
     await load()
   } catch (e: any) {
     alert(e?.response?.data?.detail || '철회 처리에 실패했습니다.')
@@ -240,7 +241,7 @@ async function revoke(r: any) {
 async function load() {
   loading.value = true; error.value = ''
   try {
-    const res = await api.get('/api/admin/consents', {
+    const res = await api.get<ConsentListResponse>('/api/admin/consents', {
       params: { missing_only: missingOnly.value },
     })
     summary.value = res.data.summary

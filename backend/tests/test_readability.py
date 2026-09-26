@@ -1,6 +1,7 @@
 """지문 난도 지표 산출 테스트 (STR-103). 순수 함수, DB 불필요."""
 import pytest
-from app.services.content.readability import analyze, TextMetrics
+from app.schemas.content import ReadabilityMetrics
+from app.services.content.readability import analyze
 
 
 EASY = "토끼가 뛴다. 숲이 넓다. 새가 운다."
@@ -14,7 +15,7 @@ HARD = (
 def test_empty_input_is_safe():
     """빈 입력에도 0으로 응답한다 — 깨진 시드가 들어와도 멈추지 않아야 한다."""
     m = analyze("")
-    assert isinstance(m, TextMetrics)
+    assert isinstance(m, ReadabilityMetrics)
     assert m.sentence_count == 0 and m.word_count == 0
     assert m.readability_score == 0.0
     assert m.vocabulary_level == "basic"
@@ -87,7 +88,8 @@ def test_score_is_bounded():
     assert 0.0 <= analyze(absurd).readability_score <= 100.0
 
 
-def test_as_dict_roundtrip():
-    d = analyze(EASY).as_dict()
-    assert d["sentence_count"] == 3
-    assert "readability_score" in d and "vocabulary_level" in d
+def test_저장_스키마로_왕복된다():
+    """texts.readability_metrics 에 저장했다 읽어도 같은 값이다."""
+    m = analyze(EASY)
+    back = ReadabilityMetrics.model_validate(m.model_dump(mode="json"))
+    assert back == m and back.sentence_count == 3
