@@ -4,7 +4,7 @@ from app.models.core import (
     Level3, FluencySource, FluencyUnit, Label5, PrescriptionGroup,
     Metacognition, ReliabilityFlag, GradeGroup, TargetArea, TextGenre,
 )
-from app.contracts.judgment import CellResponse
+from app.schemas.judgment import CellResponse
 from app.enums import DisclaimerCode as D
 from app.services.diagnosis import judgment as J
 

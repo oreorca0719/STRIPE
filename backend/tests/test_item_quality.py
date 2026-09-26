@@ -6,7 +6,7 @@
 """
 import pytest
 
-from app.contracts.content import SeedQuestion
+from app.schemas.content import SeedQuestion
 from app.enums import TargetArea
 from app.services.content import item_quality as Q
 

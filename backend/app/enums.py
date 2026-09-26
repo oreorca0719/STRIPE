@@ -1,8 +1,8 @@
-"""값 목록(enum) — 형식 정의(contracts)와 DB 모델(core)이 함께 쓴다.
+"""값 목록(enum) — 스키마 정의(schemas)와 DB 모델(core)이 함께 쓴다.
 
 [왜 core.py 에서 분리했나]
-형식 정의가 enum 을 쓰고, DB 모델은 형식 정의를 칸 타입으로 쓴다.
-enum 이 core.py 에 있으면 contracts → core → contracts 로 서로를 불러오는
+스키마 정의가 enum 을 쓰고, DB 모델은 스키마 정의를 칸 타입으로 쓴다.
+enum 이 core.py 에 있으면 schemas → core → schemas 로 서로를 불러오는
 순환이 생긴다. enum 을 여기 두고 양쪽이 이것만 불러온다.
 
 기존 코드의 `from app.models.core import Difficulty` 는 그대로 동작한다
@@ -192,7 +192,7 @@ class ReportRole(str, enum.Enum):
     teacher = "teacher"
 
 
-# --- 형식 규격화 (2026-09-25) --------------------------------------------
+# --- 스키마 규격화 (2026-09-25) --------------------------------------------
 class DisclaimerCode(str, enum.Enum):
     """면책 문구 코드. 리포트가 이 코드로 report_templates 에서 문구를 찾는다.
 
@@ -308,7 +308,7 @@ class HealthStatus(str, enum.Enum):
     degraded = "degraded"
 
 
-# --- core.py 에서 옮김 (contracts 가 쓰므로) --------------------------------
+# --- core.py 에서 옮김 (schemas 가 쓰므로) --------------------------------
 class ConsentConfirmMethod(str, enum.Enum):
     """동의 확인 방법. 파일럿은 서면, 정식 오픈은 휴대전화 본인인증(STR-88)."""
     written = "written"

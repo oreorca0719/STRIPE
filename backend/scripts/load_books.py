@@ -8,7 +8,7 @@
     .venv\\Scripts\\python.exe scripts/load_books.py --file ... --approve   # 검수 생략(내부 시연용)
     .venv\\Scripts\\python.exe scripts/load_books.py --template             # 예시 파일 생성
 
-입력 형식 (JSON 배열):
+입력 스키마 (JSON 배열):
 [
   {
     "isbn13": "9788936434267",          // 선택. 있으면 중복 적재를 막는 키가 된다
@@ -53,11 +53,11 @@ load_dotenv(BACKEND_DIR / ".env")
 
 from pydantic import ValidationError                             # noqa: E402
 from sqlalchemy import select                                    # noqa: E402
-from app.contracts.content import SeedBooks                      # noqa: E402
+from app.schemas.content import SeedBooks                      # noqa: E402
 from app.core.database import AsyncSessionLocal, engine          # noqa: E402
 from app.models.core import Book, ReviewStatus                   # noqa: E402
 
-# 주제 태그는 지문과 같은 정본(설문 C-1 선지)을 쓴다 — contracts/content.TopicTag.
+# 주제 태그는 지문과 같은 허용 목록(설문 C-1 선지)을 쓴다 — schemas/content.TopicTag.
 # 예전에는 여기에 옛 태그 목록(대문자 10종, NATURE·SPACE 등 C-1 에 없는 것 포함)이
 # 따로 있어, 그대로 적재한 책은 학생 관심 주제와 한 번도 만나지 않았다.
 
@@ -85,7 +85,7 @@ async def load(path: Path, approve: bool) -> None:
     try:
         items = SeedBooks.validate_json(path.read_bytes())
     except ValidationError as e:
-        print(f"도서 파일이 형식에 맞지 않아 적재하지 않았습니다 ({e.error_count()}건)\n{e}")
+        print(f"도서 파일이 스키마에 맞지 않아 적재하지 않았습니다 ({e.error_count()}건)\n{e}")
         return
     for i, it in enumerate(items):
         if it.page_count is None:

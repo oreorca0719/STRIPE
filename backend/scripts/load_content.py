@@ -27,7 +27,7 @@ load_dotenv(BACKEND_DIR / ".env")
 
 from sqlalchemy import text as sa_text
 from pydantic import ValidationError
-from app.contracts.content import SeedTexts
+from app.schemas.content import SeedTexts
 from app.services.content import item_quality
 from app.core.database import AsyncSessionLocal
 from app.models.core import (
@@ -48,14 +48,14 @@ async def reset_pool(session):
 
 
 async def load(path: Path, reset: bool, force: bool = False):
-    # 파일 전체를 형식으로 먼저 검사한다. 한 편씩 넣다가 중간에 멈추면 절반만
+    # 파일 전체를 스키마로 먼저 검사한다. 한 편씩 넣다가 중간에 멈추면 절반만
     # 적재된 상태가 남고, 그 상태가 정상인지 아닌지 알 수 없게 된다.
     # 주제 태그도 여기서 막힌다 — C-1 선지(소문자 코드) 밖의 태그는 어떤 학생과도
     # 매칭되지 않는다(오류 없이 조용히 빠진다). 매핑이 필요하면 기획 확인이 선행돼야 한다.
     try:
         data = SeedTexts.validate_json(path.read_bytes())
     except ValidationError as e:
-        raise SystemExit(f"시드 파일이 형식에 맞지 않아 적재하지 않았다 ({e.error_count()}건)\n{e}")
+        raise SystemExit(f"시드 파일이 스키마에 맞지 않아 적재하지 않았다 ({e.error_count()}건)\n{e}")
 
     # 적재 게이트 — 읽지 않고 찍어서 맞힐 수 있는 문항은 진단을 무효로 만든다(STR-116).
     # 생성 콘텐츠에서 정답 위치·선지 길이 편향이 실제로 나왔기 때문에 여기서 막는다.
@@ -80,11 +80,11 @@ async def load(path: Path, reset: bool, force: bool = False):
 
         for item in data:
             genre = item.genre
-            tag = item.topic_tags[0].value           # 형식 검사 완료(정본 1개)
+            tag = item.topic_tags[0].value           # 스키마 검사 완료(허용 목록 1개)
             key = (genre, tag)
             seq[key] = seq.get(key, 0) + 1
             gabbr = GENRE_ABBR[genre.value]
-            # 식별자는 대문자로 읽기 쉽게 두되, 저장 태그는 소문자 정본이다.
+            # 식별자는 대문자로 읽기 쉽게 두되, 저장 태그는 소문자가 표준이다.
             base = f"G46_{gabbr}_{tag.upper()}_{seq[key]:03d}"
             text_code = f"TXT_{base}"
             set_code = f"SET_{base}"

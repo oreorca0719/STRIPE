@@ -7,16 +7,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
-from app.contracts.column import ContractJSONB
-from app.contracts.judgment import Disclaimers, WeaknessProfile
-from app.contracts.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
-from app.contracts.report import ReportContent, TemplateIds
-from app.contracts.measurement import AwayEvents
-from app.contracts.privacy import ConsentSnapshot, DeletedCounts
-from app.contracts.review import Checklist
-from app.contracts.content import Choices, ReadabilityMetrics
-from app.contracts.oral import OralReadingAnalysis
-from app.contracts.survey import (
+from app.schemas.column import SchemaJSONB
+from app.schemas.judgment import Disclaimers, WeaknessProfile
+from app.schemas.prescription import EnvironmentAdjustment, RecommendedTexts, TrainingPlan
+from app.schemas.report import ReportContent, TemplateIds
+from app.schemas.measurement import AwayEvents
+from app.schemas.privacy import ConsentSnapshot, DeletedCounts
+from app.schemas.review import Checklist
+from app.schemas.content import Choices, ReadabilityMetrics
+from app.schemas.oral import OralReadingAnalysis
+from app.schemas.survey import (
     BookImages, GenrePreferences, LifeReadingGraph, NonReadingReasons, TopicCodes,
 )
 from app.enums import (
@@ -98,7 +98,7 @@ class TextContent(Base):
     text_structure = Column(Enum(TextStructure), nullable=True)
     # 표면 구조 합성 지표(0~100)와 산출 근거. STR-103, 마이그레이션 009.
     readability_score = Column(Float, nullable=True)
-    readability_metrics = Column(ContractJSONB(ReadabilityMetrics), nullable=True)
+    readability_metrics = Column(SchemaJSONB(ReadabilityMetrics), nullable=True)
     text_review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     created_by_role = Column(Enum(ContentAuthor), nullable=True)
@@ -143,7 +143,7 @@ class Question(Base):
     target_area = Column(Enum(TargetArea), nullable=False)
     question_type = Column(Enum(QuestionFormat), nullable=False)
     question_text = Column(Text, nullable=False)
-    choices = Column(ContractJSONB(Choices), nullable=False)   # 4지선다 선지 4개
+    choices = Column(SchemaJSONB(Choices), nullable=False)   # 4지선다 선지 4개
     answer_index = Column(Integer, nullable=False)       # 정답 인덱스 (1-based)
     evidence_text = Column(Text, nullable=False)         # 정답 근거 지문 문장
     explanation = Column(Text, nullable=False)
@@ -178,17 +178,17 @@ class StudentProfile(Base):
     voluntary_ratio = Column(Integer, nullable=True)     # A-8 (0~100)
     reading_fondness = Column(Integer, nullable=True)    # A-7 (1~5)
     smartphone_hours = Column(Float, nullable=True)      # C-7
-    life_reading_graph = Column(ContractJSONB(LifeReadingGraph), nullable=True)  # A-4 학년별 7칸
+    life_reading_graph = Column(SchemaJSONB(LifeReadingGraph), nullable=True)  # A-4 학년별 7칸
     # 환경 (A-5, A-6, C-2, C-4, C-5)
-    book_image = Column(ContractJSONB(BookImages), nullable=True)                # A-5
-    non_reading_reason = Column(ContractJSONB(NonReadingReasons), nullable=True)  # A-6
+    book_image = Column(SchemaJSONB(BookImages), nullable=True)                # A-5
+    non_reading_reason = Column(SchemaJSONB(NonReadingReasons), nullable=True)  # A-6
     media_genre = Column(JSONB, nullable=True)           # C-2
     enjoyed_book = Column(String(200), nullable=True)    # C-4
     abandoned_book_reason = Column(JSONB, nullable=True) # C-5
     # 관심 (C-1, C-3, C-6, C-8, D-5)
-    interest_topics = Column(ContractJSONB(TopicCodes), nullable=True)           # C-1
+    interest_topics = Column(SchemaJSONB(TopicCodes), nullable=True)           # C-1
     free_text_interest = Column(String(100), nullable=True)  # C-1 기타
-    preferred_genres = Column(ContractJSONB(GenrePreferences), nullable=True)    # C-3
+    preferred_genres = Column(SchemaJSONB(GenrePreferences), nullable=True)    # C-3
     leisure_ranking = Column(JSONB, nullable=True)       # C-6
     info_media = Column(String(50), nullable=True)       # C-8
     unknown_word_strategy = Column(String(50), nullable=True)  # D-5
@@ -315,13 +315,13 @@ class FluencyResult(Base):
     reading_time_ms = Column(Integer, nullable=False)
     a4_syllable_per_sec = Column(Float, nullable=True)   # 묵독 자동성 (음절/초, §1-13)
     # 묵독 중 화면 이탈 원본. 집계는 attention.summarize 로 계산한다(원칙 4).
-    away_events = Column(ContractJSONB(AwayEvents), nullable=True)
+    away_events = Column(SchemaJSONB(AwayEvents), nullable=True)
     # ── 음독 전용 ──
     # 감독자가 센 오류 수(B안)가 원본이고, 자동 채점은 그 옆의 계산값이다(원칙 4).
     # 예전에는 A1·A2 가 automaticity_score·accuracy_score 칸과 raw_data 안에 두 번
     # 들어갔고(원칙 5), 지문 음절 수도 texts 와 여기 두 곳에 있었다.
     supervisor_error_count = Column(Integer, nullable=True)
-    oral_analysis = Column(ContractJSONB(OralReadingAnalysis), nullable=True)
+    oral_analysis = Column(SchemaJSONB(OralReadingAnalysis), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # 회차·측정 종류당 하나. 재전송으로 두 줄이 생기면 A4 중앙값이 틀어진다.
     __table_args__ = (UniqueConstraint('round_id', 'type', name='uq_fluency_round_type'),)
@@ -347,8 +347,8 @@ class JudgmentResult(Base):
     overall_accuracy = Column(Float, nullable=True)
     correct_count = Column(Integer, nullable=False, default=0)
     question_count = Column(Integer, nullable=False, default=0)
-    # 형식: contracts.judgment.WeaknessProfile (6칸, 칸마다 정답 수·문항 수)
-    weakness_profile_12 = Column(ContractJSONB(WeaknessProfile), nullable=False)
+    # 스키마: schemas.judgment.WeaknessProfile (6칸, 칸마다 정답 수·문항 수)
+    weakness_profile_12 = Column(SchemaJSONB(WeaknessProfile), nullable=False)
     # 매트릭스 (§3-3)
     matrix_position = Column(String(40), nullable=False)
     label_5 = Column(Enum(Label5), nullable=False)
@@ -360,7 +360,7 @@ class JudgmentResult(Base):
     metacognition_gap_count = Column(Integer, nullable=True)
     actual_correct_count_of_10 = Column(Integer, nullable=True)
     reliability_flag = Column(Enum(ReliabilityFlag), nullable=False, default=ReliabilityFlag.normal)
-    disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
+    disclaimer_flags = Column(SchemaJSONB(Disclaimers), nullable=False)   # 없으면 빈 집합
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # 세션당 판정 하나. 두 줄이면 파일럿 분포에 그 학생이 두 번 잡힌다.
     __table_args__ = (UniqueConstraint('diagnosis_session_id', name='uq_judgment_session'),)
@@ -376,13 +376,13 @@ class PrescriptionResult(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     prescription_type = Column(Enum(PrescriptionType), nullable=False)
-    recommended_texts = Column(ContractJSONB(RecommendedTexts), nullable=False)
-    weakness_training_plan = Column(ContractJSONB(TrainingPlan), nullable=True)
+    recommended_texts = Column(SchemaJSONB(RecommendedTexts), nullable=False)
+    weakness_training_plan = Column(SchemaJSONB(TrainingPlan), nullable=True)
     type_tone = Column(Enum(ToneCode), nullable=False)
     next_session_difficulty = Column(Enum(Difficulty), nullable=True)
     # 가정환경 판정을 건너뛰면 둘 다 null 이다 (보호자 미응답·경계값 미확정)
     environment_level = Column(Enum(Level3), nullable=True)
-    environment_adjustment = Column(ContractJSONB(EnvironmentAdjustment), nullable=True)
+    environment_adjustment = Column(SchemaJSONB(EnvironmentAdjustment), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint('judgment_id', name='uq_prescription_judgment'),)
 
@@ -397,9 +397,9 @@ class Report(Base):
     id = Column(Integer, primary_key=True, index=True)
     judgment_id = Column(Integer, ForeignKey('judgment_results.id', ondelete='CASCADE'), nullable=False)
     report_type = Column(Enum(ReportRole), nullable=False)   # MVP1: student
-    report_content = Column(ContractJSONB(ReportContent), nullable=False)
-    disclaimer_flags = Column(ContractJSONB(Disclaimers), nullable=False)
-    template_ids_used = Column(ContractJSONB(TemplateIds), nullable=True)
+    report_content = Column(SchemaJSONB(ReportContent), nullable=False)
+    disclaimer_flags = Column(SchemaJSONB(Disclaimers), nullable=False)
+    template_ids_used = Column(SchemaJSONB(TemplateIds), nullable=True)
     llm_polished = Column(Boolean, nullable=False, default=False)
     review_status = Column(Enum(ReviewStatus), nullable=False, default=ReviewStatus.draft)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -490,10 +490,10 @@ class DataDisposalLog(Base):
     reason = Column(Enum(DisposalReason), nullable=False)
     note = Column(Text, nullable=True)
 
-    deleted_counts = Column(ContractJSONB(DeletedCounts), nullable=False)
+    deleted_counts = Column(SchemaJSONB(DeletedCounts), nullable=False)
     # consent_records 가 CASCADE 라 파기와 함께 사라진다. 파기 이전 처리가
     # 정당했음을 보이려면 동의 사실을 여기 옮겨 두어야 한다.
-    consent_snapshot = Column(ContractJSONB(ConsentSnapshot), nullable=True)
+    consent_snapshot = Column(SchemaJSONB(ConsentSnapshot), nullable=True)
 
 
 # =========================================================================
@@ -525,7 +525,7 @@ class ContentReview(Base):
     reviewer_code = Column(String(50), nullable=True)
 
     # 이은주(2026) 7원칙 체크 결과. 원칙별 반려가 쌓이면 생성 프롬프트를 고칠 근거.
-    checklist = Column(ContractJSONB(Checklist), nullable=True)
+    checklist = Column(SchemaJSONB(Checklist), nullable=True)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

@@ -198,7 +198,7 @@ def test_부분_응답도_받되_점수는_내지_않는다():
 
 
 def test_척도_밖의_값은_거부한다():
-    """값 범위는 설문 파일에서 만든 제출 형식이 막는다 (contracts/survey.py)."""
+    """값 범위는 설문 파일에서 만든 제출 스키마가 막는다 (schemas/survey.py)."""
     async def go():
         s = await _seed()
         async with AsyncClient(transport=ASGITransport(app=_app()),

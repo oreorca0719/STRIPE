@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from app.contracts.prescription import EnvironmentAdjustment, EnvironmentResult
+from app.schemas.prescription import EnvironmentAdjustment, EnvironmentResult
 from app.models.core import EnvironmentSkipReason, GradeGroup, Level3, ReaderType2
 
 # 가정환경 점수 범위 — B-3~B-6 네 문항의 합 (문항당 1~4점)
@@ -89,7 +89,7 @@ def judge_environment(
     type_2: Optional[ReaderType2] = None,
     percentiles: Optional[Dict[GradeGroup, tuple]] = None,
 ) -> EnvironmentResult:
-    """가정환경 점수 → 환경 수준 · 추천 조절값. 결과 형식: contracts.prescription.EnvironmentResult
+    """가정환경 점수 → 환경 수준 · 추천 조절값. 결과 스키마: schemas.prescription.EnvironmentResult
 
     보호자 안내 문구는 결과에 담지 않는다. 수준에서 정해지는 문구라
     guidance_tone(수준, 약점 영역명) 으로 쓸 때 만든다(원칙 5).

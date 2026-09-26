@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 
-from app.contracts.oral import SttTranscript
+from app.schemas.oral import SttTranscript
 
-# 전사 결과의 형식은 contracts.oral.SttTranscript 다. 벤더가 주지 않는 값
+# 전사 결과의 스키마는 schemas.oral.SttTranscript 다. 벤더가 주지 않는 값
 # (신뢰도·길이·어절 시각)은 null·빈 목록으로 둔다 — 0 으로 채우지 않는다.
 STTResult = SttTranscript
 

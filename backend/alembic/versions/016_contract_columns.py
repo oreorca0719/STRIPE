@@ -1,4 +1,4 @@
-"""형식 규격화 1차 — 판정·처방·리포트 경로의 칸 타입.
+"""스키마 규격화 1차 — 판정·처방·리포트 경로의 칸 타입.
 
 1. prescription_results.environment_level : VARCHAR(10) → level3 enum
    정해진 값(low·mid·high)을 자유 문자열로 받고 있었다(원칙 3).

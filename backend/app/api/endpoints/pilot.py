@@ -16,7 +16,7 @@ from sqlalchemy import Integer, cast, func, select, true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
-from app.contracts.pilot import (
+from app.schemas.pilot import (
     A4Distribution, AccuracyDistribution, AreaAccuracy, BettsCount, DifficultyRow,
     DifficultyValidity, DifficultyVerdict, Distributions, Dropoff, Duration,
     GradeGroupBetts, LastRoundStage, OutlierItem, Outliers, Percentiles, RoundsReached,

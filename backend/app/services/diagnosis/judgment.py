@@ -5,7 +5,7 @@
 """
 from statistics import median
 from typing import Optional, Sequence
-from app.contracts.judgment import (
+from app.schemas.judgment import (
     CELL_ORDER, CellResponse, ComprehensionJudgment, Disclaimers, FluencyJudgment,
     MatrixPlacement, MetacognitionResult, WeaknessCell, WeaknessProfile,
 )
@@ -46,7 +46,7 @@ def is_plausible_a4(value: Optional[float]) -> bool:
 
 # =========================================================================
 # §3-1 유창성 판정 (silent_mode A4 기반)
-# 결과 형식: contracts.judgment.FluencyJudgment
+# 결과 스키마: schemas.judgment.FluencyJudgment
 # =========================================================================
 
 
@@ -108,7 +108,7 @@ def judge_fluency(a4_values: Sequence[float], grade_group: GradeGroup) -> Fluenc
 
 
 # =========================================================================
-# §3-2 독해 판정 + 약점 프로필 (6칸 — contracts.judgment.WeaknessProfile)
+# §3-2 독해 판정 + 약점 프로필 (6칸 — schemas.judgment.WeaknessProfile)
 # =========================================================================
 
 
@@ -168,7 +168,7 @@ _GROUP = {
 
 
 def matrix_lookup(fluency_level: Level3, comprehension_level: Level3) -> MatrixPlacement:
-    """결과 형식: contracts.judgment.MatrixPlacement (위치 문자열은 두 수준에서 만든다)."""
+    """결과 스키마: schemas.judgment.MatrixPlacement (위치 문자열은 두 수준에서 만든다)."""
     return MatrixPlacement(
         fluency_level=fluency_level,
         comprehension_level=comprehension_level,

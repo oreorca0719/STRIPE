@@ -1,6 +1,6 @@
 import httpx
 import uuid
-from app.contracts.oral import SttTranscript
+from app.schemas.oral import SttTranscript
 from app.services.stt.adapter import STTAdapter
 from app.core.config import settings
 

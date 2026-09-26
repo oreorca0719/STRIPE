@@ -4,8 +4,8 @@
 처방B 약점 훈련 방향(§5-2). 실제 후보 텍스트 조회는 wiring(C-2)에서 부착.
 """
 from typing import List, Optional, Dict
-from app.contracts.judgment import WeaknessProfile
-from app.contracts.prescription import TrainingPlan, TrainingTarget
+from app.schemas.judgment import WeaknessProfile
+from app.schemas.prescription import TrainingPlan, TrainingTarget
 from app.models.core import (
     PrescriptionGroup as G, PrescriptionType, ToneCode, Difficulty,
     ReaderType1, ReaderType2, TargetArea, TextGenre,

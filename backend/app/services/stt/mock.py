@@ -1,5 +1,5 @@
 import asyncio
-from app.contracts.oral import SttTranscript, SttWord
+from app.schemas.oral import SttTranscript, SttWord
 from app.services.stt.adapter import STTAdapter
 
 

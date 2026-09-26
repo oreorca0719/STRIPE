@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
-from app.contracts.privacy import (
+from app.schemas.privacy import (
     CodeLabel, ConsentSnapshot, DeletedCounts, DeletionRequestList, DeletionRequestView,
     DisposalLogItem, DisposalPreview, DisposalRequest, DisposalResult, RejectRequest,
 )

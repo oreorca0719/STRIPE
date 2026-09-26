@@ -9,8 +9,8 @@ from typing import Optional, Sequence, Tuple, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contracts.judgment import Disclaimers, WeaknessProfile
-from app.contracts.report import (
+from app.schemas.judgment import Disclaimers, WeaknessProfile
+from app.schemas.report import (
     AreaView, ComprehensionView, FluencyView, RecommendedPreview, ReportContent,
     ReportDetail, ReportSummary, TemplateIds, TrainingView,
 )
@@ -201,7 +201,7 @@ def _maybe_polish(content: ReportContent) -> Tuple[ReportContent, bool]:
         # 원문에 없던 '더 어려운 책' 이 LLM 손에서 붙을 수 있으므로 여기서 막는다.
         if any(w in polished for w in _DIFFICULTY_WORDS):
             return content, False
-        # 형식 객체는 고칠 수 없다(frozen). 바꾼 사본을 새로 만든다.
+        # 스키마 객체는 고칠 수 없다(frozen). 바꾼 사본을 새로 만든다.
         # model_copy(update=) 는 검사를 건너뛰므로 쓰지 않는다.
         layer1 = ReportSummary.model_validate(
             {**content.layer1.model_dump(), "encouragement": polished})

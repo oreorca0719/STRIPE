@@ -13,7 +13,7 @@
 from collections import Counter
 from typing import List
 
-from app.contracts.measurement import AdaptiveDecision   # 결과 형식
+from app.schemas.measurement import AdaptiveDecision   # 결과 스키마
 from app.models.core import (
     AdaptiveAction, Difficulty, TextGenre, BettsLevel, DiagSessionStatus, ReliabilityFlag,
 )

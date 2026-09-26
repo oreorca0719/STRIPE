@@ -6,9 +6,9 @@ from typing import Optional
 import pytest
 from pydantic import ValidationError
 
-from app.contracts.judgment import Disclaimers, WeaknessProfile
-from app.contracts.prescription import RecommendedTexts, TrainingPlan, TrainingTarget
-from app.contracts.report import ReportContent
+from app.schemas.judgment import Disclaimers, WeaknessProfile
+from app.schemas.prescription import RecommendedTexts, TrainingPlan, TrainingTarget
+from app.schemas.report import ReportContent
 from app.models.core import (
     Difficulty, DisclaimerCode as D, FluencyUnit, Label5, Level3, Metacognition,
     ReliabilityFlag, TargetArea, TextGenre, ToneCode,
@@ -19,7 +19,7 @@ from tests.factories import profile
 
 @dataclass
 class FakeJudgment:
-    """judgment_results 행과 같은 칸. 칸의 값은 DB 에서 읽힌 것과 같은 형식 객체다."""
+    """judgment_results 행과 같은 칸. 칸의 값은 DB 에서 읽힌 것과 같은 스키마 객체다."""
     label_5: Label5
     fluency_level: Level3 = Level3.mid
     fluency_value: Optional[float] = 3.0
@@ -127,7 +127,7 @@ def test_훈련_안내_문장은_영역에서_찾아_붙인다():
 
 
 def test_리포트_문서는_모르는_키를_거부한다():
-    """형식에 없는 키가 섞이면 저장 전에 멈춘다 — 조용히 저장되지 않는다."""
+    """스키마에 없는 키가 섞이면 저장 전에 멈춘다 — 조용히 저장되지 않는다."""
     content, _ = R.build_student_report(FakeJudgment(label_5=Label5.observe), FakePrescription())
     raw = content.model_dump(mode="json")
     raw["layer3"] = {}

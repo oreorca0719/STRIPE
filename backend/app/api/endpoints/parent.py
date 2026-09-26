@@ -25,13 +25,13 @@ from app.models.core import (
     ParentResponse, StudentProfile, UserRelation, compute_home_environment_score,
 )
 from app.models.user import User, UserRole
-from app.contracts.survey import ParentSurveyIn, ParentSurveyOut
-from app.contracts.survey import SurveyQuestions
+from app.schemas.survey import ParentSurveyIn, ParentSurveyOut
+from app.schemas.survey import SurveyQuestions
 from app.services.survey import definition as D
 
 router = APIRouter()
 
-# 문항 코드 → 저장 칸. 제출 형식의 칸과 같다(tests/test_survey_definition.py).
+# 문항 코드 → 저장 칸. 제출 스키마의 칸과 같다(tests/test_survey_definition.py).
 _FIELD_BY_CODE = D.storage_map("parent")
 
 

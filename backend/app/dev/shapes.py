@@ -53,7 +53,7 @@ def describe(value: Any, depth: int = 0) -> str:
     if depth >= MAX_DEPTH:
         return type(value).__name__
 
-    # dataclass·형식 객체(pydantic) — 칸 이름과 각 칸의 형태
+    # dataclass·스키마 객체(pydantic) — 칸 이름과 각 칸의 형태
     names = None
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         names = [f.name for f in dataclasses.fields(value)]

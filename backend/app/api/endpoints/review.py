@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
-from app.contracts.review import (
+from app.schemas.review import (
     Checklist, ChecklistInfo, Principle, ReviewItem, ReviewRequest, ReviewResult, StatusLabel,
 )
 from app.enums import ReviewDecision, ReviewTarget
@@ -65,9 +65,9 @@ CHECKLIST = [
     {"key": "neutrality", "label": "중립성",
      "desc": "성별·지역·특정 관심사에 편향되지 않았는가"},
 ]
-# 체크리스트 형식(contracts.review.Checklist)의 칸과 이 목록의 key 가 같아야 한다.
+# 체크리스트 스키마(schemas.review.Checklist)의 칸과 이 목록의 key 가 같아야 한다.
 assert [c["key"] for c in CHECKLIST] == list(Checklist.model_fields), \
-    "7원칙 목록과 체크리스트 형식의 칸이 어긋났다"
+    "7원칙 목록과 체크리스트 스키마의 칸이 어긋났다"
 
 TARGETS = {
     ReviewTarget.text: (TextContent, "text_review_status", "text_code"),

@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.core import ConsentRecord
 from app.models.user import User, UserRole
-from app.contracts.privacy import (
+from app.schemas.privacy import (
     ConsentListResponse, ConsentRevoke, ConsentRow, ConsentSummary, ConsentUpsert,
 )
 

@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.core import ParentResponse, StudentProfile
-from app.contracts import survey as S
+from app.schemas import survey as S
 from app.enums import Gender, QuestionStatus, ReaderType1
 from app.services.survey import definition as D
 
@@ -159,20 +159,20 @@ def test_A4는_길이_7_배열이다():
     assert [o.value for o in q.scale[1:]] == [1, 2, 3, 4, 5]
 
 
-# ── 제출 형식이 설문 파일과 맞는가 ───────────────────────────────────────
-# 제출 형식의 칸은 화면에 뜨는 문항의 저장 칸과 1:1 이다. 문항을 추가·삭제하고
-# 형식을 고치지 않으면 여기서 드러난다.
+# ── 제출 스키마가 설문 파일과 맞는가 ───────────────────────────────────────
+# 제출 스키마의 칸은 화면에 뜨는 문항의 저장 칸과 1:1 이다. 문항을 추가·삭제하고
+# 스키마를 고치지 않으면 여기서 드러난다.
 
 _EXTRA = {"student": {"free_text_interest"}, "parent": {"profile_id"}}
 
 
 @pytest.mark.parametrize("part", ["student", "parent"])
-def test_제출_형식의_칸은_화면_문항의_저장_칸과_같다(part):
+def test_제출_스키마의_칸은_화면_문항의_저장_칸과_같다(part):
     fields = set(S.REQUEST_BY_PART[part].model_fields) - _EXTRA[part]
     assert fields == set(D.storage_map(part).values())
 
 
-def test_기타_원문_칸이_제출_형식에_있다():
+def test_기타_원문_칸이_제출_스키마에_있다():
     q = D.get("student", "C-1")
     assert q.free_text_field in S.ProfileCreate.model_fields
 
@@ -188,7 +188,7 @@ def test_예약_문항은_받지_않는다():
         S.ProfileCreate(grade=5, predicted_correct=5)
 
 
-# ── 제출 형식의 값 검사 (예전 validate() 가 하던 일) ─────────────────────
+# ── 제출 스키마의 값 검사 (예전 validate() 가 하던 일) ─────────────────────
 
 def _bad(**kw):
     with pytest.raises(ValidationError):
@@ -235,9 +235,9 @@ def test_생애그래프는_7칸을_요구한다():
     _bad(life_reading_graph=[9] * 7)                  # 척도 밖
 
 
-# ── 설문 파일 자체의 형식 ────────────────────────────────────────────────
+# ── 설문 파일 자체의 스키마 ────────────────────────────────────────────────
 
-def test_설문_파일이_형식에_맞는다():
+def test_설문_파일이_스키마에_맞는다():
     """읽는 순간 검사한다. 틀리면 서버가 뜨지 않는다."""
     d = S.definition()
     assert len(d.student) == 23 and len(d.parent) == 11

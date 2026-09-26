@@ -1,6 +1,6 @@
 """음독 오류 분석 — 참조 텍스트와 발화 전사의 정렬 기반 대조.
 
-[산식 정본 — 음독 개발전달 패키지 v1.0 전역 불변조건]
+[산식 출처 — 음독 개발전달 패키지 v1.0 전역 불변조건]
     A1 = scored_M ÷ (scored_time_ms / 60000)          음절/분
     A2 = scored_M ÷ (scored_M + scored_S + scored_D)  insertion 제외
 여기서 M=일치, S=대치, D=생략, I=첨가다.
@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from app.contracts.oral import (
+from app.schemas.oral import (
     AlignmentDeviations, AlignmentMode, OralReadingAnalysis, OralScoreStatus,
     OralUnscorableReason, QualityGate,
 )
@@ -179,7 +179,7 @@ def analyze_oral_reading(
     supervisor_error_count 는 감독자가 직접 센 오류 수(B안)다. 자동 산출을
     덮어쓰지 않고 나란히 보존한다. 그 대조가 A안 타당성의 근거가 된다.
 
-    scored_time_ms 는 1 이상이어야 한다 — 형식이 막는다(0 초 녹음은 없다).
+    scored_time_ms 는 1 이상이어야 한다 — 스키마가 막는다(0 초 녹음은 없다).
     """
     if scored_time_ms < 1:
         raise ValueError("scored_time_ms 는 1 이상이어야 한다 — 0 초 녹음은 없다")

@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contracts.student import BookRecommendation
+from app.schemas.student import BookRecommendation
 from app.models.core import (
     Book, Difficulty, GradeGroup, ReviewStatus, TextGenre,
 )
@@ -82,7 +82,7 @@ async def recommend_books(
 
 
 def to_view(b: Book, interest_topics: Optional[Sequence] = None) -> BookRecommendation:
-    """화면에 넘길 형식(contracts.student.BookRecommendation). 추천 사유를 함께 싣는다.
+    """화면에 넘길 스키마(schemas.student.BookRecommendation). 추천 사유를 함께 싣는다.
 
     아동에게 '이 책이 왜 너에게 맞는지' 보여주는 것이 §5-1 의 취지다.
     근거 없이 목록만 주면 '추천도서'와 다를 바 없다.

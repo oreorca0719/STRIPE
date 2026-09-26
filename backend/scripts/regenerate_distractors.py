@@ -40,11 +40,11 @@ load_dotenv(BACKEND_DIR / ".env")
 
 from anthropic import Anthropic                                  # noqa: E402
 from app.services.content import item_quality as Q               # noqa: E402
-from app.contracts.content import SeedQuestion                   # noqa: E402
+from app.schemas.content import SeedQuestion                   # noqa: E402
 
 
 def _question_groups(items: list) -> list:
-    """시드 파일의 지문별 문항을 형식으로 검사해 품질 점검에 넘긴다."""
+    """시드 파일의 지문별 문항을 스키마로 검사해 품질 점검에 넘긴다."""
     return [[SeedQuestion.model_validate(q) for q in it["questions"]] for it in items]
 
 MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]

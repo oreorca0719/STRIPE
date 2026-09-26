@@ -4,14 +4,14 @@
 였다. 그래서 **보정하지 않고 원본을 남기는 것**이 이 모듈의 계약이다.
 DB 에는 원본 이벤트만 저장하고, 집계는 이 모듈로 필요할 때 계산한다.
 
-[2026-09-25 형식 규격화로 바뀐 것]
-예전에는 잘못된 이벤트를 **조용히 버렸다**. 이제 형식이 **거부한다** —
-화면이 우리 코드라 형식이 틀리면 우리 결함이고, 드러나야 한다.
+[2026-09-25 스키마 규격화로 바뀐 것]
+예전에는 잘못된 이벤트를 **조용히 버렸다**. 이제 스키마가 **거부한다** —
+화면이 우리 코드라 스키마가 틀리면 우리 결함이고, 드러나야 한다.
 """
 import pytest
 from pydantic import ValidationError
 
-from app.contracts.measurement import AwayEvent, AwaySpan, SilentReadingSubmit
+from app.schemas.measurement import AwayEvent, AwaySpan, SilentReadingSubmit
 from app.services.diagnosis import attention as A
 
 
@@ -84,7 +84,7 @@ def test_이탈이_10퍼센트를_넘으면_주의로_표시한다():
     assert A.is_notable(A.summarize([ev("hidden", 0), ev("visible", 5_000)], 100_000)) is False
 
 
-# ── 형식이 거부하는 것 (예전에는 조용히 버렸다) ─────────────────────────
+# ── 스키마가 거부하는 것 (예전에는 조용히 버렸다) ─────────────────────────
 
 def _submit(events, reading_time_ms=60_000):
     return SilentReadingSubmit(session_id=1, round_id=1,
@@ -123,6 +123,6 @@ def test_읽기_시간은_0보다_큰_정수_ms다(ms):
 
 
 def test_읽기_시간이_0이면_집계하지_않는다():
-    """0 으로 나누는 비율을 만들지 않는다 — 형식이 먼저 막는다."""
+    """0 으로 나누는 비율을 만들지 않는다 — 스키마가 먼저 막는다."""
     with pytest.raises(ValidationError):
         A.summarize([], 0)

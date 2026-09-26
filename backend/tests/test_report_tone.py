@@ -11,8 +11,8 @@
 import pytest
 
 from app.models.core import PrescriptionGroup, ToneCode
-from app.contracts.judgment import Disclaimers
-from app.contracts.prescription import RecommendedTexts, TrainingPlan
+from app.schemas.judgment import Disclaimers
+from app.schemas.prescription import RecommendedTexts, TrainingPlan
 from app.services.diagnosis import report as R
 from tests.factories import profile
 

@@ -142,8 +142,8 @@
       <span><span class="purity pure"></span>순수 변환</span>
       <span><span class="purity mixed"></span>혼재</span>
       <span><span class="purity db"></span>DB 전담</span>
-      <span><i style="border-color:#56617f"></i>형식 확정</span>
-      <span><i style="border-color:#8a7ce0;border-top-style:dashed"></i>형식 미정</span>
+      <span><i style="border-color:#56617f"></i>스키마 확정</span>
+      <span><i style="border-color:#8a7ce0;border-top-style:dashed"></i>스키마 미정</span>
       <span><i style="border-color:#d06a6a;border-top-style:dashed"></i>두 곳이 다름</span>
       <span><i style="border-color:#FFE66D"></i>방금 실행됨</span>
     </div>
@@ -152,7 +152,7 @@
   <div class="card">
     <h2>연결 목록 <span id="edgecount" style="color:#6d7288"></span></h2>
     <table><thead><tr>
-      <th>보내는 쪽</th><th></th><th>받는 쪽</th><th>오가는 것</th><th>형식</th><th>형식 정의</th><th>비고</th>
+      <th>보내는 쪽</th><th></th><th>받는 쪽</th><th>오가는 것</th><th>스키마</th><th>스키마 정의</th><th>비고</th>
     </tr></thead><tbody id="edgerows"></tbody></table>
   </div>
 
@@ -536,7 +536,7 @@ function drawEdgeTable(){
       <td>${esc(label(e.src))}</td><td class="arrow">→</td><td>${esc(label(e.dst))}</td>
       <td class="pay">${esc(e.payload)}</td>
       <td><span class="st ${e.status}">${STATUS_KO[e.status]}</span></td>
-      <td class="pay">${esc(e.contract||'—')}</td>
+      <td class="pay">${esc(e.schema||'—')}</td>
       <td class="note">${esc(e.note||'')}</td></tr>`;
   }).join('');
 }

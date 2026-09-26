@@ -32,7 +32,7 @@ async def get_current_user(
     try:
         user_id = int(payload["sub"])
     except (TypeError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰 형식이 올바르지 않습니다.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰 스키마가 올바르지 않습니다.")
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()

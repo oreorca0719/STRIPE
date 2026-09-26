@@ -191,7 +191,7 @@ const disposing = ref(false)
 const logs = ref<DisposalLogItem[]>([])
 const error = ref('')
 
-// 삭제 수 형식(DeletedCounts)의 칸을 전부 적어야 컴파일된다 — 칸이 늘면 여기서 드러난다.
+// 삭제 수 스키마(DeletedCounts)의 칸을 전부 적어야 컴파일된다 — 칸이 늘면 여기서 드러난다.
 // 예전에는 처방·보호자 설문·보호자 연결이 빠져 있었다(서버도 세지 않았다).
 const COUNT_KO: Record<keyof DeletedCounts, string> = {
   student_profiles_count: '설문 프로필',

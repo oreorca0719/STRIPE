@@ -14,7 +14,7 @@
 [보정하지 않고 원본만 저장한다]
 이탈 시간을 자동으로 빼지 않는다. 얼마를 빼는 것이 맞는지는 기획·파일럿
 데이터로 정할 문제이고, 여기서 임의로 빼면 원본이 사라진다. DB 에는 원본
-이벤트(contracts.measurement.AwayEvents)만 남기고, 집계는 필요할 때 이
+이벤트(schemas.measurement.AwayEvents)만 남기고, 집계는 필요할 때 이
 모듈로 계산한다 — 집계 규칙(MIN_AWAY_MS 등)을 바꾸면 과거 기록에도 새 규칙이
 그대로 적용된다(원칙 4).
 
@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from app.contracts.measurement import AttentionSummary, AwayEvent, AwaySpan
+from app.schemas.measurement import AttentionSummary, AwayEvent, AwaySpan
 from app.enums import AwayEventType
 
 # 이보다 짧은 이탈은 집계에서 무시한다. 알림 팝업·포커스 흔들림처럼

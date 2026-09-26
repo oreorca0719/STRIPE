@@ -1,4 +1,4 @@
-"""형식 규격화 3차 — 개인정보 처리·검수 기록의 칸 타입.
+"""스키마 규격화 3차 — 개인정보 처리·검수 기록의 칸 타입.
 
 자유 문자열로 받던 정해진 값을 enum 으로 바꾼다(원칙 3). 사유별 집계·원칙별
 반려 집계를 낼 수 있게 하고, 목록 밖 값이 저장되는 것을 DB 가 막는다.
@@ -9,7 +9,7 @@ content_reviews     target_type → reviewtarget, decision → reviewdecision,
                     from_status · to_status → reviewstatus
 
 JSONB 칸(deleted_counts · consent_snapshot · checklist)은 DB 타입이 그대로다.
-형식은 코드(ContractJSONB)가 저장·읽기 때 검사한다.
+스키마는 코드(SchemaJSONB)가 저장·읽기 때 검사한다.
 
 [주의] 목록 밖 값이 들어 있는 행이 있으면 형 변환에서 실패한다 — 조용히 넘어가지
 않는다. 학생 데이터가 없어 변환 규칙을 두지 않았다.

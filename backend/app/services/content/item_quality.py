@@ -23,7 +23,7 @@ from collections import Counter
 from statistics import mean
 from typing import List, Sequence
 
-from app.contracts.content import N_CHOICES, QualityReport, SeedQuestion
+from app.schemas.content import N_CHOICES, QualityReport, SeedQuestion
 CHANCE = 1.0 / N_CHOICES          # 0.25
 STRATEGY_LIMIT = 0.40             # 이 이상이면 '찍기가 통한다'로 본다
 LENGTH_RATIO_LIMIT = 1.25         # 정답/오답 평균 길이비 상한

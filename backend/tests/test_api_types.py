@@ -1,6 +1,6 @@
-"""화면 타입(frontend/src/api-types.ts)이 서버 형식과 같은가, 화면이 그 타입을 쓰는가.
+"""화면 타입(frontend/src/api-types.ts)이 서버 스키마와 같은가, 화면이 그 타입을 쓰는가.
 
-[1] 타입 파일은 서버 형식에서 자동 생성한다. 서버 형식을 바꾸고 다시 만들지
+[1] 타입 파일은 서버 스키마에서 자동 생성한다. 서버 스키마를 바꾸고 다시 만들지
     않으면 여기서 실패한다.
 [2] 화면이 API 를 부를 때 응답 타입을 지정하지 않으면 실패한다. 타입 없이 부르면
     응답이 any 가 되어, 서버가 칸 이름을 바꿔도 화면은 컴파일되고 빈칸이 된다.
@@ -9,15 +9,15 @@
 import pathlib
 import re
 
-from app.contracts import typescript
+from app.schemas import typescript
 
 FRONT = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src"
 
 
-def test_화면_타입_파일이_서버_형식과_같다():
+def test_화면_타입_파일이_서버_스키마와_같다():
     assert typescript.OUT.read_text(encoding="utf-8") == typescript.render(), (
-        "frontend/src/api-types.ts 가 서버 형식과 다르다. "
-        "backend 에서 `python -m app.contracts.typescript` 로 다시 만든다")
+        "frontend/src/api-types.ts 가 서버 스키마와 다르다. "
+        "backend 에서 `python -m app.schemas.typescript` 로 다시 만든다")
 
 
 _CALL = re.compile(r"\b(?:api|axios)\.(get|post|patch|put|delete)\s*(<)?")
@@ -36,7 +36,7 @@ def test_화면_API_호출이_있다():
     assert sum(1 for _ in _calls()) >= 50
 
 
-# 서버에 아직 응답 형식이 없는 API (tests/test_api_contracts.ALLOWED_UNTYPED 와 같은 사유)
+# 서버에 아직 응답 스키마가 없는 API (tests/test_api_schemas.ALLOWED_UNTYPED 와 같은 사유)
 _ALLOWED_PATHS = ("/api/admin/pilot/export.csv",)
 
 

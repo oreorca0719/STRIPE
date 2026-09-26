@@ -47,7 +47,7 @@ _LABELS: Dict[str, tuple] = {
     "survey.reader_type":       ("독자 유형 판별",       "입력",     0),
     "content.readability":      ("지문 난도 지표",       "콘텐츠",   0),
     "content.item_quality":     ("문항 품질 점검",       "콘텐츠",   0),
-    "content.topic_tags":       ("주제 태그 정본",       "콘텐츠",   0),
+    "content.topic_tags":       ("주제 태그 허용 목록",       "콘텐츠",   0),
     "diagnosis.text_selection": ("지문 선택",            "배정",     1),
     "diagnosis.attention":      ("화면 이탈 집계",       "측정",     2),
     "stt.adapter":              ("STT 어댑터",           "측정",     2),
@@ -116,11 +116,11 @@ class Edge:
     payload: str                      # 무엇이 오가는가
     status: str = "fixed"             # fixed | undefined | mismatch
     note: str = ""
-    contract: str = ""                # 이 라인의 형식 정의 (app/contracts 의 클래스)
+    schema: str = ""                # 이 인터페이스의 스키마 정의 (app/schemas 의 클래스)
 
     # status 의 뜻
-    #   fixed      형식이 정해져 있고 양쪽이 같은 것을 쓴다
-    #   undefined  형식을 적어 둔 곳이 없다. 지금은 우리 코드끼리만 맞다
+    #   fixed      스키마가 정해져 있고 양쪽이 같은 것을 쓴다
+    #   undefined  스키마를 적어 둔 곳이 없다. 지금은 우리 코드끼리만 맞다
     #   mismatch   두 곳에서 다르게 정의돼 있다. 지금 어긋나 있다
 
 
@@ -136,10 +136,10 @@ EDGES: List[Edge] = [
          "type_2 는 A-4 생애 그래프가 있어야 산출된다"),
     Edge("survey.definition", "diagnosis.text_selection",
          "interest_topics (C-1 코드 배열)", "mismatch",
-         "지문 topic_tags 와 어휘가 갈려 있었다. 15편이 아직 정본 밖"),
+         "지문 topic_tags 와 어휘가 갈려 있었다. 15편이 아직 허용 목록 밖"),
     Edge("content.topic_tags", "diagnosis.text_selection",
          "허용 주제 코드 15종", "fixed",
-         "C-1 선지를 정본으로 읽는다"),
+         "C-1 선지를 단일 진실 공급원으로 읽는다"),
     Edge("content.readability", "diagnosis.text_selection",
          "난도 라벨 (승인된 지문만)", "fixed",
          "라벨이 무엇을 가르는지는 STR-106 대기"),
@@ -150,11 +150,11 @@ EDGES: List[Edge] = [
     Edge("diagnosis.text_selection", "diagnosis.scoring",
          "지문 + 문항 → 고른 답", "fixed",
          "그 회차 지문의 문항만, 선지 번호 1~선지 수. 회차·문항당 응답 하나",
-         contract="measurement.AnswerSubmit"),
+         schema="measurement.AnswerSubmit"),
     Edge("diagnosis.text_selection", "diagnosis.attention",
          "읽기 시간(ms) + 이탈 이벤트 원본", "fixed",
          "읽기 시간은 두 버튼 사이 실제 시각 차이. 회차당 한 번(중복 409)",
-         contract="measurement.SilentReadingSubmit"),
+         schema="measurement.SilentReadingSubmit"),
     Edge("stt.adapter", "stt.analyzer", "전사 텍스트", "fixed"),
     Edge("stt.vad", "stt.analyzer", "발화 구간 (참고용)", "fixed",
          "채점 시간으로 쓰지 않는다 — 계약 금지 사항"),
@@ -163,17 +163,17 @@ EDGES: List[Edge] = [
     Edge("diagnosis.scoring", "diagnosis.adaptive",
          "회차 집계 → Betts 이력", "fixed",
          "2연속 instructional/frustration 으로 종료 판단. 회차당 집계 하나(중복 완료 409)",
-         contract="measurement.RoundAggregate → AdaptiveDecision"),
+         schema="measurement.RoundAggregate → AdaptiveDecision"),
 
     # 측정 → 판정
     Edge("diagnosis.scoring", "diagnosis.judgment",
          "CellResponse[] (영역×장르×정오)", "fixed",
-         contract="judgment.CellResponse"),
+         schema="judgment.CellResponse"),
     Edge("diagnosis.attention", "diagnosis.judgment",
          "A4 (음절/초)", "fixed",
          "A4 는 묵독 제출 API 가 지문 음절 수 ÷ 읽기 시간으로 계산해 저장한다. "
          "이탈 원본은 판정에 쓰지 않는다(보정 방식 미정)",
-         contract="fluency_results.a4_syllable_per_sec"),
+         schema="fluency_results.a4_syllable_per_sec"),
     Edge("stt.analyzer", "diagnosis.judgment",
          "A1 (음절/분) · A2", "undefined",
          "현재 음독은 판정에 도달하지 않는다. D-1 활성 시 연결될 경로"),
@@ -185,14 +185,14 @@ EDGES: List[Edge] = [
     Edge("diagnosis.judgment", "diagnosis.pipeline",
          "유창성·독해 판정 · 9칸 배치 · 약점 프로필 6칸", "fixed",
          "칸 이름은 명세대로 weakness_profile_12 지만 6칸이다 — 12 의 뜻은 기획 확인 대기",
-         contract="judgment.FluencyJudgment · ComprehensionJudgment · MatrixPlacement"),
+         schema="judgment.FluencyJudgment · ComprehensionJudgment · MatrixPlacement"),
     Edge("diagnosis.pipeline", "diagnosis.prescription",
          "처방군 · 영점 난도 · 약점 프로필", "fixed",
-         contract="judgment.WeaknessProfile → prescription.TrainingPlan"),
+         schema="judgment.WeaknessProfile → prescription.TrainingPlan"),
     Edge("diagnosis.pipeline", "diagnosis.environment",
          "home_environment_score (보호자 B-3~B-6)", "fixed",
          "경계값이 비어 항상 건너뛴다 (skipped_reason=no_thresholds)",
-         contract="prescription.EnvironmentResult"),
+         schema="prescription.EnvironmentResult"),
     Edge("diagnosis.prescription", "diagnosis.text_selection",
          "난도 범위 (difficulty_range)", "fixed",
          "주제·장르 필터는 호출되지 않는다 — STR-111"),
@@ -201,18 +201,18 @@ EDGES: List[Edge] = [
     Edge("diagnosis.prescription", "diagnosis.report",
          "추천 지문 id 목록 · 훈련 대상 · 톤", "fixed",
          "처방은 지문을 id 로만 가리킨다. 제목은 리포트가 지문 테이블에서 읽는다",
-         contract="prescription.RecommendedTexts · TrainingPlan"),
+         schema="prescription.RecommendedTexts · TrainingPlan"),
     Edge("diagnosis.environment", "diagnosis.report",
          "environment_level · environment_adjustment", "undefined",
-         "형식은 정했으나 리포트가 읽지 않는다 — 저장만 된다. 소비처(보호자 리포트) 미정",
-         contract="prescription.EnvironmentResult"),
+         "스키마는 정했으나 리포트가 읽지 않는다 — 저장만 된다. 소비처(보호자 리포트) 미정",
+         schema="prescription.EnvironmentResult"),
     Edge("diagnosis.prescription", "diagnosis.book_recommend",
          "난도 범위 · 관심 주제", "fixed",
          "books 테이블이 비어 결과는 빈 목록"),
     Edge("diagnosis.judgment", "diagnosis.report",
          "판정 결과 + 면책 코드 집합", "mismatch",
          "우리 쪽은 7종 enum 으로 고정했다. 계약 6종과 여전히 다르다 — 문준석 확인 대기",
-         contract="judgment.Disclaimers → report.ReportContent"),
+         schema="judgment.Disclaimers → report.ReportContent"),
 ]
 
 
@@ -333,7 +333,7 @@ def as_dict() -> dict:
                       4: "처방", 5: "산출물"},
         "edges": [
             {"src": e.src, "dst": e.dst, "payload": e.payload,
-             "status": e.status, "note": e.note, "contract": e.contract}
+             "status": e.status, "note": e.note, "schema": e.schema}
             for e in EDGES
         ],
         "features": [

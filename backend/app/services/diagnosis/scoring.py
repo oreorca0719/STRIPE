@@ -4,8 +4,8 @@
 """
 from typing import Optional, Sequence
 
-from app.contracts.judgment import CellResponse
-from app.contracts.measurement import (
+from app.schemas.judgment import CellResponse
+from app.schemas.measurement import (
     AREA_ORDER, AreaTally, AreaTallyView, RoundAggregate, RoundAggregateView,
 )
 from app.models.core import BettsLevel
@@ -25,7 +25,7 @@ def betts_level(accuracy: float) -> BettsLevel:
 
 
 def aggregate_round(responses: Sequence[CellResponse]) -> RoundAggregate:
-    """문항 응답 → 회차 집계 (영역 3칸의 정답 수·문항 수). 결과 형식: contracts.measurement.RoundAggregate"""
+    """문항 응답 → 회차 집계 (영역 3칸의 정답 수·문항 수). 결과 스키마: schemas.measurement.RoundAggregate"""
     return RoundAggregate(areas=[
         AreaTally(
             area=area,

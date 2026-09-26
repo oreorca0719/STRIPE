@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from app.contracts.oral import SpeechTiming, VadStatus
+from app.schemas.oral import SpeechTiming, VadStatus
 
 SAMPLE_RATE = 16000
 WINDOW = 512          # silero v5 는 16kHz 에서 512 샘플 고정

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.models.user import User
-from app.contracts.oral import (
+from app.schemas.oral import (
     OralTranscription, SpeechTiming, SttAdapterName, SttHealth, VadStatus,
 )
 from app.services.stt import ClovaSTTAdapter, MockSTTAdapter

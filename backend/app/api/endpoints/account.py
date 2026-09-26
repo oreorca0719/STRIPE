@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.contracts.privacy import (
+from app.schemas.privacy import (
     CodeLabel, DeletionReasons, DeletionRequestIn, DeletionRequestReceipt, DeletionRequestView,
     MyDeletionRequests,
 )
@@ -54,7 +54,7 @@ _OPEN = DeletionRequestStatus.pending
 
 
 def request_view(r: DeletionRequest) -> DeletionRequestView:
-    """삭제 요청 한 건 — 요청자·관리자 화면이 같은 형식을 쓴다.
+    """삭제 요청 한 건 — 요청자·관리자 화면이 같은 스키마를 쓴다.
 
     백업 안내 문구는 목록 쪽에 한 번만 싣는다(예전에는 건마다 반복했다).
     """

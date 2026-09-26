@@ -12,8 +12,8 @@ from app.models.core import (
     StudentProfile, JudgmentResult, PrescriptionResult, ParentResponse,
     FluencyType, Difficulty, ReliabilityFlag, ToneCode,
 )
-from app.contracts.judgment import CellResponse, Disclaimers
-from app.contracts.prescription import RecommendedTexts, TrainingPlan
+from app.schemas.judgment import CellResponse, Disclaimers
+from app.schemas.prescription import RecommendedTexts, TrainingPlan
 from app.services.diagnosis import environment as E
 from app.services.diagnosis import judgment as J
 from app.services.diagnosis import prescription as P

@@ -1,6 +1,6 @@
 """지문 난도 지표 산출 테스트 (STR-103). 순수 함수, DB 불필요."""
 import pytest
-from app.contracts.content import ReadabilityMetrics
+from app.schemas.content import ReadabilityMetrics
 from app.services.content.readability import analyze
 
 
@@ -88,7 +88,7 @@ def test_score_is_bounded():
     assert 0.0 <= analyze(absurd).readability_score <= 100.0
 
 
-def test_저장_형식으로_왕복된다():
+def test_저장_스키마로_왕복된다():
     """texts.readability_metrics 에 저장했다 읽어도 같은 값이다."""
     m = analyze(EASY)
     back = ReadabilityMetrics.model_validate(m.model_dump(mode="json"))

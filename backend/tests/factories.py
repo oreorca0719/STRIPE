@@ -1,9 +1,9 @@
-"""테스트용 형식 객체 생성기.
+"""테스트용 스키마 객체 생성기.
 
-테스트가 운영에서 나올 수 없는 모양(3칸짜리 dict 등)을 넣지 않도록, 형식을
+테스트가 운영에서 나올 수 없는 모양(3칸짜리 dict 등)을 넣지 않도록, 스키마를
 통과하는 객체만 만든다. 적지 않은 칸은 문항 0개(측정 안 함)로 채운다.
 """
-from app.contracts.judgment import CELL_ORDER, WeaknessCell, WeaknessProfile
+from app.schemas.judgment import CELL_ORDER, WeaknessCell, WeaknessProfile
 
 
 def profile(**cells) -> WeaknessProfile:

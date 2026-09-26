@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-from app.contracts.content import ReadabilityMetrics
+from app.schemas.content import ReadabilityMetrics
 from app.enums import VocabularyLevel
 
 # 종결 부호 기준 문장 분리. 말줄임표·따옴표 뒤 종결을 함께 처리한다.

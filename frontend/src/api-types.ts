@@ -1,8 +1,8 @@
 /* eslint-disable */
 // 자동 생성 — 손으로 고치지 않는다.
-// 정본: backend/app/contracts/ (서버 형식). 다시 만들기: backend 에서
-//   python -m app.contracts.typescript
-// 서버 형식과 다르면 backend/tests/test_api_types.py 가 실패한다.
+// 단일 진실 공급원: backend/app/schemas/ (서버 스키마). 다시 만들기: backend 에서
+//   python -m app.schemas.typescript
+// 서버 스키마와 다르면 backend/tests/test_api_types.py 가 실패한다.
 
 /** A4(음절/초) 분포. 타당성 범위 안의 값만 구간에 넣는다. */
 export interface A4Distribution {
@@ -182,7 +182,7 @@ export interface BookBasis {
 /** 도서 난도를 무엇을 근거로 매겼나 (STR-108). */
 export type BookDifficultySource = "publisher" | "curriculum_list" | "manual"
 
-/** '책' 하면 드는 느낌 — 정본: survey_questions.json student A-5 선지 */
+/** '책' 하면 드는 느낌 — 단일 진실 공급원: survey_questions.json student A-5 선지 */
 export type BookImage = "boring" | "difficult" | "obligation" | "study" | "no_interest" | "fun" | "curious" | "helpful" | "enjoyable" | "other"
 
 /** 추천 도서 한 권과 추천 사유. */
@@ -257,7 +257,7 @@ export interface BulkIssued {
 /**
  * 파일럿 학생 계정 다건 발급 (STR-90).
  *
- * 아이디는 `{학년}-{일련번호 3자리}` 형식으로 자동 생성한다(elem5-017).
+ * 아이디는 `{학년}-{일련번호 3자리}` 스키마로 자동 생성한다(elem5-017).
  * 학년 구분은 되면서 실명이 들어가지 않는 식별코드다. 실명을 받지 않으므로
  * 이름도 같은 값을 쓴다 — 식별코드↔학생 매핑표는 시스템 밖에서 관리한다.
  *
@@ -761,7 +761,7 @@ export interface FluencyView {
 
 export type Gender = "M" | "F" | "other"
 
-/** 선호 글 종류 — 정본: survey_questions.json student C-3 선지 */
+/** 선호 글 종류 — 단일 진실 공급원: survey_questions.json student C-3 선지 */
 export type GenrePreference = "story" | "comics" | "science_nature" | "history_society" | "sports" | "cooking_life" | "fantasy" | "mystery_horror" | "poem_essay" | "other"
 
 export type GradeGroup = "G4_G6" | "G7"
@@ -975,7 +975,7 @@ export interface MySummaryResponse {
   latest: MySessionItem | null;
 }
 
-/** 책을 안 읽는 이유 — 정본: survey_questions.json student A-6 선지 */
+/** 책을 안 읽는 이유 — 단일 진실 공급원: survey_questions.json student A-6 선지 */
 export type NonReadingReason = "not_fun" | "no_interest" | "forced" | "not_understood" | "other_activities" | "no_time" | "no_habit" | "other"
 
 /** 숫자를 입력하거나 슬라이더로 고른다. */
@@ -1021,7 +1021,7 @@ export interface OralFluencySubmit {
   round_id: number;
   /** 녹음 시작~끝, 묵독과 같은 단위 */
   reading_time_ms: number;
-  /** 감독자가 센 총 오류 수. B안의 정본 */
+  /** 감독자가 센 총 오류 수. B안의 기준값 */
   supervisor_error_count: number;
   transcript?: string | null;
 }
@@ -1111,10 +1111,10 @@ export interface Overview {
   approved_question_count: number;
 }
 
-/** 보호자의 도서 선택 기준 — 정본: survey_questions.json parent E-6 선지 */
+/** 보호자의 도서 선택 기준 — 단일 진실 공급원: survey_questions.json parent E-6 선지 */
 export type ParentBookCriteria = "child_interest" | "curriculum" | "recommendation" | "bestseller" | "none" | "other"
 
-/** 보호자가 참고하는 정보원 — 정본: survey_questions.json parent E-5 선지 */
+/** 보호자가 참고하는 정보원 — 단일 진실 공급원: survey_questions.json parent E-5 선지 */
 export type ParentInfoSource = "community" | "youtube" | "sns" | "teacher" | "library" | "other_parents" | "none" | "other"
 
 /**
@@ -1773,7 +1773,7 @@ export interface TokenResponse {
 
 export type ToneCode = "challenge" | "encourage" | "autonomy" | "scaffold" | "success_first"
 
-/** 관심 주제 코드 — 정본: survey_questions.json student C-1 선지 */
+/** 관심 주제 코드 — 단일 진실 공급원: survey_questions.json student C-1 선지 */
 export type TopicCode = "animal" | "science" | "history" | "sports" | "mystery" | "fantasy" | "humor" | "friendship" | "family" | "art_music" | "cooking" | "game" | "world" | "horror" | "society" | "other"
 
 /**
@@ -1853,7 +1853,7 @@ export interface ValidationError {
 /** 지문 어휘 등급 — 어절 길이 기반 대리 지표 (content.readability). */
 export type VocabularyLevel = "basic" | "intermediate" | "advanced"
 
-/** 화면에 보내는 약점 칸 — 저장 형식에 서버가 계산한 정답률을 붙였다. */
+/** 화면에 보내는 약점 칸 — 저장 스키마에 서버가 계산한 정답률을 붙였다. */
 export interface WeaknessCellView {
   /** 독해 영역 */
   area: TargetArea;
@@ -1869,11 +1869,11 @@ export interface WeaknessCellView {
 
 /** 화면에 보내는 약점 프로필 (판정 API · 관리자 진단 상세). */
 export interface WeaknessProfileView {
-  /** 6칸, 저장 형식과 같은 순서 */
+  /** 6칸, 저장 스키마와 같은 순서 */
   cells: WeaknessCellView[];
 }
 
-/** API 경로별 응답 타입. 키는 `메서드 경로` 다. 형식이 없는 API 는 싣지 않는다. */
+/** API 경로별 응답 타입. 키는 `메서드 경로` 다. 스키마가 없는 API 는 싣지 않는다. */
 export interface ApiResponses {
   "GET /api/account/deletion-request": MyDeletionRequests;
   "POST /api/account/deletion-request": DeletionRequestReceipt;

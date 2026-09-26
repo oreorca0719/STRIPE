@@ -207,11 +207,11 @@ def test_adjacent_difficulties():
 
 
 # =========================================================================
-# 적응형 판단의 형식 — 계속·종료의 칸이 섞이면 거부한다
+# 적응형 판단의 스키마 — 계속·종료의 칸이 섞이면 거부한다
 # =========================================================================
 from pydantic import ValidationError  # noqa: E402
 
-from app.contracts.measurement import AdaptiveDecision  # noqa: E402
+from app.schemas.measurement import AdaptiveDecision  # noqa: E402
 from app.models.core import DiagSessionStatus, ReliabilityFlag, TextGenre  # noqa: E402
 
 

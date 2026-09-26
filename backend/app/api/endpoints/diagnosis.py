@@ -10,14 +10,14 @@ from app.models.core import (
     Book, Difficulty, Label5, ConsentRecord,
     AdaptiveAction, ReliabilityFlag, TargetArea,
 )
-from app.contracts.judgment import CellResponse
-from app.contracts.student import BookBasis, BooksForMe
+from app.schemas.judgment import CellResponse
+from app.schemas.student import BookBasis, BooksForMe
 from app.enums import BooksUnavailableReason, FINISHED_SESSION_STATUSES
-from app.contracts.measurement import (
+from app.schemas.measurement import (
     AdaptiveDecision, AnswerSubmit, AwayEvents, SilentReadingSubmit,
 )
 from app.core.config import settings
-from app.contracts.session import (
+from app.schemas.session import (
     SessionCreate, SessionResponse,
     RoundCreate, RoundResponse,
     FluencyResultResponse,
@@ -28,15 +28,15 @@ from app.contracts.session import (
     RoundContentResponse, QuestionPublic,
     MySessionItem, MySummaryResponse, ResumePhase, ResumeResponse,
 )
-from app.contracts.survey import (
+from app.schemas.survey import (
     ProfileCreate, ProfileResponse, ReaderTypeProbe, ReaderTypeProbeResponse,
 )
 from typing import List, Optional
 from app.services.diagnosis import scoring, adaptive, text_selection, pipeline, report
 from app.services.diagnosis import prescription as prescription_svc, book_recommend
 from app.services.stt import analyzer as oral_analyzer
-from app.contracts.oral import OralFluencySubmit
-from app.contracts.survey import SurveyQuestions
+from app.schemas.oral import OralFluencySubmit
+from app.schemas.survey import SurveyQuestions
 from app.services.survey import definition as D
 from app.services.survey import reader_type as RT
 from app.api.deps import get_current_user
@@ -603,7 +603,7 @@ async def submit_oral_fluency(
         supervisor_error_count=data.supervisor_error_count,
     )
 
-    # 감독자가 센 오류 수가 정본이다(B안). 자동 채점은 나란히 둔다 — 이 대조가
+    # 감독자가 센 오류 수가 단일 진실 공급원이다(B안). 자동 채점은 나란히 둔다 — 이 대조가
     # A안 타당성의 근거가 된다. 채점 불가면 A1·A2 는 null 이다(0 아님).
     result = FluencyResult(
         session_id=data.session_id,
@@ -627,7 +627,7 @@ async def submit_silent_fluency(
 ):
     """묵독 한 번의 측정 저장 (MVP1 기본 경로). A4(음절/초)를 산출한다.
 
-    형식: contracts.measurement.SilentReadingSubmit — 읽기 시간은 두 버튼 사이의
+    스키마: schemas.measurement.SilentReadingSubmit — 읽기 시간은 두 버튼 사이의
     실제 시각 차이(ms), 이탈 이벤트는 시간순 원본.
 
     [회차당 한 번]
@@ -823,7 +823,7 @@ async def complete_round(
     )
     betts_history = [b for (b,) in hist_q.all() if b is not None]
 
-    # 3) 적응형 판단 — 형식: contracts.measurement.AdaptiveDecision
+    # 3) 적응형 판단 — 스키마: schemas.measurement.AdaptiveDecision
     decision = adaptive.decide(
         round_number=round_.round_number,
         betts_history=betts_history,

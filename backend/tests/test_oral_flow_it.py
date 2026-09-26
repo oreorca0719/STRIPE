@@ -233,7 +233,7 @@ def test_다른_세션의_회차는_거부한다():
     ({"reading_time_ms": -5, "supervisor_error_count": 0}, "시간 음수"),
     ({"reading_time_ms": 20000, "supervisor_error_count": -1}, "오류 음수"),
     ({"reading_time_ms": 20.5, "supervisor_error_count": 0}, "ms 는 정수"),
-    ({"reading_time_ms": 20000, "supervisor_error_count": 0, "raw_data": {}}, "형식 없는 dict"),
+    ({"reading_time_ms": 20000, "supervisor_error_count": 0, "raw_data": {}}, "스키마 없는 dict"),
 ])
 def test_말이_안_되는_값은_거부한다(body, why):
     async def go():
@@ -296,7 +296,7 @@ def test_이탈_이벤트가_묵독_기록에_남는다():
             row = (await db.execute(
                 select(FluencyResult).where(FluencyResult.type == FluencyType.silent)
             )).scalar_one()
-            # 원본이 형식 객체로 읽힌다
+            # 원본이 스키마 객체로 읽힌다
             assert [e.at_ms for e in row.away_events.events] == [10_000, 25_000]
             assert row.oral_analysis is None                  # 묵독엔 음독 칸이 비어 있다
             summary = attention.summarize(row.away_events.events, row.reading_time_ms)
@@ -313,7 +313,7 @@ def test_이탈_이벤트가_묵독_기록에_남는다():
     ({"silent_reading_time": 60, "away_events": []}, "옛 칸 이름(초 단위)"),
     ({"reading_time_ms": 60_000, "away_events": [], "comprehension_check_score": 1}, "없는 칸"),
 ])
-def test_묵독_기록_형식이_틀리면_거부한다(body, why):
+def test_묵독_기록_스키마가_틀리면_거부한다(body, why):
     """예전에는 이탈 목록이 없어도, 잘못된 이벤트가 섞여도 받아서 조용히 버렸다."""
     async def go():
         s = await _seed()
@@ -440,9 +440,9 @@ def test_같은_세션을_두_번_판정하지_않는다():
     _run(go)
 
 
-# ── 녹음 API 의 응답 형식 ────────────────────────────────────────────────
+# ── 녹음 API 의 응답 스키마 ────────────────────────────────────────────────
 
-def test_전사_응답은_형식을_따른다():
+def test_전사_응답은_스키마를_따른다():
     """Mock 어댑터로 전사·대조까지 돈다. 응답은 OralTranscription 이다."""
     async def go():
         s = await _seed()

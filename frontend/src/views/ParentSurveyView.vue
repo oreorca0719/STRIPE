@@ -119,7 +119,7 @@ async function load() {
     }
     // 이전 응답이 있으면 채워 넣는다. 처음부터 다시 쓰게 하면 고치려는
     // 보호자가 오히려 응답을 빠뜨린다.
-    // 문항의 저장 칸 이름이 응답 형식의 칸 이름과 같다(서버 테스트가 보장).
+    // 문항의 저장 칸 이름이 응답 스키마의 칸 이름과 같다(서버 테스트가 보장).
     const prev = latestRes.data as unknown as Record<string, SurveyValue> | null
     if (prev) {
       previous.value = true

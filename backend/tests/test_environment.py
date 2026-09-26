@@ -6,7 +6,7 @@
 """
 import pytest
 
-from app.contracts.prescription import EnvironmentAdjustment as Adj
+from app.schemas.prescription import EnvironmentAdjustment as Adj
 from app.models.core import EnvironmentSkipReason as Skip, GradeGroup, Level3, ReaderType2
 from app.services.diagnosis import environment as E
 
@@ -124,7 +124,7 @@ def test_중위_상위는_고정형이어도_조절하지_않는다(score):
 # ── 불변식 ───────────────────────────────────────────────────────────────
 
 def test_처방군을_바꾸는_출력이_없다():
-    """환경은 3번째 진단 축이 아니다. 산출물 형식에 처방군·난도 관련 칸이 없어야 한다."""
+    """환경은 3번째 진단 축이 아니다. 산출물 스키마에 처방군·난도 관련 칸이 없어야 한다."""
     assert set(Adj.model_fields) == {"syllable_limit", "success_emphasis"}
     for score in range(E.ENV_SCORE_MIN, E.ENV_SCORE_MAX + 1):
         for t2 in (None, *ReaderType2):

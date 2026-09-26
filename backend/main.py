@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.contracts.ops import Health, Readiness, ReadinessChecks
+from app.schemas.ops import Health, Readiness, ReadinessChecks
 from app.enums import HealthStatus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal

@@ -29,7 +29,7 @@ load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
 from anthropic import Anthropic  # noqa: E402
-from app.contracts.content import SeedText  # noqa: E402
+from app.schemas.content import SeedText  # noqa: E402
 
 # 생성 모델 (품질 우선). 실패 시 폴백.
 MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
@@ -207,8 +207,8 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
     data["difficulty_level"] = difficulty
     data["topic_tags"] = [topic]
     data["syllable_count"] = count_syllables(data.get("content", ""))
-    # 시드 파일 형식을 여기서 건다. 생성 시점에 막지 않으면 '매칭되지 않는 지문'
-    # (정본 밖 태그)이나 칸이 빠진 문항이 조용히 쌓인다. 실패하면 재시도한다.
+    # 시드 파일 스키마를 여기서 건다. 생성 시점에 막지 않으면 '매칭되지 않는 지문'
+    # (허용 목록 밖 태그)이나 칸이 빠진 문항이 조용히 쌓인다. 실패하면 재시도한다.
     return SeedText.model_validate(data).model_dump(mode="json")
 
 
