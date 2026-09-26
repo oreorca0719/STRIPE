@@ -208,7 +208,7 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
     data["topic_tags"] = [topic]
     data["syllable_count"] = count_syllables(data.get("content", ""))
     # 시드 파일 스키마를 여기서 건다. 생성 시점에 막지 않으면 '매칭되지 않는 지문'
-    # (허용 목록 밖 태그)이나 칸이 빠진 문항이 조용히 쌓인다. 실패하면 재시도한다.
+    # (allowlist 밖 태그)이나 칸이 빠진 문항이 조용히 쌓인다. 실패하면 재시도한다.
     return SeedText.model_validate(data).model_dump(mode="json")
 
 

@@ -90,7 +90,7 @@ def render() -> str:
     out = [
         "/* eslint-disable */",
         "// 자동 생성 — 손으로 고치지 않는다.",
-        "// 단일 진실 공급원: backend/app/schemas/ (서버 스키마). 다시 만들기: backend 에서",
+        "// SSOT: backend/app/schemas/ (서버 스키마). 다시 만들기: backend 에서",
         "//   python -m app.schemas.typescript",
         "// 서버 스키마와 다르면 backend/tests/test_api_types.py 가 실패한다.",
         "",

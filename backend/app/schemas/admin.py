@@ -29,7 +29,7 @@ from app.enums import (
 
 from app.schemas.content import ReadabilityMetrics  # noqa: E402
 
-TopicCode = Text("주제 코드. 단일 진실 공급원은 C-1 선지 15종(content.topic_tags) — 허용 목록 밖 지문 "
+TopicCode = Text("주제 코드. SSOT는 C-1 선지 15종(content.topic_tags) — allowlist 밖 지문 "
                  "15편이 재태깅 대기라 조회에서는 막지 않는다. 적재·설문 입력에서 막는다")
 
 

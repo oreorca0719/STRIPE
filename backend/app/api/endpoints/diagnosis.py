@@ -603,7 +603,7 @@ async def submit_oral_fluency(
         supervisor_error_count=data.supervisor_error_count,
     )
 
-    # 감독자가 센 오류 수가 단일 진실 공급원이다(B안). 자동 채점은 나란히 둔다 — 이 대조가
+    # 감독자가 센 오류 수가 SSOT다(B안). 자동 채점은 나란히 둔다 — 이 대조가
     # A안 타당성의 근거가 된다. 채점 불가면 A1·A2 는 null 이다(0 아님).
     result = FluencyResult(
         session_id=data.session_id,

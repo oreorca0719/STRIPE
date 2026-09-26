@@ -1,6 +1,6 @@
 """설문 문항 정의 조회 (STR-122).
 
-문항의 단일 진실 공급원은 `app/data/survey_questions.json` 하나다. 화면은 이 정의를 받아
+문항의 SSOT는 `app/data/survey_questions.json` 하나다. 화면은 이 정의를 받아
 렌더링만 하고, 서버는 같은 정의로 응답을 검증한다.
 
 [왜 화면에 하드코딩하지 않는가]

@@ -1,6 +1,6 @@
 /* eslint-disable */
 // 자동 생성 — 손으로 고치지 않는다.
-// 단일 진실 공급원: backend/app/schemas/ (서버 스키마). 다시 만들기: backend 에서
+// SSOT: backend/app/schemas/ (서버 스키마). 다시 만들기: backend 에서
 //   python -m app.schemas.typescript
 // 서버 스키마와 다르면 backend/tests/test_api_types.py 가 실패한다.
 
@@ -182,7 +182,7 @@ export interface BookBasis {
 /** 도서 난도를 무엇을 근거로 매겼나 (STR-108). */
 export type BookDifficultySource = "publisher" | "curriculum_list" | "manual"
 
-/** '책' 하면 드는 느낌 — 단일 진실 공급원: survey_questions.json student A-5 선지 */
+/** '책' 하면 드는 느낌 — SSOT: survey_questions.json student A-5 선지 */
 export type BookImage = "boring" | "difficult" | "obligation" | "study" | "no_interest" | "fun" | "curious" | "helpful" | "enjoyable" | "other"
 
 /** 추천 도서 한 권과 추천 사유. */
@@ -761,7 +761,7 @@ export interface FluencyView {
 
 export type Gender = "M" | "F" | "other"
 
-/** 선호 글 종류 — 단일 진실 공급원: survey_questions.json student C-3 선지 */
+/** 선호 글 종류 — SSOT: survey_questions.json student C-3 선지 */
 export type GenrePreference = "story" | "comics" | "science_nature" | "history_society" | "sports" | "cooking_life" | "fantasy" | "mystery_horror" | "poem_essay" | "other"
 
 export type GradeGroup = "G4_G6" | "G7"
@@ -975,7 +975,7 @@ export interface MySummaryResponse {
   latest: MySessionItem | null;
 }
 
-/** 책을 안 읽는 이유 — 단일 진실 공급원: survey_questions.json student A-6 선지 */
+/** 책을 안 읽는 이유 — SSOT: survey_questions.json student A-6 선지 */
 export type NonReadingReason = "not_fun" | "no_interest" | "forced" | "not_understood" | "other_activities" | "no_time" | "no_habit" | "other"
 
 /** 숫자를 입력하거나 슬라이더로 고른다. */
@@ -1111,10 +1111,10 @@ export interface Overview {
   approved_question_count: number;
 }
 
-/** 보호자의 도서 선택 기준 — 단일 진실 공급원: survey_questions.json parent E-6 선지 */
+/** 보호자의 도서 선택 기준 — SSOT: survey_questions.json parent E-6 선지 */
 export type ParentBookCriteria = "child_interest" | "curriculum" | "recommendation" | "bestseller" | "none" | "other"
 
-/** 보호자가 참고하는 정보원 — 단일 진실 공급원: survey_questions.json parent E-5 선지 */
+/** 보호자가 참고하는 정보원 — SSOT: survey_questions.json parent E-5 선지 */
 export type ParentInfoSource = "community" | "youtube" | "sns" | "teacher" | "library" | "other_parents" | "none" | "other"
 
 /**
@@ -1773,7 +1773,7 @@ export interface TokenResponse {
 
 export type ToneCode = "challenge" | "encourage" | "autonomy" | "scaffold" | "success_first"
 
-/** 관심 주제 코드 — 단일 진실 공급원: survey_questions.json student C-1 선지 */
+/** 관심 주제 코드 — SSOT: survey_questions.json student C-1 선지 */
 export type TopicCode = "animal" | "science" | "history" | "sports" | "mystery" | "fantasy" | "humor" | "friendship" | "family" | "art_music" | "cooking" | "game" | "world" | "horror" | "society" | "other"
 
 /**

@@ -29,7 +29,7 @@ def test_모든_API가_응답_스키마를_단다():
     assert not missing, f"응답 스키마(response_model)이 없는 API: {missing}"
 
 
-def test_허용_목록이_낡지_않았다():
+def test_allowlist이_낡지_않았다():
     typed_or_gone = [k for k in ALLOWED_UNTYPED
                      if not any((m, p) == k and rm is None for m, p, rm in _routes())]
     assert not typed_or_gone, f"이미 스키마가 달렸거나 없어진 API — 목록에서 지운다: {typed_or_gone}"

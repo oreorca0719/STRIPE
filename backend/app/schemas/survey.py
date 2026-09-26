@@ -9,7 +9,7 @@
 막을 수 없고, 읽는 순간 검사해야 한다(원칙 — 바깥에서 들어오는 입구).
 문항은 응답 유형마다 필요한 칸이 달라, 유형별로 갈라지는 스키마로 둔다.
 
-[선지는 파일이 단일 진실 공급원]
+[선지는 파일이 SSOT]
 응답 스키마의 값 목록(관심 주제·선호 장르·성별·척도 값 등)은 이 파일의 선지에서
 만든다. 코드에 다시 적지 않는다(원칙 5) — 선지를 바꾸면 응답 스키마·화면 타입이
 함께 바뀐다.
@@ -41,7 +41,7 @@ class Option(Schema):
     """선지 한 개. value 가 저장값이고 순서와 무관하다(scale_direction 참조)."""
     label: Text("화면 문구")
     value: Union[Annotated[StrictInt, Unitless("척도 점수·학년 — 문항마다 뜻이 다르다")],
-                 Text("범주 코드 — 이 파일이 응답 enum 의 단일 진실 공급원이다")] = Field(
+                 Text("범주 코드 — 이 파일이 응답 enum 의 SSOT다")] = Field(
         description="저장값 — 척도는 정수, 범주는 코드 문자열")
     free_text: Bool = Field(False, description="고르면 자유 입력칸이 열린다 ('기타')")
 
@@ -205,7 +205,7 @@ def _code_enum(name: str, part: str, code: str, doc: str) -> type[enum.Enum]:
     """문항 선지(문자열 코드)로 enum 을 만든다. 선지를 바꾸면 이 enum 도 바뀐다."""
     values = [o.value for o in _question(part, code).options]
     e = enum.Enum(name, {v: v for v in values}, type=str, module=__name__)
-    e.__doc__ = f"{doc} — 단일 진실 공급원: survey_questions.json {part} {code} 선지"
+    e.__doc__ = f"{doc} — SSOT: survey_questions.json {part} {code} 선지"
     return e
 
 

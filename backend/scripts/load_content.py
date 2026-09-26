@@ -80,7 +80,7 @@ async def load(path: Path, reset: bool, force: bool = False):
 
         for item in data:
             genre = item.genre
-            tag = item.topic_tags[0].value           # 스키마 검사 완료(허용 목록 1개)
+            tag = item.topic_tags[0].value           # 스키마 검사 완료(allowlist 1개)
             key = (genre, tag)
             seq[key] = seq.get(key, 0) + 1
             gabbr = GENRE_ABBR[genre.value]

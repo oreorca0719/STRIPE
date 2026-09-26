@@ -163,6 +163,6 @@ def test_새로_dict로_주고받는_서비스_함수가_생기지_않는다():
     assert not new, f"dict·Any 로 주고받는 함수가 새로 생겼다. 스키마를 정의해 쓴다: {sorted(new)}"
 
 
-def test_정리된_곳은_허용_목록에서_지운다():
+def test_정리된_곳은_allowlist에서_지운다():
     gone = set(ALLOWED_UNTYPED) - _untyped_in_services()
     assert not gone, f"이미 정리됐다 — ALLOWED_UNTYPED 에서 지운다: {sorted(gone)}"

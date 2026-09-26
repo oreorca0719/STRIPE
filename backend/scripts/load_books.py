@@ -57,7 +57,7 @@ from app.schemas.content import SeedBooks                      # noqa: E402
 from app.core.database import AsyncSessionLocal, engine          # noqa: E402
 from app.models.core import Book, ReviewStatus                   # noqa: E402
 
-# 주제 태그는 지문과 같은 허용 목록(설문 C-1 선지)을 쓴다 — schemas/content.TopicTag.
+# 주제 태그는 지문과 같은 allowlist(설문 C-1 선지)을 쓴다 — schemas/content.TopicTag.
 # 예전에는 여기에 옛 태그 목록(대문자 10종, NATURE·SPACE 등 C-1 에 없는 것 포함)이
 # 따로 있어, 그대로 적재한 책은 학생 관심 주제와 한 번도 만나지 않았다.
 

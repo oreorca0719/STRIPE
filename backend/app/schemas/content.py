@@ -12,7 +12,7 @@
 조용히 None 으로 바꿨다. 이제 스키마에 맞지 않으면 적재 전에 전부 멈춘다.
 
 [주제 태그]
-단일 진실 공급원은 설문 C-1 선지(기타 제외)다. 지문·도서 파일은 이 소문자 코드만 쓴다.
+SSOT는 설문 C-1 선지(기타 제외)다. 지문·도서 파일은 이 소문자 코드만 쓴다.
 대문자(ANIMAL)나 C-1 에 없는 태그(NATURE)는 거부한다 — 학생 관심사와 절대
 만나지 않는 태그라 오류 없이 추천에서 빠진다(topic_tags.py 참조).
 """
@@ -39,7 +39,7 @@ def _topic_tag_enum() -> type[enum.Enum]:
     c1 = next(q for q in _survey().student if q.code == "C-1")
     values = [o.value for o in c1.options if o.value != _NOT_A_TAG]
     e = enum.Enum("TopicTag", {v: v for v in values}, type=str, module=__name__)
-    e.__doc__ = "지문·도서 주제 태그 — 단일 진실 공급원: survey_questions.json student C-1 선지(기타 제외)"
+    e.__doc__ = "지문·도서 주제 태그 — SSOT: survey_questions.json student C-1 선지(기타 제외)"
     return e
 
 

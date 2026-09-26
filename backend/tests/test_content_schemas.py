@@ -41,7 +41,7 @@ def _book(**kw):
     return b
 
 
-# ── 주제 태그 허용 목록 ───────────────────────────────────────────────────────
+# ── 주제 태그 allowlist ───────────────────────────────────────────────────────
 
 def test_주제_태그는_C1_선지에서_기타를_뺀_15종이다():
     assert len(TopicTag) == 15 and "other" not in {t.value for t in TopicTag}
@@ -54,7 +54,7 @@ def test_대문자_태그는_거부한다():
         SeedText.model_validate(_text(topic_tags=["FRIENDSHIP"]))
 
 
-def test_허용_목록_밖_태그는_거부한다():
+def test_allowlist_밖_태그는_거부한다():
     with pytest.raises(ValidationError):
         SeedText.model_validate(_text(topic_tags=["nature"]))
 
@@ -98,7 +98,7 @@ def test_모르는_글_구조는_거부한다():
 @pytest.mark.parametrize("path", sorted(glob.glob(str(GENERATED / "*.json"))),
                          ids=lambda p: pathlib.Path(p).name)
 def test_시드_파일은_주제_태그_외에는_스키마에_맞는다(path):
-    """허용 목록 밖 태그(nature·adventure·space·daily) 15편은 재태깅 대기다(기획 확인).
+    """allowlist 밖 태그(nature·adventure·space·daily) 15편은 재태깅 대기다(기획 확인).
     그 밖의 어긋남은 없어야 한다 — 태그가 풀리는 순간 바로 적재할 수 있게."""
     try:
         SeedTexts.validate_json(pathlib.Path(path).read_bytes())
@@ -109,7 +109,7 @@ def test_시드_파일은_주제_태그_외에는_스키마에_맞는다(path):
 
 # ── 도서 파일 ────────────────────────────────────────────────────────────
 
-def test_도서는_지문과_같은_태그_허용_목록을_쓴다():
+def test_도서는_지문과_같은_태그_allowlist를_쓴다():
     """예전 적재 스크립트는 옛 태그(대문자 10종)를 따로 갖고 있었다."""
     assert SeedBook.model_validate(_book()).topic_tags == [TopicTag("family")]
     with pytest.raises(ValidationError):
