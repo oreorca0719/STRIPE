@@ -21,6 +21,7 @@ on:
     paths:
       - .github/workflows/precheck-schema-first.yml
       - backend/scripts/precheck_schema_first.py
+      - backend/scripts/apply_schema_first_cleanup.py
 
 concurrency:
   group: precheck-schema-first
@@ -60,6 +61,7 @@ jobs:
           test -n "$PG_ID" || { echo "postgres 컨테이너를 찾지 못했다"; exit 1; }
           PG_IP=$($SSH "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $PG_ID")
           PG_PW=$($SSH "docker exec $PG_ID printenv POSTGRES_PASSWORD")
+          echo "PG_ID=$PG_ID" >> "$GITHUB_ENV"
           echo "::add-mask::$PG_IP"
           echo "::add-mask::$PG_PW"
 
@@ -67,6 +69,38 @@ jobs:
           PW_ENC=$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$PG_PW")
           echo "::add-mask::$PW_ENC"
           echo "DATABASE_URL=postgresql+asyncpg://stripe:${PW_ENC}@127.0.0.1:15432/stripe" >> "$GITHUB_ENV"
+
+      # ── PM 승인(2026-09-26): 진단 8개 테이블 비우기 + interest_topics 불량 3행 NULL(1안) ──
+      # 정리 스크립트는 걸리는 행이 id 9·10·14 와 정확히 같을 때만 움직인다. 이미 적용된
+      # 뒤 다시 돌면 걸리는 행이 없어 스스로 멈춘다(exit 4) — 그 경우는 실패로 보지 않는다.
+      - name: Back up production DB on EC2 (pg_dump, before cleanup)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -q -i $HOME/.ssh/ec2 -o BatchMode=yes $EC2_USER@$EC2_HOST"
+          $SSH "set -e; mkdir -p ~/backups; f=~/backups/stripe_before_schema_first_\$(date -u +%Y%m%dT%H%M%SZ).dump; \
+                docker exec $PG_ID pg_dump -U stripe -Fc stripe > \$f; \
+                n=\$(docker exec -i $PG_ID pg_restore -l < \$f | grep -c 'TABLE DATA'); \
+                echo \"backup: \$(basename \$f) \$(du -h \$f | cut -f1), TABLE DATA entries: \$n\"; \
+                test \$n -gt 10"
+
+      - name: Cleanup dry-run
+        working-directory: backend
+        run: |
+          set +e
+          python scripts/apply_schema_first_cleanup.py --expect-profile-ids 9,10,14
+          code=$?
+          case $code in 0|4) exit 0 ;; *) exit $code ;; esac
+
+      - name: Cleanup apply
+        working-directory: backend
+        run: |
+          set +e
+          python scripts/apply_schema_first_cleanup.py --expect-profile-ids 9,10,14 --confirm
+          code=$?
+          case $code in 0|4) exit 0 ;; *) exit $code ;; esac
 
       - name: Run precheck (read-only, redacted)
         working-directory: backend
