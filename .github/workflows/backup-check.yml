@@ -1,0 +1,65 @@
+# 백업 감시 — S3 최신 백업이 제때 쌓이고 있는가
+#
+# [왜 필요한가]
+# EC2 cron 이 매일 03:00 UTC 에 ops/backup_db.sh 로 S3 에 백업을 올린다. 실패하면
+# ~/backup.log 에 한 줄 남을 뿐 아무도 모른다. 버킷은 약 30일 뒤 오래된 백업을
+# 지우므로(추정 — 8/18 부터 돈 백업 중 8/26 이후만 남아 있다), 실패가 한 달 이어지면
+# 성한 백업이 하나도 남지 않는다.
+#
+# [하는 일]
+# EC2 에 SSH 로 들어가 S3 의 가장 최근 백업을 본다. EC2 의 인스턴스 프로파일로 읽는다
+# (Actions 에 AWS 키를 두지 않는다). 다음 중 하나라도 걸리면 job 이 실패하고
+# GitHub 이 저장소 소유자에게 메일을 보낸다.
+#   · 가장 최근 백업이 26시간보다 오래됨 (매일 1회 + 여유 2시간)
+#   · 가장 최근 백업이 20KB 미만 (빈 덤프 의심 — 정상은 약 90KB)
+#
+# [한계]
+# · 크기와 시각만 본다. 복원 가능 여부는 보지 않는다(복원 검증은 수동, ops/README.md).
+# · 예약 실행은 GitHub 이 늦추거나 건너뛸 수 있다(healthcheck.yml 실측 참조).
+name: 백업 감시
+
+on:
+  schedule:
+    # 백업(03:00 UTC) 한 시간 뒤. 정각을 피한다.
+    - cron: '7 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: backup-check
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Latest S3 backup is fresh and non-empty
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2 && chmod 600 ~/.ssh/ec2
+          ssh -q -i ~/.ssh/ec2 -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          B=stripe-db-backups-seoul-333347414948
+          MAX_AGE_H=26
+          MIN_BYTES=20000
+          LINE=$(aws s3 ls s3://$B/pg/ | sort | tail -1)
+          test -n "$LINE" || { echo "✗ S3 에 백업이 하나도 없다"; exit 1; }
+          read -r D T SIZE KEY <<< "$LINE"
+          AGE_H=$(( ( $(date -u +%s) - $(date -u -d "$D $T" +%s) ) / 3600 ))
+          echo "최근 백업: $KEY  ($SIZE bytes, ${AGE_H}시간 전)"
+          echo "백업 개수: $(aws s3 ls s3://$B/pg/ | wc -l)"
+          echo "backup.log 마지막 줄: $(tail -1 ~/backup.log 2>/dev/null || echo 없음)"
+          fail=0
+          [ "$AGE_H" -le "$MAX_AGE_H" ] || { echo "✗ 최근 백업이 ${MAX_AGE_H}시간보다 오래됐다"; fail=1; }
+          [ "$SIZE" -ge "$MIN_BYTES" ] || { echo "✗ 최근 백업이 ${MIN_BYTES} bytes 미만이다 — 빈 덤프 의심"; fail=1; }
+          exit $fail
+          REMOTE
+          rm -f ~/.ssh/ec2
