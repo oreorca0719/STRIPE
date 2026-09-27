@@ -272,9 +272,35 @@ const cid=(k)=>String(k).split('').map(c=>
   /[A-Za-z0-9]/.test(c) ? c : 'x'+c.charCodeAt(0).toString(36)).join('');
 const ekey=(e)=>e.src+'>'+e.dst;
 
+/* ── 인증 ──────────────────────────────────────────────────────
+   운영에서는 /api/admin/flow/ 로 열린다. 데이터 경로는 관리자만 — 관리자
+   화면에서 로그인할 때 저장된 토큰(localStorage 'token', 같은 출처)을 싣는다.
+   로컬 /_dev/flow/ 는 인증이 없어 토큰이 없어도 된다. */
+const TOKEN=(()=>{ try{ return localStorage.getItem('token'); }catch(_){ return null; } })();
+const AUTH=TOKEN?{Authorization:'Bearer '+TOKEN}:{};
+function authFail(status){
+  const msg = status===403 ? '관리자 계정만 볼 수 있습니다.'
+                           : '로그인이 필요합니다. 관리자 화면에서 로그인한 뒤 다시 여세요.';
+  document.body.innerHTML = `<div style="padding:48px;font:15px/1.6 system-ui,sans-serif">
+    <h2 style="margin:0 0 8px">흐름 대시보드</h2><p>${msg}</p>
+    <p><a href="/login">로그인 화면으로</a></p></div>`;
+  throw new Error('auth '+status);
+}
+async function api(path, opt={}){
+  const r=await fetch(path,{...opt,headers:{...AUTH,...(opt.headers||{})}});
+  if(r.status===401||r.status===403) authFail(r.status);
+  if(!r.ok) throw new Error(path+' '+r.status);
+  return r;
+}
+
 async function boot(){
-  REG=await (await fetch('registry')).json();
-  drawFeatures(); build(); drawEdgeTable(); connect();
+  REG=await (await api('registry')).json();
+  drawFeatures(); build(); drawEdgeTable();
+  if(REG.tracing===false){
+    $('live').textContent='실시간 기록 꺼짐 (파일럿 중)'; $('live').className='live';
+    return;
+  }
+  connect();
 }
 
 /* ── 상태 ─────────────────────────────────────────────────── */
@@ -588,14 +614,28 @@ function drawEvents(){
   }).join('');
 }
 function apply(d){ TRACES=d.traces||[]; drawTraces(); drawEvents(); applyState(); }
-function connect(){
-  const es=new EventSource('stream');
-  es.onopen=()=>{ $('live').textContent='실시간'; $('live').className='live on'; };
-  es.onmessage=(m)=>apply(JSON.parse(m.data));
-  es.onerror=()=>{ $('live').textContent='끊김 — 폴링'; $('live').className='live'; es.close();
-    setInterval(async()=>apply(await (await fetch('traces')).json()),2000); };
+/* EventSource 는 인증 헤더를 못 싣는다 — fetch 로 스트림을 읽어 "data: …\n\n" 을 나눈다. */
+async function connect(){
+  try{
+    const r=await api('stream');
+    $('live').textContent='실시간'; $('live').className='live on';
+    const rd=r.body.getReader(), dec=new TextDecoder(); let buf='';
+    for(;;){
+      const {value,done}=await rd.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\n\n'))>=0){
+        const chunk=buf.slice(0,i); buf=buf.slice(i+2);
+        if(chunk.startsWith('data: ')) apply(JSON.parse(chunk.slice(6)));
+      }
+    }
+    throw new Error('stream closed');
+  }catch(e){
+    if(String(e.message).startsWith('auth')) return;
+    $('live').textContent='끊김 — 폴링'; $('live').className='live';
+    setInterval(async()=>{ try{ apply(await (await api('traces')).json()); }catch(_){} },2000);
+  }
 }
-async function clearTraces(){ await fetch('traces',{method:'DELETE'}); selTrace=null; apply({traces:[]}); }
+async function clearTraces(){ await api('traces',{method:'DELETE'}); selTrace=null; apply({traces:[]}); }
 boot();
 </script>
 </body>

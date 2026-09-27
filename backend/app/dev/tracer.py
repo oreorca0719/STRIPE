@@ -69,10 +69,26 @@ _traces: Deque[Trace] = deque(maxlen=MAX_TRACES)
 _installed = False
 
 
+# ── 켜져 있는가 ──────────────────────────────────────────────────────────
+
+def enabled() -> bool:
+    """실시간 기록을 해도 되는가.
+
+    운영(ENV=prod)에서 파일럿 동의 강제(REQUIRE_PILOT_CONSENT)가 켜지면 — 실제
+    아동이 응시하기 시작하면 — 끈다. 값은 남기지 않지만 어느 학생이 어떤 경로를
+    탔는지가 메모리에 남고, 그것은 파일럿 수집 범위 밖이다. 모듈 지도는 계속 보인다.
+    """
+    if not settings.FLOW_TRACE:
+        return False
+    if settings.ENV == "prod" and settings.REQUIRE_PILOT_CONSENT:
+        return False
+    return True
+
+
 # ── 추적 단위 ────────────────────────────────────────────────────────────
 
 def start(label: str, session_id: Optional[int] = None) -> Optional[Trace]:
-    if not settings.FLOW_TRACE:
+    if not enabled():
         return None
     t = Trace(id=uuid.uuid4().hex[:12], label=label,
               started_at=time.time(), session_id=session_id)
@@ -175,7 +191,7 @@ def install() -> int:
     코드에서 뽑고 있으므로, 새 함수가 생기면 자동으로 포함된다.
     """
     global _installed
-    if not settings.FLOW_TRACE or _installed:
+    if not enabled() or _installed:
         return 0
 
     import importlib

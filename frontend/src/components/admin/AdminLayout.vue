@@ -51,6 +51,12 @@
           <span class="nav-icon">⚙️</span>
           <span>시스템 모니터링</span>
         </RouterLink>
+        <!-- 백엔드가 직접 주는 화면이라 RouterLink 가 아니다. 새 탭에서 열고,
+             로그인 토큰은 같은 출처의 localStorage 에서 읽는다(app/dev/flow_api.py). -->
+        <a href="/api/admin/flow/" target="_blank" rel="noopener" class="nav-item">
+          <span class="nav-icon">🔀</span>
+          <span>흐름 대시보드</span>
+        </a>
       </nav>
 
       <div class="sidebar-footer">

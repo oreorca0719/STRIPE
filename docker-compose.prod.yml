@@ -44,6 +44,9 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+      # 흐름 대시보드(/api/admin/flow/, 관리자 전용). 파일럿 동의 강제가 켜지면
+      # 실시간 기록은 자동으로 꺼진다 — backend/app/dev/flow_api.py
+      - FLOW_TRACE=true
     depends_on:
       postgres:
         condition: service_healthy

@@ -72,6 +72,15 @@ jobs:
           echo "HTTP $code"
           test "$code" = "401"
 
+      # 흐름 대시보드의 데이터는 관리자만 본다(app/dev/flow_api.py). 로그인 없이
+      # 200 이 나오면 어느 요청이 어떤 모듈을 탔는지가 외부에 열린 것이다.
+      # 401 = 켜져 있고 가드 정상. 404 = 꺼져 있음(FLOW_TRACE=false) — 그것도 안전.
+      - name: 흐름 대시보드 인증 가드 (200 이면 안 된다)
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$BASE/api/admin/flow/registry")
+          echo "HTTP $code"
+          test "$code" = "401" || test "$code" = "404"
+
       # 인증서는 조용히 만료된다. 만료 당일에 알면 늦다.
       - name: HTTPS 인증서 잔여 기간
         run: |
