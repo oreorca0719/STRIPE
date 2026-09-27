@@ -8,7 +8,7 @@ EC2 에만 있고 저장소에는 없던 설정을 적어 둔다. 서버를 다�
 | 인스턴스 | EC2 t3.small · 서울(ap-northeast-2) · Amazon Linux 2023 · EIP 54.180.21.185 |
 | 시간대 | UTC (cron 시각도 UTC) |
 | 앱 위치 | `~/stripe` (git checkout, `docker-compose.prod.yml`) |
-| IAM 인스턴스 프로파일 | `stripe-ec2-backup` — S3 백업 버킷 목록·업로드만. 버킷 설정은 읽지 못한다 |
+| IAM 인스턴스 프로파일 | `stripe-ec2-backup` — S3 백업 버킷 목록·업로드·내려받기(`pg/*`, 정책 `stripe-backup-read`). 버킷 설정은 읽지 못한다 |
 | 백업 버킷 | `stripe-db-backups-seoul-333347414948` 의 `pg/` |
 
 ---
@@ -50,7 +50,7 @@ EC2 에만 있고 저장소에는 없던 설정을 적어 둔다. 서버를 다�
 26시간보다 오래됐거나 20KB 미만이면 실패하고 GitHub 이 메일을 보낸다.
 
 ### 서버를 새로 만들 때
-1. 인스턴스에 IAM 프로파일 `stripe-ec2-backup` 연결
+1. 인스턴스에 IAM 프로파일 `stripe-ec2-backup` 연결 (업로드 + `stripe-backup-read` 내려받기 정책 포함)
 2. `cp ~/stripe/ops/backup_db.sh ~/backup_db.sh && chmod +x ~/backup_db.sh`
 3. `crontab -e` 로 위 cron 한 줄 추가
 4. `~/backup_db.sh` 를 한 번 손으로 돌려 `backup ok` 와 S3 객체를 확인
@@ -104,4 +104,9 @@ docker rm -f restore-check; rm -f /tmp/restore.sql.gz
 ## 복원 검증 기록
 | 날짜 | 대상 | 결과 |
 |---|---|---|
-| 2026-09-26 | (검증 후 기록) | |
+| 2026-09-27 | S3 `stripe_20260927T030002Z.sql.gz` (84K) → EC2 임시 컨테이너 | ✅ gzip 무결성 ok · psql 복원 ok · 리비전 022 · **22개 테이블 행 수가 운영과 전부 일치** (Actions run 36233599173, attempt 2) |
+| 2026-09-27 | EC2 `~/backups/stripe_before_schema_first_20260926T082744Z.dump` → 같은 컨테이너 | ✅ pg_restore ok · 진단 8개 테이블만 S3본과 다름(정리 전이므로 정상: 세션 9·회차 17·응답 90·판정/처방/리포트 각 7) |
+
+첫 시도(09-26)는 EC2 role 에 `s3:GetObject` 가 없어 내려받기에서 403 으로 막혔다. 즉 그때까지는
+**서버에서 백업을 받아 복구할 수 없는 상태**였다. 09-27 IAM 정책 `stripe-backup-read`
+(`s3:GetObject` on `.../pg/*`)를 추가해 해결.
