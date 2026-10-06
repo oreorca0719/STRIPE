@@ -1,0 +1,63 @@
+# 기존 지문 48편 AI 2차 검수 (1회용)
+#
+# 남은 Claude API 잔액으로 승인 지문의 문항을 다시 풀려 정답 오류·복수 정답·영역 분류를
+# 점검한다(2026-10-06, 예산 종료). 같은 지문을 3번 검수해 모델 판단이 흔들리는 문항을 거른다.
+# 키는 운영 서버 .env 의 것. DB 는 건드리지 않는다. 결과는 artifact. 사용 후 삭제.
+name: 지문 AI 2차 검수 (1회용)
+
+on:
+  push:
+    branches: [schema-first-a28igl]
+    paths:
+      - .github/workflows/review-items.yml
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SSH 준비
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2 && chmod 600 ~/.ssh/ec2
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 검수 (잔액 소진 시 자동 종료)
+        run: |
+          scp -i ~/.ssh/ec2 -o BatchMode=yes backend/scripts/review_items.py "$EC2_USER@$EC2_HOST:/tmp/review_items_once.py"
+          scp -i ~/.ssh/ec2 -o BatchMode=yes backend/scripts/generated/seed_all.json "$EC2_USER@$EC2_HOST:/tmp/review_seed.json"
+          ssh -i ~/.ssh/ec2 -o BatchMode=yes -o ServerAliveInterval=30 "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/stripe
+          C=$(docker compose -f docker-compose.prod.yml ps -q backend)
+          docker exec "$C" mkdir -p /app/scripts
+          docker cp /tmp/review_items_once.py "$C:/app/scripts/review_items_once.py"
+          docker cp /tmp/review_seed.json "$C:/tmp/review_seed.json"
+          docker exec -e PYTHONUNBUFFERED=1 "$C" python scripts/review_items_once.py \
+            --file /tmp/review_seed.json --passes 3 --out /tmp/review.json || true
+          docker cp "$C:/tmp/review.json" /tmp/review.json
+          REMOTE
+
+      - name: 결과 회수
+        if: always()
+        run: |
+          scp -i ~/.ssh/ec2 -o BatchMode=yes "$EC2_USER@$EC2_HOST:/tmp/review.json" review.json || true
+          ssh -i ~/.ssh/ec2 -o BatchMode=yes "$EC2_USER@$EC2_HOST" \
+            'cd ~/stripe && C=$(docker compose -f docker-compose.prod.yml ps -q backend); docker exec "$C" rm -f /app/scripts/review_items_once.py /tmp/review_seed.json; rm -f /tmp/review_items_once.py /tmp/review_seed.json' || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: review-items
+          path: review.json
+          if-no-files-found: warn
+          retention-days: 7
