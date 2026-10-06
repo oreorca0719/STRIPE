@@ -67,7 +67,8 @@ jobs:
           BEFORE=$(q "select count(*) from texts where text_review_status='approved'")
           echo "적재 전 승인 지문: $BEFORE / 전체: $(q 'select count(*) from texts')"
 
-          docker exec "$C" python scripts/rebalance_once.py --file /tmp/gen_content.json --write
+          # 정답 위치 재배치는 하지 않는다 — 생성본이 이미 기준 안이다(최다 번호 31.5% < 40%,
+          # 전부 같은 번호인 지문 0편. 직전 실행 로그). 적재 스크립트의 품질 리포트로 다시 확인한다.
           docker exec "$C" python scripts/load_content_once.py --file /tmp/gen_content.json --status draft
 
           AFTER=$(q "select count(*) from texts where text_review_status='approved'")
@@ -75,7 +76,6 @@ jobs:
           q "select text_review_status, grade_group, genre, difficulty_level, count(*) from texts group by 1,2,3,4 order by 1,2,3,4"
           test "$BEFORE" = "$AFTER"
 
-          docker cp "$C:/tmp/gen_content.json" /tmp/gen_content.json
           echo REMOTE_DONE
           REMOTE
 
@@ -87,5 +87,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/scripts/generated/draft_20261006.json backend/scripts/generated/review_20261006.json
-          git commit -m "content: draft 적재본으로 갱신 (정답 위치 재배치 후)" || echo "변경 없음"
+          git commit -m "content: draft 적재본 보관" || echo "변경 없음"
           git push origin HEAD:schema-first-a28igl
