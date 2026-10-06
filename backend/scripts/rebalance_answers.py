@@ -42,8 +42,11 @@ except Exception:
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from dotenv import load_dotenv                                  # noqa: E402
-load_dotenv(BACKEND_DIR / ".env")
+try:  # 로컬은 .env, 운영 컨테이너는 환경변수
+    from dotenv import load_dotenv                              # noqa: E402
+    load_dotenv(BACKEND_DIR / ".env")
+except ImportError:
+    pass
 
 SEED = 20260726          # 고정. 바꾸면 배치가 달라져 재현이 깨진다
 N_CHOICES = 4
