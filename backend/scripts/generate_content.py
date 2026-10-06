@@ -22,17 +22,20 @@ try:
 except Exception:
     pass
 
-from dotenv import load_dotenv
-
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BACKEND_DIR / ".env")
+try:  # 로컬은 .env, 운영 컨테이너는 환경변수로 키를 받는다
+    from dotenv import load_dotenv
+    load_dotenv(BACKEND_DIR / ".env")
+except ImportError:
+    pass
 sys.path.insert(0, str(BACKEND_DIR))
 
 from anthropic import Anthropic  # noqa: E402
 from app.schemas.content import SeedText  # noqa: E402
 
 # 생성 모델 (품질 우선). 실패 시 폴백.
-MODEL_CANDIDATES = ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
+# 모델 ID 가 틀리면 첫 후보가 조용히 실패하고 다음 후보로 떨어진다 — 시작 로그의 [모델] 을 확인할 것.
+MODEL_CANDIDATES = ["claude-sonnet-5-5", "claude-haiku-4-5-20251001"]
 
 GENRES = ["narrative", "expository"]
 DIFFICULTIES = ["easy", "normal", "hard"]
@@ -215,8 +218,8 @@ def generate_one(client: Anthropic, model: str, genre: str, difficulty: str, top
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--per-combo", type=int, default=1, help="조합(장르×난도)당 지문 수")
-    ap.add_argument("--grade-group", default="G4_G6", choices=sorted(GRADE_SPECS),
-                    help="대상 학년군")
+    ap.add_argument("--grade-group", default="G4_G6", choices=sorted(GRADE_SPECS) + ["all"],
+                    help="대상 학년군 (all = 학년군을 번갈아 생성)")
     ap.add_argument("--topic-offset", type=int, default=0,
                     help="주제 태그 시작 인덱스. 기존 지문과 같은 주제가 반복되지 않도록 이월분 생성 시 지정")
     ap.add_argument("--out", default=str(BACKEND_DIR / "scripts" / "generated" / "seed_content.json"))
@@ -242,37 +245,57 @@ def main():
         sys.exit(1)
     print(f"[모델] {model}")
 
-    print(f"[학년군] {args.grade_group} ({GRADE_SPECS[args.grade_group]['audience_ko']})")
-
-    items = []
-    combos = [(g, d) for g in GENRES for d in DIFFICULTIES]
-    for gi, (genre, difficulty) in enumerate(combos):
-        tags = TOPIC_TAGS[genre]
-        for n in range(args.per_combo):
-            topic = tags[(n + args.topic_offset) % len(tags)]
-            label = f"{args.grade_group}/{genre}/{difficulty}/{topic}#{n+1}"
-            for attempt in range(3):
-                try:
-                    item = generate_one(client, model, genre, difficulty, topic,
-                                        args.grade_group)
-                    errs = validate_item(item)
-                    if errs:
-                        print(f"  [검증실패] {label} (시도{attempt+1}): {errs[:3]}")
-                        continue
-                    items.append(item)
-                    print(f"  [OK] {label} — {item['syllable_count']}음절, 문항6")
-                    break
-                except json.JSONDecodeError as e:
-                    print(f"  [JSON오류] {label} (시도{attempt+1}): {str(e)[:80]}")
-                except Exception as e:
-                    print(f"  [API오류] {label} (시도{attempt+1}): {type(e).__name__}: {str(e)[:100]}")
-                    time.sleep(2)
-            else:
-                print(f"  [포기] {label} — 3회 실패")
+    groups = sorted(GRADE_SPECS) if args.grade_group == "all" else [args.grade_group]
+    print(f"[학년군] {', '.join(groups)}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def save():
+        # 한 편마다 저장한다. 잔액 소진·중단 시 그때까지 쓴 비용의 결과물을 잃지 않게.
+        out.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 칸을 하나씩 채우지 않고 한 바퀴씩 돈다(학년군 × 장르 × 난도). 중간에 멈춰도
+    # 결과가 특정 칸에 몰리지 않는다.
+    items = []
+    combos = [(g, d) for g in GENRES for d in DIFFICULTIES]
+    stop = False
+    for n in range(args.per_combo):
+        for grade_group in groups:
+            for genre, difficulty in combos:
+                topic = TOPIC_TAGS[genre][(n + args.topic_offset) % len(TOPIC_TAGS[genre])]
+                label = f"{grade_group}/{genre}/{difficulty}/{topic}#{n+1}"
+                for attempt in range(3):
+                    try:
+                        item = generate_one(client, model, genre, difficulty, topic, grade_group)
+                        errs = validate_item(item)
+                        if errs:
+                            print(f"  [검증실패] {label} (시도{attempt+1}): {errs[:3]}")
+                            continue
+                        items.append(item)
+                        save()
+                        print(f"  [OK] {label} — {item['syllable_count']}음절, 문항6", flush=True)
+                        break
+                    except json.JSONDecodeError as e:
+                        print(f"  [JSON오류] {label} (시도{attempt+1}): {str(e)[:80]}")
+                    except Exception as e:
+                        msg = str(e)
+                        print(f"  [API오류] {label} (시도{attempt+1}): {type(e).__name__}: {msg[:100]}")
+                        if "credit balance" in msg.lower():
+                            stop = True     # 잔액 소진 — 재시도해도 소용없다
+                            break
+                        time.sleep(2)
+                else:
+                    print(f"  [포기] {label} — 3회 실패")
+                if stop:
+                    break
+            if stop:
+                break
+        if stop:
+            print("[중단] API 잔액 소진")
+            break
+
+    save()
     print(f"\n생성 완료: {len(items)}편 → {out}")
 
 
