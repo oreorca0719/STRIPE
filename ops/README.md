@@ -92,6 +92,9 @@ docker rm -f restore-check; rm -f /tmp/restore.sql.gz
 `~/backups/stripe_before_schema_first_20260926T082744Z.dump` — schema-first 정리 직전(08:27 UTC)
 전체 덤프(pg_dump -Fc). EC2 디스크에만 있다. 같은 날 03:00 S3 백업과 내용이 겹친다.
 
+`~/backups/stripe_before_draft_load_20261006T*.dump` — 생성 지문 18편 draft 적재 직전(13:52~13:55 UTC)
+전체 덤프. 적재 workflow 를 세 번 돌려 세 개가 있다(앞 두 번은 적재 전에 멈춰 DB 변경 없음). 마지막 것이 적재 직전 상태.
+
 ---
 
 ## 3. 감시
